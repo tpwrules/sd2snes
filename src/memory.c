@@ -53,6 +53,7 @@ memory.c: RAM operations
 char* hex = "0123456789ABCDEF";
 
 extern snes_romprops_t romprops;
+extern unsigned int usb_filesize;
 extern uint32_t saveram_crc_old;
 extern cfg_t CFG;
 extern status_t ST;
@@ -238,7 +239,7 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
     return 0;
   }
   filesize = file_handle.fsize;
-  smc_id(&romprops);
+  smc_id(&romprops, flags);
   file_close();
 
   if(filename == (uint8_t*)"/sd2snes/menu.bin") {

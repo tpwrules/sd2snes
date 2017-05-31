@@ -29,6 +29,12 @@
 #include "sysinfo.h"
 #include "cfg.h"
 
+//usb
+#include "usb.h"
+#include "usbhw.h"
+#include "cdcuser.h"
+
+
 #define EMC0TOGGLE        (3<<4)
 #define MR0R              (1<<1)
 
@@ -90,6 +96,12 @@ int main(void) {
   LPC_PINCON->PINSEL0 |= BV(20) | BV(21);                  /* MAT3.0 (FPGA clock) */
   led_std();
   sdn_init();
+  
+  //usb
+  USB_Init ();
+  CDC_Init (0x00);
+  USB_Connect (0x01);
+  
   printf("\n\nsd2snes mk.2\n============\nfw ver.: " CONFIG_VERSION "\ncpu clock: %d Hz\n", CONFIG_CPU_FREQUENCY);
 printf("PCONP=%lx\n", LPC_SC->PCONP);
 

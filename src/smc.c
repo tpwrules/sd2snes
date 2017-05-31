@@ -33,8 +33,10 @@
 #include "snes.h"
 #include "fpga.h"
 #include "cfg.h"
+#include "memory.h"
 
 extern cfg_t CFG;
+extern unsigned int usb_filesize;
 snes_romprops_t romprops;
 
 uint32_t hdr_addr[6] = {0xffb0, 0x101b0, 0x7fb0, 0x81b0, 0x40ffb0, 0x4101b0};
@@ -59,7 +61,7 @@ uint8_t checkChksum(uint16_t cchk, uint16_t chk) {
   return res;
 }
 
-void smc_id(snes_romprops_t* props) {
+void smc_id(snes_romprops_t* props, uint8_t flags) {
   uint8_t score, maxscore=1, score_idx=2; /* assume LoROM */
   uint8_t ext_coprocessor=0;
   snes_header_t* header = &(props->header);
@@ -72,7 +74,7 @@ void smc_id(snes_romprops_t* props) {
   props->fpga_features = 0;
   props->fpga_conf = NULL;
   for(uint8_t num = 0; num < 6; num++) {
-    score = smc_headerscore(hdr_addr[num], header);
+    score = smc_headerscore(hdr_addr[num], header, flags);
     printf("%d: offset = %lX; score = %d\n", num, hdr_addr[num], score); // */
     if(score>=maxscore) {
       score_idx=num;
@@ -86,7 +88,10 @@ void smc_id(snes_romprops_t* props) {
   }
 
   /* restore the chosen one */
-  file_readblock(header, hdr_addr[score_idx], sizeof(snes_header_t));
+  if(flags & LOADROM_WITH_RAM) 
+    sram_readblock(header, hdr_addr[score_idx], sizeof(snes_header_t));
+  else
+    file_readblock(header, hdr_addr[score_idx], sizeof(snes_header_t));
 
   if(header->name[0x13] == 0x00 || header->name[0x13] == 0xff) {
     if(header->name[0x14] == 0x00) {
@@ -202,7 +207,8 @@ void smc_id(snes_romprops_t* props) {
 
     case 0x22: /* ExLoROM */
       /* Star Ocean 96MBit */
-      if(file_handle.fsize > 0x600200) {
+
+      if(file_handle.fsize > 0x600200 || usb_filesize > 0x600200 ) {
         props->mapper_id = 6;
       }
       /* S-DD1 */
@@ -245,9 +251,9 @@ void smc_id(snes_romprops_t* props) {
           break;
         case 2:
         case 3:
-          if(file_handle.fsize > 0x800200) {
+          if(file_handle.fsize > 0x800200 || usb_filesize > 0x800200) {
             props->mapper_id = 6; /* SO96 interleaved */
-          } else if(file_handle.fsize > 0x400200) {
+          } else if(file_handle.fsize > 0x400200  || usb_filesize > 0x400200) {
             props->mapper_id = 1; /* ExLoROM */
           } else {
             props->mapper_id = 1; /* LoROM */
@@ -264,11 +270,19 @@ void smc_id(snes_romprops_t* props) {
   if(header->romsize == 0 || header->romsize > 13) {
     props->romsize_bytes = 1024;
     header->romsize = 0;
-    if(file_handle.fsize >= 1024) {
-      while(props->romsize_bytes < file_handle.fsize-1) {
-        header->romsize++;
-        props->romsize_bytes <<= 1;
-      }
+    if(file_handle.fsize >= 1024 || usb_filesize >= 1024) {
+		
+		unsigned long chk_size;
+		if(flags & LOADROM_WITH_RAM)
+			chk_size=usb_filesize-1;
+		else
+			chk_size=file_handle.fsize-1;
+			
+		while(props->romsize_bytes < chk_size) {
+			header->romsize++;
+			props->romsize_bytes <<= 1;
+		}
+
     }
   }
   props->ramsize_bytes = (uint32_t)1024 << header->ramsize;
@@ -296,7 +310,7 @@ void smc_id(snes_romprops_t* props) {
   props->header_address = hdr_addr[score_idx] - props->offset;
 }
 
-uint8_t smc_headerscore(uint32_t addr, snes_header_t* header) {
+uint8_t smc_headerscore(uint32_t addr, snes_header_t* header, uint8_t flags) {
   int score=0;
   uint8_t reset_inst;
   uint16_t header_offset;
@@ -305,10 +319,18 @@ uint8_t smc_headerscore(uint32_t addr, snes_header_t* header) {
   } else {
     header_offset = 0;
   }
-  if((file_readblock(header, addr, sizeof(snes_header_t)) < sizeof(snes_header_t))
-     || file_res) {
-    return 0;
-  }
+  
+    if(flags & LOADROM_WITH_RAM) {
+	   sram_readblock(header, addr, sizeof(snes_header_t));
+	   if(header->romsize==0x00)
+	   return 0;
+	}
+	else{
+		  if((file_readblock(header, addr, sizeof(snes_header_t)) < sizeof(snes_header_t))
+			 || file_res) {
+			return 0;
+		  }
+	}
   uint8_t mapper = header->map & ~0x10;
   uint8_t bsxmapper = header->ramsize & ~0x10;
 
@@ -338,7 +360,12 @@ uint8_t smc_headerscore(uint32_t addr, snes_header_t* header) {
   if((addr-header_offset) == 0x007fb0 && mapper == 0x22) score += 2;
   if((addr-header_offset) == 0x40ffb0 && mapper == 0x25) score += 2;
 
-  file_readblock(&reset_inst, file_addr, 1);
+
+	if(flags & LOADROM_WITH_RAM) 
+		sram_readblock(&reset_inst, file_addr, 1);
+	else
+		file_readblock(&reset_inst, file_addr, 1);
+
   switch(reset_inst) {
     case 0x78: /* sei */
     case 0x18: /* clc */
