@@ -283,25 +283,25 @@ uint32_t CDC_SendBreak (unsigned short wDurationOfBreak) {
 //saturnu
 void CDC_block_conf (void) {
 
-    cdc_bulkIN_count    = 0;
-    cdc_bulkIN_ptr      = NULL;
-    cdc_bulkIN_occupied = 0;
-    cdc_bulkIN_ZLP      = 0;
+  cdc_bulkIN_count    = 0;
+  cdc_bulkIN_ptr      = NULL;
+  cdc_bulkIN_occupied = 0;
+  cdc_bulkIN_ZLP      = 0;
 
 }
 
 
 char Endpoint_IsINReady(void) {
-uint8_t SelEP_Data;
+  uint8_t SelEP_Data;
 
-	WrCmd(CMD_SEL_EP(2));
-	SelEP_Data = RdCmdDat(DAT_SEL_EP(2));
+  WrCmd(CMD_SEL_EP(2));
+  SelEP_Data = RdCmdDat(DAT_SEL_EP(2));
  			
-	if ((SelEP_Data & 1) == 0) {
-		return 1;
-	}
+  if ((SelEP_Data & 1) == 0) {
+    return 1;
+  }
 
-return 0;
+  return 0;
 }
 
 //sautrnu
@@ -314,18 +314,18 @@ uint32_t CDC_block_send( uint8_t *buffer, uint32_t send_size )
     cdc_bulkIN_count = send_size;
     cdc_bulkIN_ZLP   = 0;
     //LPC_USB->USBDevIntSet = EPAdr( CDC_DEP_IN );   // trigger interrupt manually not working
-   //  LPC_USB->USBDevIntSet = 1 << (EPAdr( CDC_DEP_IN ) + 1);   // invoke endpoint interrupt RxENDPKT not working
+    //  LPC_USB->USBDevIntSet = 1 << (EPAdr( CDC_DEP_IN ) + 1);   // invoke endpoint interrupt RxENDPKT not working
    
-   //instead of triggering an int call it manually;
-	//	NVIC_DisableIRQ(USB_IRQn);  
+    //instead of triggering an int call it manually;
+    //	NVIC_DisableIRQ(USB_IRQn);  
 		
-		while ( !Endpoint_IsINReady() ) {	/*-- Wait until ready --*/
-			delay_ms(1);
-		}
+    while ( !Endpoint_IsINReady() ) {	/*-- Wait until ready --*/
+      delay_ms(1);
+    }
 		
-		CDC_BulkIn();
-	//	delay_ms(1);
-	//	NVIC_EnableIRQ(USB_IRQn);  
+    CDC_BulkIn();
+    //	delay_ms(1);
+    //	NVIC_EnableIRQ(USB_IRQn);  
     return 1;
   }
   return -1;
@@ -338,22 +338,22 @@ uint32_t CDC_block_send( uint8_t *buffer, uint32_t send_size )
   CDC_BulkIn call on DataIn Request
   Parameters:   none
   Return Value: none
- *---------------------------------------------------------------------------*/
+  *---------------------------------------------------------------------------*/
  
  
- void CDC_BulkIn(void) {
+void CDC_BulkIn(void) {
   int numBytesSend;
-	//    printf("called CDC_BulkIn\n");                                                     // split into packets
+  //    printf("called CDC_BulkIn\n");                                                     // split into packets
 	
-	//if less actual rest of bytes else full buffer size
+  //if less actual rest of bytes else full buffer size
   numBytesSend = (cdc_bulkIN_count < USB_CDC_BUFSIZE) ? cdc_bulkIN_count : USB_CDC_BUFSIZE;
 
-	//if there are still bytes to send __OR__ (if there are non bytes to send __AND__ the ZLP is still missing)
+  //if there are still bytes to send __OR__ (if there are non bytes to send __AND__ the ZLP is still missing)
   if ( numBytesSend || ((numBytesSend == 0) && cdc_bulkIN_ZLP) ) {
 	  
     USB_WriteEP (CDC_DEP_IN, (uint8_t*)cdc_bulkIN_ptr, numBytesSend);  // send over USB
 	
-	//USB_ClearEPBuf(CDC_DEP_IN);
+    //USB_ClearEPBuf(CDC_DEP_IN);
     
     cdc_bulkIN_count -= numBytesSend;           
     cdc_bulkIN_ptr   += numBytesSend;
@@ -364,39 +364,39 @@ uint32_t CDC_block_send( uint8_t *buffer, uint32_t send_size )
 }
  
 
- /*
-void CDC_BulkIn(void) {
+/*
+  void CDC_BulkIn(void) {
   int numBytesRead;
 
-// TODO read print buffer
- 	//uart_putc('Y');
-	//call usb_fkt get data read endpoint
+  // TODO read print buffer
+  //uart_putc('Y');
+  //call usb_fkt get data read endpoint
 	
-	NVIC_DisableIRQ(USB_IRQn); 
-	numBytesRead = read_usbbuffer(&BulkBufIn[0]);
-//  numBytesRead = ser_Read ((char *)&BulkBufIn[0], &numBytesAvail);
+  NVIC_DisableIRQ(USB_IRQn); 
+  numBytesRead = read_usbbuffer(&BulkBufIn[0]);
+  //  numBytesRead = ser_Read ((char *)&BulkBufIn[0], &numBytesAvail);
 
   // send over USB
   
   if (numBytesRead > 0) {
 	  
-	  //evtl. use better solution from here
-	  //http://www.lpcware.com/content/forum/usb-cdc-maximum-bandwidth
+  //evtl. use better solution from here
+  //http://www.lpcware.com/content/forum/usb-cdc-maximum-bandwidth
      
 	
 	
-	USB_WriteEP (CDC_DEP_IN, &BulkBufIn[0], numBytesRead);
+  USB_WriteEP (CDC_DEP_IN, &BulkBufIn[0], numBytesRead);
 	
 	
   }
   else {
-    CDC_DepInEmpty = 1;
+  CDC_DepInEmpty = 1;
   }
   NVIC_EnableIRQ(USB_IRQn); 
   
   
   return;
-}
+  }
 */
 
 /*----------------------------------------------------------------------------

@@ -32,6 +32,7 @@
 #define USB_LOCK	        	   (0x02)
 #define USB_SEND_RAM 			   (0x04)
 #define USB_SEND_ROM 			   (0x08)
+#define USB_SEND_DIR 			   (0x10)
 
 #define SNES_CMD_LOADROM           (0x01)
 #define SNES_CMD_SETRTC            (0x02)

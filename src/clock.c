@@ -47,15 +47,18 @@ void clock_init() {
   enableMainOsc();
   setClkSrc(CLKSRC_MAINOSC);
   setPLL0MultPrediv(CONFIG_CLK_MULT, CONFIG_CLK_PREDIV);
+  //setPLL0MultPrediv(22, 1);
   enablePLL0();
   setCCLKDiv(CONFIG_CLK_CCLKDIV);
+  //setCCLKDiv(6);
   connectPLL0();
 
 
 /* configure PLL1 for USB operation */
   disconnectPLL1();
   disablePLL1();
-  LPC_SC->PLL1CFG = 0xB;
+  setPLL1MultPrediv(36, 1);
+  //LPC_SC->PLL1CFG = 0x23;//0xB;
   enablePLL1();
   connectPLL1();
 

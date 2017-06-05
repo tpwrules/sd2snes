@@ -187,9 +187,6 @@ uint8_t get_snes_reset_state(void) {
 uint32_t diffcount = 0, samecount = 0, didnotsave = 0, save_failed = 0, last_save_failed = 0;
 uint8_t sram_valid = 0;
 uint8_t snes_main_loop() {
-  //usb upload/boot/lock  
-  usb_handler();
-
   if(romprops.ramsize_bytes) {
     saveram_crc = calc_sram_crc(SRAM_SAVE_ADDR, romprops.ramsize_bytes);
     sram_valid = sram_reliable();
@@ -231,9 +228,6 @@ uint8_t snes_main_loop() {
     printf("crc=%lx crc_valid=%d sram_valid=%d diffcount=%ld samecount=%ld, didnotsave=%ld\n", saveram_crc, crc_valid, sram_valid, diffcount, samecount, didnotsave);
   }
 
-  //usb upload/boot/lock  
-  usb_handler();
-
   return snes_get_mcu_cmd();
 }
 
@@ -245,9 +239,6 @@ uint8_t menu_main_loop() {
   uint8_t cmd = 0;
   snes_set_mcu_cmd(0);
   while(!cmd) {
-    //usb upload/boot/lock
-    usb_handler();
-
     if(!get_snes_reset()) {
       while(!sram_reliable())printf("hurr\n");
       cmd = snes_get_mcu_cmd();
@@ -257,10 +248,9 @@ uint8_t menu_main_loop() {
     }
     sleep_ms(20);
     cli_entrycheck();
+    //usb upload/boot/lock
+    usb_handler();
   }
-
-  //usb upload/boot/lock
-  usb_handler();
 
   return cmd;
 }

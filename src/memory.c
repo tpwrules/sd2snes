@@ -231,16 +231,23 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   UINT count=0;
   tick_t ticksstart, ticks_total=0;
   ticksstart=getticks();
-  printf("%s\n", filename);
-  file_open(filename, FA_READ);
-  if(file_res) {
-    uart_putc('?');
-    uart_putc(0x30+file_res);
-    return 0;
+
+  if (!(flags & LOADROM_WITH_RAM)) {
+    printf("%s\n", filename);
+    file_open(filename, FA_READ);
+    if(file_res) {
+      uart_putc('?');
+      uart_putc(0x30+file_res);
+      return 0;
+    }
+    filesize = file_handle.fsize;
+    smc_id(&romprops, flags);
+    file_close();
   }
-  filesize = file_handle.fsize;
-  smc_id(&romprops, flags);
-  file_close();
+  else {
+    filesize = usb_filesize;
+    smc_id(&romprops, flags);
+  }
 
   if(filename == (uint8_t*)"/sd2snes/menu.bin") {
     fpga_set_features(romprops.fpga_features | FEAT_CMD_UNLOCK);
@@ -258,20 +265,26 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   }
   if(flags & LOADROM_WAIT_SNES) snes_set_snes_cmd(0x77);
   set_mcu_addr(base_addr + romprops.load_address);
-  file_open(filename, FA_READ);
-  ff_sd_offload=1;
-  sd_offload_tgt=0;
-  f_lseek(&file_handle, romprops.offset);
-  for(;;) {
+
+  if (!(flags & LOADROM_WITH_RAM)) {
+    file_open(filename, FA_READ);
     ff_sd_offload=1;
     sd_offload_tgt=0;
-    bytes_read = file_read();
-    if (file_res || !bytes_read) break;
-    if(!(count++ % 512)) {
-      uart_putc('.');
+    f_lseek(&file_handle, romprops.offset);
+    for(;;) {
+      ff_sd_offload=1;
+      sd_offload_tgt=0;
+      bytes_read = file_read();
+      if (file_res || !bytes_read) break;
+      if(!(count++ % 512)) {
+        uart_putc('.');
+      }
     }
+    file_close();
   }
-  file_close();
+  else {
+  }
+  
   printf("rom header map: %02x; mapper id: %d\n", romprops.header.map, romprops.mapper_id);
   ticks_total=getticks()-ticksstart;
   printf("%u ticks total\n", ticks_total);
@@ -329,7 +342,7 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   set_rom_mask(rommask);
   readled(0);
 
-  if(flags & LOADROM_WITH_SRAM) {
+  if((flags & LOADROM_WITH_SRAM) && !(flags & LOADROM_WITH_RAM)) {
     if(romprops.ramsize_bytes) {
       sram_memset(SRAM_SAVE_ADDR, romprops.ramsize_bytes, 0xFF);
       migrate_and_load_srm(filename, SRAM_SAVE_ADDR);

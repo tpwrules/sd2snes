@@ -67,6 +67,8 @@ printf("path=%s tgt=%06lx mask=%02x\n", path, tgt_addr, typemask);
   scan_dir(path, tgt_addr, typemask);
 }
 
+void usb_handler(void);
+
 int main(void) {
   LPC_GPIO2->FIODIR = BV(4) | BV(5);
   LPC_GPIO1->FIODIR = BV(23) | BV(SNES_CIC_PAIR_BIT);
@@ -91,6 +93,9 @@ int main(void) {
   fpga_spi_init();
   spi_preinit();
   led_init();
+  // USB initialization
+  USB_Init ();
+  CDC_Init (0x00);
  /* do this last because the peripheral init()s change PCLK dividers */
   clock_init();
   LPC_PINCON->PINSEL0 |= BV(20) | BV(21);                  /* MAT3.0 (FPGA clock) */
@@ -98,8 +103,6 @@ int main(void) {
   sdn_init();
   
   //usb
-  USB_Init ();
-  CDC_Init (0x00);
   USB_Connect (0x01);
   
   printf("\n\nsd2snes mk.2\n============\nfw ver.: " CONFIG_VERSION "\ncpu clock: %d Hz\n", CONFIG_CPU_FREQUENCY);
@@ -328,6 +331,9 @@ printf("PCONP=%lx\n", LPC_SC->PCONP);
 // uint8_t snes_res;
     while(fpga_test() == FPGA_TEST_TOKEN) {
       cli_entrycheck();
+      //usb upload/boot/lock  
+      usb_handler();
+
 //        sleep_ms(250);
       sram_reliable();
       if(reset_changed) {

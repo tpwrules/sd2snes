@@ -208,7 +208,7 @@ void smc_id(snes_romprops_t* props, uint8_t flags) {
     case 0x22: /* ExLoROM */
       /* Star Ocean 96MBit */
 
-      if(file_handle.fsize > 0x600200 || usb_filesize > 0x600200 ) {
+      if(!(flags & LOADROM_WITH_RAM) ? (file_handle.fsize > 0x600200) : (usb_filesize > 0x600200)) {
         props->mapper_id = 6;
       }
       /* S-DD1 */
@@ -251,9 +251,9 @@ void smc_id(snes_romprops_t* props, uint8_t flags) {
           break;
         case 2:
         case 3:
-          if(file_handle.fsize > 0x800200 || usb_filesize > 0x800200) {
+          if(!(flags & LOADROM_WITH_RAM) ? (file_handle.fsize > 0x800200) : (usb_filesize > 0x800200)) {
             props->mapper_id = 6; /* SO96 interleaved */
-          } else if(file_handle.fsize > 0x400200  || usb_filesize > 0x400200) {
+          } else if(!(flags & LOADROM_WITH_RAM) ? (file_handle.fsize > 0x400200) : (usb_filesize > 0x400200)) {
             props->mapper_id = 1; /* ExLoROM */
           } else {
             props->mapper_id = 1; /* LoROM */
@@ -270,19 +270,17 @@ void smc_id(snes_romprops_t* props, uint8_t flags) {
   if(header->romsize == 0 || header->romsize > 13) {
     props->romsize_bytes = 1024;
     header->romsize = 0;
-    if(file_handle.fsize >= 1024 || usb_filesize >= 1024) {
-		
-		unsigned long chk_size;
-		if(flags & LOADROM_WITH_RAM)
-			chk_size=usb_filesize-1;
-		else
-			chk_size=file_handle.fsize-1;
-			
-		while(props->romsize_bytes < chk_size) {
-			header->romsize++;
-			props->romsize_bytes <<= 1;
-		}
-
+    if(!(flags & LOADROM_WITH_RAM) ? (file_handle.fsize >= 1024) : (usb_filesize >= 1024)) {
+      unsigned long chk_size;
+      if(flags & LOADROM_WITH_RAM)
+        chk_size=usb_filesize-1;
+      else
+        chk_size=file_handle.fsize-1;
+    
+      while(props->romsize_bytes < chk_size) {
+        header->romsize++;
+        props->romsize_bytes <<= 1;
+      }
     }
   }
   props->ramsize_bytes = (uint32_t)1024 << header->ramsize;
@@ -320,17 +318,17 @@ uint8_t smc_headerscore(uint32_t addr, snes_header_t* header, uint8_t flags) {
     header_offset = 0;
   }
   
-    if(flags & LOADROM_WITH_RAM) {
-	   sram_readblock(header, addr, sizeof(snes_header_t));
-	   if(header->romsize==0x00)
-	   return 0;
-	}
-	else{
-		  if((file_readblock(header, addr, sizeof(snes_header_t)) < sizeof(snes_header_t))
-			 || file_res) {
-			return 0;
-		  }
-	}
+  if(flags & LOADROM_WITH_RAM) {
+    sram_readblock(header, addr, sizeof(snes_header_t));
+    if(header->romsize==0x00)
+      return 0;
+  }
+  else{
+    if((file_readblock(header, addr, sizeof(snes_header_t)) < sizeof(snes_header_t))
+       || file_res) {
+      return 0;
+    }
+  }
   uint8_t mapper = header->map & ~0x10;
   uint8_t bsxmapper = header->ramsize & ~0x10;
 
@@ -360,11 +358,10 @@ uint8_t smc_headerscore(uint32_t addr, snes_header_t* header, uint8_t flags) {
   if((addr-header_offset) == 0x007fb0 && mapper == 0x22) score += 2;
   if((addr-header_offset) == 0x40ffb0 && mapper == 0x25) score += 2;
 
-
-	if(flags & LOADROM_WITH_RAM) 
-		sram_readblock(&reset_inst, file_addr, 1);
-	else
-		file_readblock(&reset_inst, file_addr, 1);
+  if(flags & LOADROM_WITH_RAM) 
+    sram_readblock(&reset_inst, file_addr, 1);
+  else
+    file_readblock(&reset_inst, file_addr, 1);
 
   switch(reset_inst) {
     case 0x78: /* sei */
