@@ -23,7 +23,6 @@ volatile unsigned char usb_filename[256];
 char disable_d4=0;
 char fpga_reconf=0;
 char dsp_support=0;
-char booted=0;
 char sending=0;
 uint8_t send_buffer_index = 0;
 //char ready_request=0;
@@ -37,7 +36,6 @@ void reset_usb_vars(void){
   usb_handler_flags=0;
   disable_d4=0;
   fpga_reconf=0;
-  booted=0;
   sending=0;
   //ready_request=0;
   //send_stage=0;	
@@ -199,32 +197,29 @@ int send_sdram_to_host(void){
 
 
 void usb_send(uint8_t usb_flags){
-	
+
   printf("usb_send()\n");
 
-//  extern snes_romprops_t romprops;
-//	
-//  if(!booted) //not booted - maybe just a sram memory test - so generate header data
-//    smc_id(&romprops, LOADROM_WITH_RESET | LOADROM_WITH_RAM);
-//	
-//  uint32_t rammask;
-//  uint32_t rommask;
-//	
-//  if(romprops.header.ramsize == 0) {
-//    rammask = 0;
-//  } else {
-//    rammask = romprops.ramsize_bytes;
-//  }
-//  rommask = romprops.romsize_bytes;
-//	
-//	
-//  if(usb_flags & USB_SEND_ROM){
-//    usb_filesize=rommask;
-//  }
-//	
-//  if(usb_flags & USB_SEND_RAM){
-//    usb_filesize=rammask;
-//  }
+  uint32_t rammask;
+  uint32_t rommask;
+
+  extern snes_romprops_t romprops;
+  
+  if(romprops.header.ramsize == 0) {
+    rammask = 0;
+  } else {
+    rammask = romprops.ramsize_bytes;
+  }
+  rommask = romprops.romsize_bytes;
+	
+	
+  if(usb_flags & USB_SEND_ROM){
+    usb_filesize=rommask;
+  }
+	
+  if(usb_flags & USB_SEND_RAM){
+    usb_filesize=rammask;
+  }
 	
   printf("usb_filesize %d\n", usb_filesize);	
 	
@@ -330,7 +325,6 @@ void usb_boot(void){
 //fpga_dspx_reset(0);	
 		
   usb_handler_flags = 0;
-  booted=1;
 		
 }
 
@@ -417,8 +411,6 @@ void append_usbbuffer(const unsigned char *in, int length){
 			   
       //write command (data to offset)
       if(buffer[0]=='U' && buffer[1]=='S' && buffer[2]=='B' && buffer[3]=='W'){
-        booted=0;
-				   
         //optional speeds up a bit slightly - nothing more
         if(buffer[8] == 0x01){
           hold_reset = 0x1;
