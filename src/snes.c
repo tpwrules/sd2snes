@@ -42,6 +42,7 @@
 #include "usbupload.h"
 #include "rtc.h"
 #include "cfg.h"
+#include "usbinterface.h"
 
 uint32_t saveram_crc, saveram_crc_old;
 extern snes_romprops_t romprops;
@@ -249,7 +250,7 @@ uint8_t menu_main_loop() {
     sleep_ms(20);
     cli_entrycheck();
     //usb upload/boot/lock
-    usb_handler();
+    usbint_handler();
   }
 
   return cmd;

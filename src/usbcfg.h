@@ -170,7 +170,8 @@
 #define USB_CDC_DIF_NUM     1
 
 //saturnu(512) org 64
-#define USB_CDC_BUFSIZE     64
+#define USB_CDC_BUFOUTSIZE    64
+#define USB_CDC_BUFINSIZE     64
 
 /*
 // <e0> USB Vendor Support

@@ -28,6 +28,7 @@
 #include "rtc.h"
 #include "sysinfo.h"
 #include "cfg.h"
+#include "usbinterface.h"
 
 //usb
 #include "usb.h"
@@ -66,8 +67,6 @@ void menu_cmd_readdir(void) {
 printf("path=%s tgt=%06lx mask=%02x\n", path, tgt_addr, typemask);
   scan_dir(path, tgt_addr, typemask);
 }
-
-void usb_handler(void);
 
 int main(void) {
   LPC_GPIO2->FIODIR = BV(4) | BV(5);
@@ -332,7 +331,7 @@ printf("PCONP=%lx\n", LPC_SC->PCONP);
     while(fpga_test() == FPGA_TEST_TOKEN) {
       cli_entrycheck();
       //usb upload/boot/lock  
-      usb_handler();
+      usbint_handler();
 
 //        sleep_ms(250);
       sram_reliable();

@@ -159,7 +159,7 @@ void sram_readlongblock(uint32_t* buf, uint32_t addr, uint16_t count) {
   FPGA_DESELECT();
 }
 
-void sram_readblock(void* buf, uint32_t addr, uint16_t size) {
+uint16_t sram_readblock(void* buf, uint32_t addr, uint16_t size) {
   uint16_t count=size;
   uint8_t* tgt = buf;
   set_mcu_addr(addr);
@@ -170,6 +170,7 @@ void sram_readblock(void* buf, uint32_t addr, uint16_t size) {
     *(tgt++) = FPGA_RX_BYTE();
   }
   FPGA_DESELECT();
+  return size;
 }
 
 uint16_t sram_readstrn(void* buf, uint32_t addr, uint16_t size) {
@@ -212,7 +213,7 @@ uint16_t sram_writestrn(void* buf, uint32_t addr, uint16_t size) {
   return elemcount;
 }
 
-void sram_writeblock(void* buf, uint32_t addr, uint16_t size) {
+uint16_t sram_writeblock(void* buf, uint32_t addr, uint16_t size) {
   uint16_t count = size;
   uint8_t* src = buf;
   set_mcu_addr(addr);
@@ -223,6 +224,7 @@ void sram_writeblock(void* buf, uint32_t addr, uint16_t size) {
     FPGA_WAIT_RDY();
   }
   FPGA_DESELECT();
+  return size;
 }
 
 uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
@@ -232,22 +234,16 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   tick_t ticksstart, ticks_total=0;
   ticksstart=getticks();
 
-  if (!(flags & LOADROM_WITH_RAM)) {
-    printf("%s\n", filename);
-    file_open(filename, FA_READ);
-    if(file_res) {
-      uart_putc('?');
-      uart_putc(0x30+file_res);
-      return 0;
-    }
-    filesize = file_handle.fsize;
-    smc_id(&romprops, flags);
-    file_close();
+  printf("%s\n", filename);
+  file_open(filename, FA_READ);
+  if(file_res) {
+    uart_putc('?');
+    uart_putc(0x30+file_res);
+    return 0;
   }
-  else {
-    filesize = usb_filesize;
-    smc_id(&romprops, flags);
-  }
+  filesize = file_handle.fsize;
+  smc_id(&romprops, flags);
+  file_close();
 
   if(filename == (uint8_t*)"/sd2snes/menu.bin") {
     fpga_set_features(romprops.fpga_features | FEAT_CMD_UNLOCK);
@@ -266,24 +262,20 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   if(flags & LOADROM_WAIT_SNES) snes_set_snes_cmd(0x77);
   set_mcu_addr(base_addr + romprops.load_address);
 
-  if (!(flags & LOADROM_WITH_RAM)) {
-    file_open(filename, FA_READ);
+  file_open(filename, FA_READ);
+  ff_sd_offload=1;
+  sd_offload_tgt=0;
+  f_lseek(&file_handle, romprops.offset);
+  for(;;) {
     ff_sd_offload=1;
     sd_offload_tgt=0;
-    f_lseek(&file_handle, romprops.offset);
-    for(;;) {
-      ff_sd_offload=1;
-      sd_offload_tgt=0;
-      bytes_read = file_read();
-      if (file_res || !bytes_read) break;
-      if(!(count++ % 512)) {
-        uart_putc('.');
-      }
+    bytes_read = file_read();
+    if (file_res || !bytes_read) break;
+    if(!(count++ % 512)) {
+      uart_putc('.');
     }
-    file_close();
   }
-  else {
-  }
+  file_close();
   
   printf("rom header map: %02x; mapper id: %d\n", romprops.header.map, romprops.mapper_id);
   ticks_total=getticks()-ticksstart;
@@ -342,7 +334,7 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   set_rom_mask(rommask);
   readled(0);
 
-  if((flags & LOADROM_WITH_SRAM) && !(flags & LOADROM_WITH_RAM)) {
+  if(flags & LOADROM_WITH_SRAM) {
     if(romprops.ramsize_bytes) {
       sram_memset(SRAM_SAVE_ADDR, romprops.ramsize_bytes, 0xFF);
       migrate_and_load_srm(filename, SRAM_SAVE_ADDR);

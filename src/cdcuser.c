@@ -30,11 +30,11 @@
 #include "cdcuser.h"
 #include "timer.h"
 
-#include "usbupload.h"
+#include "usbinterface.h"
 #include <arm/NXP/LPC17xx/LPC17xx.h> //interrupt disable
 
-unsigned char BulkBufIn  [USB_CDC_BUFSIZE];            // Buffer to store USB IN  packet
-unsigned char BulkBufOut [USB_CDC_BUFSIZE];            // Buffer to store USB OUT packet
+unsigned char BulkBufIn  [USB_CDC_BUFINSIZE];            // Buffer to store USB IN  packet
+unsigned char BulkBufOut [USB_CDC_BUFOUTSIZE];            // Buffer to store USB OUT packet
 unsigned char NotificationBuf [10];
 unsigned char soft_bulkin_int=0;
 
@@ -43,7 +43,7 @@ volatile uint8_t *cdc_bulkIN_ptr      = NULL;
 volatile uint8_t  cdc_bulkIN_occupied = 0;
 volatile uint8_t  cdc_bulkIN_ZLP      = 0;
 
-
+volatile uint8_t  cdc_bulkOUT_occupied = 0;
 
 CDC_LINE_CODING CDC_LineCoding  = {9600, 0, 0, 8};
 unsigned short  CDC_SerialState = 0x0000;
@@ -346,7 +346,7 @@ void CDC_BulkIn(void) {
   //    printf("called CDC_BulkIn\n");                                                     // split into packets
 	
   //if less actual rest of bytes else full buffer size
-  numBytesSend = (cdc_bulkIN_count < USB_CDC_BUFSIZE) ? cdc_bulkIN_count : USB_CDC_BUFSIZE;
+  numBytesSend = (cdc_bulkIN_count < USB_CDC_BUFINSIZE) ? cdc_bulkIN_count : USB_CDC_BUFINSIZE;
 
   //if there are still bytes to send __OR__ (if there are non bytes to send __AND__ the ZLP is still missing)
   if ( numBytesSend || ((numBytesSend == 0) && cdc_bulkIN_ZLP) ) {
@@ -357,7 +357,9 @@ void CDC_BulkIn(void) {
     
     cdc_bulkIN_count -= numBytesSend;           
     cdc_bulkIN_ptr   += numBytesSend;
-    cdc_bulkIN_ZLP   = (numBytesSend == USB_CDC_BUFSIZE);
+    cdc_bulkIN_ZLP   = (numBytesSend == USB_CDC_BUFINSIZE);
+    if ((!cdc_bulkIN_count) && (!cdc_bulkIN_ZLP))
+        cdc_bulkIN_occupied = 0;
   } else {
     cdc_bulkIN_occupied = 0;
   }
@@ -408,23 +410,21 @@ void CDC_BulkOut(void) {
   int numBytesRead;
 
   // get data from USB into intermediate buffer
-  if ( !cdc_bulkIN_occupied ) { 
-  numBytesRead = USB_ReadEP(CDC_DEP_OUT, &BulkBufOut[0]);
+  if ( !cdc_bulkIN_occupied && !usbint_server_busy()) { 
+    numBytesRead = USB_ReadEP(CDC_DEP_OUT, &BulkBufOut[0]);
 
-  // ... add code to check for overwrite
+    // ... add code to check for overwrite
 
-  // store data in a buffer to transmit it over serial interface
- // CDC_WrOutBuf ((char *)&BulkBufOut[0], &numBytesRead);
- //	uart_putc(BulkBufOut[0]);
+    // store data in a buffer to transmit it over serial interface
+    // CDC_WrOutBuf ((char *)&BulkBufOut[0], &numBytesRead);
+    //	uart_putc(BulkBufOut[0]);
  
 	//saturnu
-	append_usbbuffer(BulkBufOut, numBytesRead);
-
-
-
+	//append_usbbuffer(BulkBufOut, numBytesRead);
+    usbint_recv_flit(BulkBufOut, numBytesRead);
 		
-	}
-	//CDC_NotificationIn ();
+  }
+  //CDC_NotificationIn ();
 	
   return;
 }

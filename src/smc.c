@@ -36,7 +36,6 @@
 #include "memory.h"
 
 extern cfg_t CFG;
-extern unsigned int usb_filesize;
 snes_romprops_t romprops;
 
 uint32_t hdr_addr[6] = {0xffb0, 0x101b0, 0x7fb0, 0x81b0, 0x40ffb0, 0x4101b0};
@@ -208,7 +207,7 @@ void smc_id(snes_romprops_t* props, uint8_t flags) {
     case 0x22: /* ExLoROM */
       /* Star Ocean 96MBit */
 
-      if(!(flags & LOADROM_WITH_RAM) ? (file_handle.fsize > 0x600200) : (usb_filesize > 0x600200)) {
+      if(file_handle.fsize > 0x600200) {
         props->mapper_id = 6;
       }
       /* S-DD1 */
@@ -251,9 +250,9 @@ void smc_id(snes_romprops_t* props, uint8_t flags) {
           break;
         case 2:
         case 3:
-          if(!(flags & LOADROM_WITH_RAM) ? (file_handle.fsize > 0x800200) : (usb_filesize > 0x800200)) {
+          if(file_handle.fsize > 0x800200) {
             props->mapper_id = 6; /* SO96 interleaved */
-          } else if(!(flags & LOADROM_WITH_RAM) ? (file_handle.fsize > 0x400200) : (usb_filesize > 0x400200)) {
+          } else if(file_handle.fsize > 0x400200) {
             props->mapper_id = 1; /* ExLoROM */
           } else {
             props->mapper_id = 1; /* LoROM */
@@ -270,12 +269,9 @@ void smc_id(snes_romprops_t* props, uint8_t flags) {
   if(header->romsize == 0 || header->romsize > 13) {
     props->romsize_bytes = 1024;
     header->romsize = 0;
-    if(!(flags & LOADROM_WITH_RAM) ? (file_handle.fsize >= 1024) : (usb_filesize >= 1024)) {
+    if(file_handle.fsize >= 1024) {
       unsigned long chk_size;
-      if(flags & LOADROM_WITH_RAM)
-        chk_size=usb_filesize-1;
-      else
-        chk_size=file_handle.fsize-1;
+      chk_size=file_handle.fsize-1;
     
       while(props->romsize_bytes < chk_size) {
         header->romsize++;

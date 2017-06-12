@@ -21,40 +21,35 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
-   fileops.h: simple file access functions
+   usbinterface.h: usb packet interface handler
 */
 
-#ifndef FILEOPS_H
-#define FILEOPS_H
-#include <arm/NXP/LPC17xx/LPC17xx.h>
-#include "ff.h"
+#ifndef USBINTERFACE_H
+#define USBINTERFACE_H
 
-enum filestates { FILE_OK=0, FILE_ERR, FILE_EOF };
+/* defines */
+#define USB_BLOCK_SIZE 512
 
-BYTE file_buf[512] __attribute__((aligned(4)));
-FATFS fatfs;
-FIL file_handle;
-FRESULT file_res;
-uint8_t file_lfn[258];
-uint8_t file_path[256];
-uint16_t file_block_off, file_block_max;
-enum filestates file_status;
+/* enums */
 
-void file_init(void);
-void file_open(const uint8_t* filename, BYTE flags);
-FRESULT dir_open_by_filinfo(DIR* dir, FILINFO* fno_param);
-void file_open_by_filinfo(FILINFO* fno);
-void file_close(void);
-void file_seek(uint32_t offset);
-UINT file_read(void);
-UINT file_write(void);
-UINT file_readblock(void* buf, uint32_t addr, uint16_t size);
-UINT file_writeblock(void* buf, uint32_t addr, uint16_t size);
+/* structs */
 
-uint8_t file_getc(void);
-void append_file_basename(char *dirbase, char *filename, char *extension, int num);
-FRESULT check_or_create_folder(TCHAR *dir);
+/* functions */
 
-UINT file_size(const uint8_t* filename);
+// CDC SIDE FLIT COLLECTION
+// collect a flit
+void usbint_recv_flit(const unsigned char *in, int length);
+// manage blocks
+void usbint_recv_block(void);
+void usbint_send_block(void);
+
+// BUSY interface
+int usbint_server_busy(void);
+
+// menu/game state machine
+void usbint_handler(void);
+void usbint_handler_server(void);
+void usbint_handler_cmd(void);
+void usbint_handler_dat(void);
 
 #endif
