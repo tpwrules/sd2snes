@@ -44,6 +44,7 @@
 #include "rtc.h"
 #include "cfg.h"
 #include "cdcuser.h"
+#include "usb1.h"
 
 #define MAX_STRING_LENGTH 255
 
@@ -139,8 +140,8 @@ unsigned char recv_buffer[USB_BLOCK_SIZE];
 
 // double buffered because send only guarantees that a transfer is
 // volatile since CDC needs to send it
-uint8_t send_buffer_index = 0;
-volatile unsigned char send_buffer[2][USB_BLOCK_SIZE];
+volatile uint8_t send_buffer_index = 0;
+volatile unsigned char send_buffer[2][USB_DATABLOCK_SIZE];
 
 // directory
 static DIR     dh;
@@ -210,8 +211,9 @@ void usbint_recv_block(void) {
 }
 
 // send a block
-void usbint_send_block(void) {
-    while(CDC_block_send((unsigned char*)send_buffer[send_buffer_index], USB_BLOCK_SIZE) == -1) { }
+void usbint_send_block(int blockSize) {
+    // FIXME: don't need to double buffer anymore if using interrupt
+    while(CDC_block_send((unsigned char*)send_buffer[send_buffer_index], blockSize) == -1) { }
     send_buffer_index = (send_buffer_index + 1) & 0x1;
 }
 
@@ -222,14 +224,16 @@ int usbint_server_busy() {
 
 // top level state machine
 void usbint_handler(void) {
-    // TODO: determine if the block is meant for the server or client
-    usbint_handler_server();
-}
 
-void usbint_handler_server(void) {
+  // *interrupt
+  // make sure we can fill something
+  //if (CDC_BulkIn_occupied()) { return; }
+  
     switch(server_state) {
+        case USBINT_SERVER_STATE_IDLE:       usbint_handler_req(); break; 
         case USBINT_SERVER_STATE_HANDLE_CMD: usbint_handler_cmd(); break;
-        case USBINT_SERVER_STATE_HANDLE_DAT: usbint_handler_dat(); break;
+        // **interrupt
+        //case USBINT_SERVER_STATE_HANDLE_DAT: usbint_handler_dat(); break;
         default: break;
     }
 }
@@ -355,7 +359,7 @@ void usbint_handler_cmd(void) {
     send_buffer[send_buffer_index][254] = (server_info.size >>  8) & 0xFF;
     send_buffer[send_buffer_index][255] = (server_info.size >>  0) & 0xFF;
     
-    usbint_send_block();
+    usbint_send_block(USB_BLOCK_SIZE);
 
     // decide next state
     if (server_info.opcode == USBINT_SERVER_OPCODE_GET || server_info.opcode == USBINT_SERVER_OPCODE_LS) {
@@ -379,6 +383,9 @@ void usbint_handler_cmd(void) {
 void usbint_handler_dat(void) {
     static int count = 0;
     int bytesSent = 0;
+
+    // if there is no data to send, do not call the send function so the CDC function is no longer called
+    if (server_state != USBINT_SERVER_STATE_HANDLE_DAT) return;
     
     switch (server_info.opcode) {
     case USBINT_SERVER_OPCODE_GET: {
@@ -386,10 +393,10 @@ void usbint_handler_dat(void) {
             server_info.error |= f_lseek(&fh, server_info.offset + count);
             do {
                 UINT bytesRead = 0;
-                server_info.error |= f_read(&fh, (unsigned char *)send_buffer[send_buffer_index] + bytesSent, USB_BLOCK_SIZE - bytesSent, &bytesRead);
+                server_info.error |= f_read(&fh, (unsigned char *)send_buffer[send_buffer_index] + bytesSent, USB_DATABLOCK_SIZE - bytesSent, &bytesRead);
                 bytesSent += bytesRead;
                 count += bytesRead;
-            } while (bytesSent != USB_BLOCK_SIZE && count < server_info.size);
+            } while (bytesSent != USB_DATABLOCK_SIZE && count < server_info.size);
 
             // close file
             if (count >= server_info.size) {
@@ -397,7 +404,7 @@ void usbint_handler_dat(void) {
             }
         }
         else if (server_info.space == USBINT_SERVER_SPACE_SNES) {
-            bytesSent = sram_readblock((uint8_t *)send_buffer[send_buffer_index], SRAM_ROM_ADDR + server_info.offset + count, USB_BLOCK_SIZE);
+            bytesSent = sram_readblock((uint8_t *)send_buffer[send_buffer_index], SRAM_ROM_ADDR + server_info.offset + count, USB_DATABLOCK_SIZE);
             count += bytesSent;
         }
 
@@ -436,7 +443,7 @@ void usbint_handler_dat(void) {
             }
 
             // check for id(1) string(strlen + 1) is does not go past index
-            if (bytesSent + 1 + strlen((TCHAR*)name) + 1 <= USB_BLOCK_SIZE) {
+            if (bytesSent + 1 + strlen((TCHAR*)name) + 1 <= USB_DATABLOCK_SIZE) {
                 send_buffer[send_buffer_index][bytesSent++] = (fi.fattrib & AM_DIR) ? 0 : 1;
                 strcpy((TCHAR*)send_buffer[send_buffer_index] + bytesSent, (TCHAR*)name);
                 bytesSent += strlen((TCHAR*)name) + 1;
@@ -449,23 +456,54 @@ void usbint_handler_dat(void) {
             }
 
             printf("\n");
-        } while (bytesSent < USB_BLOCK_SIZE);
+        } while (bytesSent < USB_DATABLOCK_SIZE);
         break;
     }
     default: {
         // send back a single data beat with all 0xFF's
-        memset((unsigned char *)send_buffer[send_buffer_index], 0xFF, USB_BLOCK_SIZE);
-        bytesSent = USB_BLOCK_SIZE;
+        memset((unsigned char *)send_buffer[send_buffer_index], 0xFF, USB_DATABLOCK_SIZE);
+        bytesSent = USB_DATABLOCK_SIZE;
         break;
     }
     }
     
-    usbint_send_block();
-    
     if (count >= server_info.size) {
         // clear out any remaining portion of the buffer
-        memset((unsigned char *)send_buffer[send_buffer_index] + bytesSent, 0x00, USB_BLOCK_SIZE - bytesSent);
+        memset((unsigned char *)send_buffer[send_buffer_index] + bytesSent, 0x00, USB_DATABLOCK_SIZE - bytesSent);
         count = 0;
         server_state = USBINT_SERVER_STATE_IDLE;
+    }
+    
+    // **interrupt
+    //usbint_send_block(USB_DATABLOCK_SIZE);
+    CDC_block_init((unsigned char*)send_buffer[send_buffer_index], USB_DATABLOCK_SIZE);
+    send_buffer_index = (send_buffer_index + 1) & 0x1;
+}
+
+void usbint_handler_req(void) {
+    //static uint16_t control = 0;
+    
+    // read the status register
+    uint16_t status = fpga_status();
+    if (status & USB_FPGA_STATUS_ALL_FLAG_BIT) {
+        // check if any flags are set
+        
+        // check if we transition to disconnected at any point
+        // TODO: handle the race for an inflight access.
+        // - No good way to do this with the current busy bit definition.  Could force a timeout on busy on the FPGA.
+        // - We could handle it here in the firmware.  Basically, disconnected only serves as a status bit to SNES.  We need to handle
+        //   all transitions here so reads and writes complete.
+        
+        // first look at the control
+        if (status & USB_FPGA_STATUS_CTRL_FLAG_BIT) {
+            // get the new control information
+            //control = get_usb_ctrl();
+            
+            set_usb_status(USB_SNES_STATUS_CLEAR_CTRL);
+        }
+                
+        // check if we need to send a read
+        
+        // check if we need to send a write
     }
 }

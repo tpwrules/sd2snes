@@ -54,7 +54,7 @@ unsigned short  CDC_DepInEmpty  = 1;                   // Data IN EP is empty
   much faster than  UART transmits
  *---------------------------------------------------------------------------*/
 /* Buffer masks */
-#define CDC_BUF_SIZE               (64)               // Output buffer in bytes (power 2)
+#define CDC_BUF_SIZE               (64)                // Output buffer in bytes (power 2)
                                                        // large enough for file transfer
 #define CDC_BUF_MASK               (CDC_BUF_SIZE-1ul)
 
@@ -304,25 +304,31 @@ char Endpoint_IsINReady(void) {
   return 0;
 }
 
+void CDC_block_init(uint8_t *buffer, uint32_t send_size) {
+    cdc_bulkIN_occupied = 1;                 // fill the context
+    cdc_bulkIN_ptr   = buffer;
+    cdc_bulkIN_count = send_size;
+    cdc_bulkIN_ZLP   = 0;    
+}
+
 //sautrnu
 //send data with this function
 uint32_t CDC_block_send( uint8_t *buffer, uint32_t send_size )
 {
   if ( !cdc_bulkIN_occupied ) {                 // The bulk IN endpoint is not busy
-    cdc_bulkIN_occupied = 1;                 // fill the context
-    cdc_bulkIN_ptr   = buffer;
-    cdc_bulkIN_count = send_size;
-    cdc_bulkIN_ZLP   = 0;
+    CDC_block_init(buffer, send_size);
     //LPC_USB->USBDevIntSet = EPAdr( CDC_DEP_IN );   // trigger interrupt manually not working
     //  LPC_USB->USBDevIntSet = 1 << (EPAdr( CDC_DEP_IN ) + 1);   // invoke endpoint interrupt RxENDPKT not working
    
     //instead of triggering an int call it manually;
     //	NVIC_DisableIRQ(USB_IRQn);  
-		
+
+    // *interrupt
     while ( !Endpoint_IsINReady() ) {	/*-- Wait until ready --*/
       delay_ms(1);
     }
-		
+
+    // *interrupt
     CDC_BulkIn();
     //	delay_ms(1);
     //	NVIC_EnableIRQ(USB_IRQn);  
@@ -331,8 +337,9 @@ uint32_t CDC_block_send( uint8_t *buffer, uint32_t send_size )
   return -1;
 }
 
-
-
+int CDC_BulkIn_occupied(void) {
+  return cdc_bulkIN_occupied;
+}
 
 /*----------------------------------------------------------------------------
   CDC_BulkIn call on DataIn Request
@@ -344,7 +351,11 @@ uint32_t CDC_block_send( uint8_t *buffer, uint32_t send_size )
 void CDC_BulkIn(void) {
   int numBytesSend;
   //    printf("called CDC_BulkIn\n");                                                     // split into packets
-	
+
+  // *interrupt
+  // fill the buffer if it's empty
+  //usbint_handler();
+    
   //if less actual rest of bytes else full buffer size
   numBytesSend = (cdc_bulkIN_count < USB_CDC_BUFINSIZE) ? cdc_bulkIN_count : USB_CDC_BUFINSIZE;
 
@@ -363,6 +374,9 @@ void CDC_BulkIn(void) {
   } else {
     cdc_bulkIN_occupied = 0;
   }
+
+  // fill send buffer if it's available
+  if (!cdc_bulkIN_occupied) usbint_handler_dat();  
 }
  
 

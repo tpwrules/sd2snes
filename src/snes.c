@@ -247,9 +247,12 @@ uint8_t menu_main_loop() {
     if(get_snes_reset()) {
       cmd = 0;
     }
-    sleep_ms(20);
+    // **interrupt
+    //if (!usbint_server_busy())
+        sleep_ms(20);
     cli_entrycheck();
     //usb upload/boot/lock
+    // *interrupt
     usbint_handler();
   }
 

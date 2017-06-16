@@ -45,7 +45,9 @@ extern uint32_t CDC_SendBreak                (unsigned short wDurationOfBreak);
 
 //saturnu
 void CDC_block_conf (void);
+void CDC_block_init(uint8_t *buffer, uint32_t send_size);
 uint32_t CDC_block_send( uint8_t *buffer, uint32_t send_size );
+int CDC_BulkIn_occupied(void);
 
 /* CDC Bulk Callback Functions */
 extern void CDC_BulkIn                   (void);

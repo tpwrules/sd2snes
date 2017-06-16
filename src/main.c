@@ -331,6 +331,7 @@ printf("PCONP=%lx\n", LPC_SC->PCONP);
     while(fpga_test() == FPGA_TEST_TOKEN) {
       cli_entrycheck();
       //usb upload/boot/lock  
+      // *interrupt
       usbint_handler();
 
 //        sleep_ms(250);

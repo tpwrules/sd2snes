@@ -29,7 +29,7 @@
 
 /* defines */
 #define USB_BLOCK_SIZE 512
-
+#define USB_DATABLOCK_SIZE 512
 /* enums */
 
 /* structs */
@@ -41,15 +41,16 @@
 void usbint_recv_flit(const unsigned char *in, int length);
 // manage blocks
 void usbint_recv_block(void);
-void usbint_send_block(void);
+void usbint_send_block(int blockSize);
 
 // BUSY interface
 int usbint_server_busy(void);
 
 // menu/game state machine
 void usbint_handler(void);
-void usbint_handler_server(void);
+//void usbint_handler_server(void);
 void usbint_handler_cmd(void);
 void usbint_handler_dat(void);
+void usbint_handler_req(void);
 
 #endif
