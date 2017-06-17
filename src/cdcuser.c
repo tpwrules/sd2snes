@@ -308,7 +308,7 @@ void CDC_block_init(uint8_t *buffer, uint32_t send_size) {
     cdc_bulkIN_occupied = 1;                 // fill the context
     cdc_bulkIN_ptr   = buffer;
     cdc_bulkIN_count = send_size;
-    cdc_bulkIN_ZLP   = 0;    
+    //cdc_bulkIN_ZLP   = 0;    
 }
 
 //sautrnu
@@ -347,7 +347,7 @@ int CDC_BulkIn_occupied(void) {
   Return Value: none
   *---------------------------------------------------------------------------*/
  
- 
+extern volatile enum usbint_server_state_e server_state;
 void CDC_BulkIn(void) {
   int numBytesSend;
   //    printf("called CDC_BulkIn\n");                                                     // split into packets
@@ -376,7 +376,7 @@ void CDC_BulkIn(void) {
   }
 
   // fill send buffer if it's available
-  if (!cdc_bulkIN_occupied) usbint_handler_dat();  
+  if (!cdc_bulkIN_count && usbint_server_dat()) usbint_handler_dat();  
 }
  
 
@@ -424,7 +424,7 @@ void CDC_BulkOut(void) {
   int numBytesRead;
 
   // get data from USB into intermediate buffer
-  if ( !cdc_bulkIN_occupied && !usbint_server_busy()) { 
+  if ( /*!cdc_bulkIN_occupied &&*/ !usbint_server_busy()) { 
     numBytesRead = USB_ReadEP(CDC_DEP_OUT, &BulkBufOut[0]);
 
     // ... add code to check for overwrite

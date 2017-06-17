@@ -73,6 +73,7 @@ enum usbint_server_state_e {
     
   USBINT_SERVER_STATE_HANDLE_CMD, // receive and decode request
   USBINT_SERVER_STATE_HANDLE_DAT, // receive data beats for writes
+  USBINT_SERVER_STATE_HANDLE_DATPUSH,
   USBINT_SERVER_STATE_HANDLE_LCK,
 
 };
@@ -131,8 +132,9 @@ struct usbint_server_info_t {
   uint32_t size;
   uint32_t offset;
   int error;
-} server_info;
+};
 
+volatile struct usbint_server_info_t server_info;
 extern snes_romprops_t romprops;
 
 unsigned recv_buffer_offset = 0;
@@ -219,26 +221,35 @@ void usbint_send_block(int blockSize) {
 
 int usbint_server_busy() {
     // LCK isn't considered busy
-    return server_state == USBINT_SERVER_STATE_HANDLE_CMD || server_state == USBINT_SERVER_STATE_HANDLE_DAT;
+    return server_state == USBINT_SERVER_STATE_HANDLE_CMD || server_state == USBINT_SERVER_STATE_HANDLE_DAT || server_state == USBINT_SERVER_STATE_HANDLE_DATPUSH;
+}
+
+int usbint_server_dat() {
+    // LCK isn't considered busy
+    return server_state == USBINT_SERVER_STATE_HANDLE_DAT;
 }
 
 // top level state machine
-void usbint_handler(void) {
+int usbint_handler(void) {
+  int ret = 0;
 
   // *interrupt
   // make sure we can fill something
   //if (CDC_BulkIn_occupied()) { return; }
   
     switch(server_state) {
-        case USBINT_SERVER_STATE_IDLE:       usbint_handler_req(); break; 
-        case USBINT_SERVER_STATE_HANDLE_CMD: usbint_handler_cmd(); break;
+        case USBINT_SERVER_STATE_IDLE:       ret = usbint_handler_req(); break; 
+        case USBINT_SERVER_STATE_HANDLE_CMD: ret = usbint_handler_cmd(); break;
         // **interrupt
-        //case USBINT_SERVER_STATE_HANDLE_DAT: usbint_handler_dat(); break;
+        case USBINT_SERVER_STATE_HANDLE_DATPUSH: usbint_handler_dat(); break;
         default: break;
     }
+    
+  return ret;
 }
 
-void usbint_handler_cmd(void) {
+int usbint_handler_cmd(void) {
+    int ret = 0;
     uint8_t *fileName = recv_buffer + 256;
     
     // decode command
@@ -269,7 +280,7 @@ void usbint_handler_cmd(void) {
             //strncpy((TCHAR*)send_buffer[send_buffer_index] + 256, (TCHAR*)fi.lfname, MAX_STRING_LENGTH - 128);
             //strncpy((TCHAR*)send_buffer[send_buffer_index] + 384, (TCHAR*)fileName, MAX_STRING_LENGTH - 128);
         }
-        else if (server_info.space == USBINT_SERVER_SPACE_SNES) {
+        else {
             server_info.offset  = recv_buffer[256]; server_info.offset <<= 8;
             server_info.offset |= recv_buffer[257]; server_info.offset <<= 8;
             server_info.offset |= recv_buffer[258]; server_info.offset <<= 8;
@@ -344,7 +355,7 @@ void usbint_handler_cmd(void) {
         break;
     }
 
-    // generate response
+    // create response
     send_buffer[send_buffer_index][0] = 'U';
     send_buffer[send_buffer_index][1] = 'S';
     send_buffer[send_buffer_index][2] = 'B';
@@ -359,11 +370,9 @@ void usbint_handler_cmd(void) {
     send_buffer[send_buffer_index][254] = (server_info.size >>  8) & 0xFF;
     send_buffer[send_buffer_index][255] = (server_info.size >>  0) & 0xFF;
     
-    usbint_send_block(USB_BLOCK_SIZE);
-
     // decide next state
     if (server_info.opcode == USBINT_SERVER_OPCODE_GET || server_info.opcode == USBINT_SERVER_OPCODE_LS) {
-        server_state = USBINT_SERVER_STATE_HANDLE_DAT;
+        server_state = (server_info.space == USBINT_SERVER_SPACE_FILE) ? USBINT_SERVER_STATE_HANDLE_DAT : USBINT_SERVER_STATE_HANDLE_DATPUSH;
     }
     else if (server_info.opcode == USBINT_SERVER_OPCODE_MENU_LOCK) {
         server_state = USBINT_SERVER_STATE_HANDLE_LCK;
@@ -376,7 +385,13 @@ void usbint_handler_cmd(void) {
     // try moving boot to the end to see if we avoid timeout
     if (server_info.opcode == USBINT_SERVER_OPCODE_BOOT) {
         load_rom(fileName, 0, LOADROM_WITH_RESET | LOADROM_WITH_SRAM);
+        //ret = SNES_CMD_GAMELOOP;
     }
+
+    // send response
+    usbint_send_block(USB_BLOCK_SIZE);
+    
+    return ret;
 
 }
 
@@ -385,7 +400,7 @@ void usbint_handler_dat(void) {
     int bytesSent = 0;
 
     // if there is no data to send, do not call the send function so the CDC function is no longer called
-    if (server_state != USBINT_SERVER_STATE_HANDLE_DAT) return;
+    //if (server_state != USBINT_SERVER_STATE_HANDLE_DAT && server_state != USBINT_SERVER_STATE_HANDLE_DATPUSH) return;
     
     switch (server_info.opcode) {
     case USBINT_SERVER_OPCODE_GET: {
@@ -403,9 +418,13 @@ void usbint_handler_dat(void) {
                 f_close(&fh);
             }
         }
-        else if (server_info.space == USBINT_SERVER_SPACE_SNES) {
-            bytesSent = sram_readblock((uint8_t *)send_buffer[send_buffer_index], SRAM_ROM_ADDR + server_info.offset + count, USB_DATABLOCK_SIZE);
-            count += bytesSent;
+        else {
+            do {
+                UINT bytesRead = 0;
+                bytesRead = sram_readblock((uint8_t *)send_buffer[send_buffer_index] + bytesSent, SRAM_ROM_ADDR + server_info.offset + count, USB_DATABLOCK_SIZE - bytesSent);
+                bytesSent += bytesRead;
+                count += bytesRead;
+            } while (bytesSent != USB_DATABLOCK_SIZE && count < server_info.size);
         }
 
         break;
@@ -470,17 +489,25 @@ void usbint_handler_dat(void) {
     if (count >= server_info.size) {
         // clear out any remaining portion of the buffer
         memset((unsigned char *)send_buffer[send_buffer_index] + bytesSent, 0x00, USB_DATABLOCK_SIZE - bytesSent);
-        count = 0;
-        server_state = USBINT_SERVER_STATE_IDLE;
     }
     
     // **interrupt
-    //usbint_send_block(USB_DATABLOCK_SIZE);
-    CDC_block_init((unsigned char*)send_buffer[send_buffer_index], USB_DATABLOCK_SIZE);
-    send_buffer_index = (send_buffer_index + 1) & 0x1;
+    if (server_state == USBINT_SERVER_STATE_HANDLE_DATPUSH) {
+        usbint_send_block(USB_DATABLOCK_SIZE);
+    }
+    else {
+        CDC_block_init((unsigned char*)send_buffer[send_buffer_index], USB_DATABLOCK_SIZE);
+        send_buffer_index = (send_buffer_index + 1) & 0x1;
+    }
+
+    if (count >= server_info.size) {
+        count = 0;
+        server_state = USBINT_SERVER_STATE_IDLE;
+    }
 }
 
-void usbint_handler_req(void) {
+int usbint_handler_req(void) {
+    int ret = 0;
     //static uint16_t control = 0;
     
     // read the status register
@@ -499,11 +526,13 @@ void usbint_handler_req(void) {
             // get the new control information
             //control = get_usb_ctrl();
             
-            set_usb_status(USB_SNES_STATUS_CLEAR_CTRL);
+            //set_usb_status(USB_SNES_STATUS_CLEAR_CTRL);
         }
                 
         // check if we need to send a read
         
         // check if we need to send a write
     }
+    
+    return ret;
 }
