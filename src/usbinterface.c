@@ -45,6 +45,7 @@
 #include "cfg.h"
 #include "cdcuser.h"
 #include "usb1.h"
+#include "cheat.h"
 
 #define MAX_STRING_LENGTH 255
 
@@ -52,7 +53,20 @@
  ({ __typeof__ (a) _a = (a); \
  __typeof__ (b) _b = (b); \
  _a < _b ? _a : _b; })
+ 
+#define GENERATE_ENUM(ENUM) ENUM,
+#define GENERATE_STRING(STRING) #STRING,
 
+#define PRINT_FUNCTION() printf("%-20s ", __FUNCTION__);
+#define PRINT_CMD(buf) printf("header=%c%c%c%c op=%s space=%s ", buf[0], buf[1], buf[2], buf[3]          \
+                                                               , usbint_server_opcode_s[buf[4]]          \
+                                                               , usbint_server_space_s[buf[5]]           \
+                                                               );
+#define PRINT_DAT(num, total) printf("%d/%d ", num, total);
+#define PRINT_MSG(msg) printf("%-5s ", msg);
+#define PRINT_END() uart_putc('\n');
+#define PRINT_STATE(state) printf("state=%-32s ", usbint_server_state_s[state]);
+ 
 // Operations are composed of a request->response packet interface.
 // Each packet it composed of Nx512B flits where N is 1 or more.
 // Flits are composed of 8x64B Phits.
@@ -68,61 +82,70 @@
 // NOTE: it may be beneficial to support command interleaving to reduce
 // latency for push-style update operations from sd2snes
 
-enum usbint_server_state_e {
-  USBINT_SERVER_STATE_IDLE = 0,
-    
-  USBINT_SERVER_STATE_HANDLE_CMD, // receive and decode request
-  USBINT_SERVER_STATE_HANDLE_DAT, // receive data beats for writes
-  USBINT_SERVER_STATE_HANDLE_DATPUSH,
-  USBINT_SERVER_STATE_HANDLE_LCK,
+#define FOREACH_SERVER_STATE(OP)            \
+  OP(USBINT_SERVER_STATE_IDLE)              \
+                                            \
+  OP(USBINT_SERVER_STATE_HANDLE_CMD)        \
+  OP(USBINT_SERVER_STATE_HANDLE_DAT)        \
+  OP(USBINT_SERVER_STATE_HANDLE_DATPUSH)    \
+                                            \
+  OP(USBINT_SERVER_STATE_HANDLE_REQDAT)     \
+  OP(USBINT_SERVER_STATE_HANDLE_EXE)        \
+                                            \
+  OP(USBINT_SERVER_STATE_HANDLE_LOCK)       
+enum usbint_server_state_e { FOREACH_SERVER_STATE(GENERATE_ENUM) };
+static const char *usbint_server_state_s[] = { FOREACH_SERVER_STATE(GENERATE_STRING) };
 
-};
+#define FOREACH_CLIENT_STATE(OP)                \
+  OP(USBINT_CLIENT_STATE_IDLE)                  \
+                                                \
+  OP(USBINT_CLIENT_STATE_HANDLE_CMD)            \
+  OP(USBINT_CLIENT_STATE_HANDLE_DAT)
+enum usbint_client_state_e { FOREACH_CLIENT_STATE(GENERATE_ENUM) };
+//static const char *usbint_client_state_s[] = { FOREACH_CLIENT_STATE(GENERATE_STRING) };
 
-enum usbint_client_state_e {
-  USBINT_CLIENT_STATE_IDLE = 0,
-  
-  USBINT_CLIENT_STATE_HANDLE_CMD,  // receive response
-  USBINT_CLIENT_STATE_HANDLE_DAT,  // receive response data
-  
-};
+#define FOREACH_SERVER_OPCODE(OP)               \
+  OP(USBINT_SERVER_OPCODE_GET)                  \
+  OP(USBINT_SERVER_OPCODE_PUT)                  \
+  OP(USBINT_SERVER_OPCODE_EXECUTE)              \
+  OP(USBINT_SERVER_OPCODE_ATOMIC)               \
+                                                \
+  OP(USBINT_SERVER_OPCODE_LS)                   \
+  OP(USBINT_SERVER_OPCODE_MKDIR)                \
+  OP(USBINT_SERVER_OPCODE_RM)                   \
+  OP(USBINT_SERVER_OPCODE_MV)                   \
+                                                \
+  OP(USBINT_SERVER_OPCODE_RESET)                \
+  OP(USBINT_SERVER_OPCODE_BOOT)                 \
+  OP(USBINT_SERVER_OPCODE_MENU_LOCK)            \
+  OP(USBINT_SERVER_OPCODE_MENU_UNLOCK)          \
+  OP(USBINT_SERVER_OPCODE_MENU_RESET)           \
+  OP(USBINT_SERVER_OPCODE_EXE)                  \
+  OP(USBINT_SERVER_OPCODE_TIME)                 \
+                                                \
+  OP(USBINT_SERVER_OPCODE_RESPONSE)                  
+enum usbint_server_opcode_e { FOREACH_SERVER_OPCODE(GENERATE_ENUM) };
+static const char *usbint_server_opcode_s[] = { FOREACH_SERVER_OPCODE(GENERATE_STRING) };
 
-enum usbint_server_opcode_e {
-  // address space operations
-  USBINT_SERVER_OPCODE_GET = 0,
-  USBINT_SERVER_OPCODE_PUT,
-  USBINT_SERVER_OPCODE_EXECUTE,
-  USBINT_SERVER_OPCODE_ATOMIC,
-  
-  // file system operations
-  USBINT_SERVER_OPCODE_LS,
-  USBINT_SERVER_OPCODE_MKDIR,
-  USBINT_SERVER_OPCODE_RM,
-  USBINT_SERVER_OPCODE_MV,
+#define FOREACH_SERVER_SPACE(OP)                \
+  OP(USBINT_SERVER_SPACE_FILE)                  \
+  OP(USBINT_SERVER_SPACE_SNES)
+enum usbint_server_space_e { FOREACH_SERVER_SPACE(GENERATE_ENUM) };
+static const char *usbint_server_space_s[] = { FOREACH_SERVER_SPACE(GENERATE_STRING) };
 
-  // special operations
-  USBINT_SERVER_OPCODE_RESET,
-  USBINT_SERVER_OPCODE_BOOT,
-  USBINT_SERVER_OPCODE_MENU_LOCK,
-  USBINT_SERVER_OPCODE_MENU_UNLOCK,
-  USBINT_SERVER_OPCODE_MENU_RESET,
-  USBINT_SERVER_OPCODE_EXE,
-  USBINT_SERVER_OPCODE_TIME,
-  
-  // response
-  USBINT_SERVER_OPCODE_RESPONSE,
-};
+#define FOREACH_SERVER_FLAGS(OP)               \
+  OP(USBINT_SERVER_FLAGS_NONE)                 \
+  OP(USBINT_SERVER_FLAGS_FAST)                 \
+  OP(USBINT_SERVER_FLAGS_CLRX)                 \
+  OP(USBINT_SERVER_FLAGS_FAST_CLRX)            \
+  OP(USBINT_SERVER_FLAGS_SETX)                 \
+  OP(USBINT_SERVER_FLAGS_FAST_SETX)            \
+  OP(USBINT_SERVER_FLAGS_CLRX_SETX)            \
+  OP(USBINT_SERVER_FLAGS_FAST_CLRX_SETX)       
+enum usbint_server_flags_e { FOREACH_SERVER_FLAGS(GENERATE_ENUM) };
+//static const char *usbint_server_flags_s[] = { FOREACH_SERVER_FLAGS(GENERATE_STRING) };
 
-enum usbint_server_space_e {
-  USBINT_SERVER_SPACE_FILE = 0,
-  USBINT_SERVER_SPACE_SNES,
-};
-
-enum usbint_server_flags_e {
-  USBINT_SERVER_FLAGS_NONE = 0,  
-  USBINT_SERVER_FLAGS_FAST = 1,  
-};
-
-volatile enum usbint_server_state_e server_state;
+volatile enum usbint_server_state_e server_state = USBINT_SERVER_STATE_IDLE;
 
 struct usbint_server_info_t {
   enum usbint_server_opcode_e opcode;
@@ -148,8 +171,11 @@ volatile unsigned char send_buffer[2][USB_DATABLOCK_SIZE];
 // directory
 static DIR     dh;
 static FILINFO fi;
+static int     fiCont = 0;
 static FIL     fh;
 static char    fbuf[MAX_STRING_LENGTH + 2];
+
+extern cfg_t CFG;
 
 // collect a flit
 void usbint_recv_flit(const unsigned char *in, int length) {
@@ -169,47 +195,89 @@ void usbint_recv_flit(const unsigned char *in, int length) {
 
 void usbint_recv_block(void) {
     static int cmdDat = 0;
+    static uint32_t count = 0;
     
     // check header
     if (!cmdDat) {
         // command operations
+        //PRINT_MSG("[ cmd]");
+ 
         if (recv_buffer[0] == 'U' && recv_buffer[1] == 'S' && recv_buffer[2] == 'B' && recv_buffer[3] == 'A') {            
-            if (recv_buffer[4] == USBINT_SERVER_OPCODE_PUT) {
+            if (recv_buffer[4] == USBINT_SERVER_OPCODE_PUT || recv_buffer[4] == USBINT_SERVER_OPCODE_EXE) {
                 // put operations require
                 cmdDat = 1;
             }
+            PRINT_FUNCTION();
+            PRINT_MSG("[ cmd]");
             
             // FIXME: this needs to have release semantics
-            if (server_state != USBINT_SERVER_STATE_HANDLE_LCK || recv_buffer[4] == USBINT_SERVER_OPCODE_MENU_UNLOCK) {
-                server_state = USBINT_SERVER_STATE_HANDLE_CMD;
-            }
+            //if (server_state != USBINT_SERVER_STATE_HANDLE_LOCK || recv_buffer[4] == USBINT_SERVER_OPCODE_MENU_UNLOCK) {
+            PRINT_STATE(server_state);
+            server_state = USBINT_SERVER_STATE_HANDLE_CMD;
+            PRINT_STATE(server_state);
+
+            PRINT_CMD(recv_buffer);
+            PRINT_END();
         }
     }
     else {
         // data operations
+
         if (server_info.space == USBINT_SERVER_SPACE_FILE) {
             //server_info.offset += file_writeblock(recv_buffer, server_info.offset, USB_BLOCK_SIZE);
             UINT bytesRecv = 0;
-            server_info.error |= f_lseek(&fh, server_info.offset);
+            server_info.error |= f_lseek(&fh, count);
             do {
                 UINT bytesWritten = 0;
                 server_info.error |= f_write(&fh, recv_buffer + bytesRecv, USB_BLOCK_SIZE - bytesRecv, &bytesWritten);
                 bytesRecv += bytesWritten;
-                server_info.offset += bytesWritten;
-            } while (bytesRecv != USB_BLOCK_SIZE && server_info.offset < server_info.size);
+                //server_info.offset += bytesWritten;
+                count += bytesWritten;
+            } while (bytesRecv != USB_BLOCK_SIZE && count < server_info.size);
         }
         else {
-            server_info.offset += sram_writeblock(recv_buffer, server_info.offset, USB_BLOCK_SIZE);
+            // write SRAM
+            UINT blockBytesWritten = 0;
+            do {
+                UINT bytesWritten = 0;
+                UINT remainingBytes = min(USB_BLOCK_SIZE - blockBytesWritten, server_info.size - count);
+                bytesWritten = sram_writeblock(recv_buffer, server_info.offset + count, remainingBytes);
+                blockBytesWritten += bytesWritten;
+                count += bytesWritten;
+            } while (blockBytesWritten != USB_BLOCK_SIZE && count < server_info.size);
+            
+            // FIXME: figure out how to copy recv_buffer somewhere
+            //count += USB_BLOCK_SIZE;
         }
         
-        if (server_info.offset >= server_info.size) {
+        if (count >= server_info.size) {
             if (server_info.space == USBINT_SERVER_SPACE_FILE) {
                 f_close(&fh);
             }
+            PRINT_FUNCTION();
+            PRINT_MSG("[ dat]");
+
+            // unlock any sram transfer lock
+            PRINT_STATE(server_state);
+            if (server_info.flags & USBINT_SERVER_FLAGS_SETX) {
+                // enable hook
+                server_state = USBINT_SERVER_STATE_HANDLE_EXE;
+            }
+            else if (server_state == USBINT_SERVER_STATE_HANDLE_LOCK) {
+                server_state = USBINT_SERVER_STATE_IDLE;
+            }            
+            PRINT_STATE(server_state);
+
+            PRINT_DAT((int)count, (int)server_info.size);
 
             cmdDat = 0;
+            count = 0;
+            
+            PRINT_END();
         }
-    }
+        
+   }
+    
 }
 
 // send a block
@@ -221,7 +289,7 @@ void usbint_send_block(int blockSize) {
 
 int usbint_server_busy() {
     // LCK isn't considered busy
-    return server_state == USBINT_SERVER_STATE_HANDLE_CMD || server_state == USBINT_SERVER_STATE_HANDLE_DAT || server_state == USBINT_SERVER_STATE_HANDLE_DATPUSH;
+    return server_state == USBINT_SERVER_STATE_HANDLE_CMD || server_state == USBINT_SERVER_STATE_HANDLE_DAT || server_state == USBINT_SERVER_STATE_HANDLE_DATPUSH || server_state == USBINT_SERVER_STATE_HANDLE_EXE;
 }
 
 int usbint_server_dat() {
@@ -241,16 +309,21 @@ int usbint_handler(void) {
         case USBINT_SERVER_STATE_IDLE:       ret = usbint_handler_req(); break; 
         case USBINT_SERVER_STATE_HANDLE_CMD: ret = usbint_handler_cmd(); break;
         // **interrupt
-        case USBINT_SERVER_STATE_HANDLE_DATPUSH: usbint_handler_dat(); break;
+        case USBINT_SERVER_STATE_HANDLE_DATPUSH: ret = usbint_handler_dat(); break;
+        case USBINT_SERVER_STATE_HANDLE_EXE: ret = usbint_handler_exe(); break;
+                
         default: break;
     }
-    
+        
   return ret;
 }
 
 int usbint_handler_cmd(void) {
     int ret = 0;
     uint8_t *fileName = recv_buffer + 256;
+
+    PRINT_FUNCTION();
+    PRINT_MSG("[hcmd]");
     
     // decode command
     server_info.opcode = recv_buffer[4];
@@ -275,17 +348,12 @@ int usbint_handler_cmd(void) {
             server_info.error |= f_stat((TCHAR*)fileName, &fi);
             server_info.size = fi.fsize;
             server_info.error |= f_open(&fh, (TCHAR*)fileName, FA_READ);
-            
-            // temporarily copy the string to the response
-            //strncpy((TCHAR*)send_buffer[send_buffer_index] + 256, (TCHAR*)fi.lfname, MAX_STRING_LENGTH - 128);
-            //strncpy((TCHAR*)send_buffer[send_buffer_index] + 384, (TCHAR*)fileName, MAX_STRING_LENGTH - 128);
         }
         else {
             server_info.offset  = recv_buffer[256]; server_info.offset <<= 8;
             server_info.offset |= recv_buffer[257]; server_info.offset <<= 8;
             server_info.offset |= recv_buffer[258]; server_info.offset <<= 8;
             server_info.offset |= recv_buffer[259]; server_info.offset <<= 0;
-            server_info.size = 0x2000;
         }
         break;
     }
@@ -294,9 +362,16 @@ int usbint_handler_cmd(void) {
             // file
             server_info.error = f_open(&fh, (TCHAR*)fileName, FA_WRITE | FA_CREATE_ALWAYS);
         }
+        else {
+            server_info.offset  = recv_buffer[256]; server_info.offset <<= 8;
+            server_info.offset |= recv_buffer[257]; server_info.offset <<= 8;
+            server_info.offset |= recv_buffer[258]; server_info.offset <<= 8;
+            server_info.offset |= recv_buffer[259]; server_info.offset <<= 0;
+        }
         break;
     }
     case USBINT_SERVER_OPCODE_LS: {
+        fiCont = 0;
         fi.lfname = fbuf;
         fi.lfsize = MAX_STRING_LENGTH;
         server_info.error |= f_opendir(&dh, (TCHAR *)fileName) != FR_OK;
@@ -345,16 +420,36 @@ int usbint_handler_cmd(void) {
         server_info.error |= f_rename((TCHAR *)fileName, (TCHAR *)newFileName) != FR_OK;
         break;
     }
-    case USBINT_SERVER_OPCODE_EXE: // TODO
+    case USBINT_SERVER_OPCODE_EXE: {
+        // generate response.  check size for error
+        server_info.offset  = recv_buffer[256]; server_info.offset <<= 8;
+        server_info.offset |= recv_buffer[257]; server_info.offset <<= 8;
+        server_info.offset |= recv_buffer[258]; server_info.offset <<= 8;
+        server_info.offset |= recv_buffer[259]; server_info.offset <<= 0;
+        server_info.error = (server_info.size > 0x9D);
+        break;
+    }
     case USBINT_SERVER_OPCODE_ATOMIC: // unsupported
     default: // unrecognized
         server_info.error = 1;
+    case USBINT_SERVER_OPCODE_BOOT:
     case USBINT_SERVER_OPCODE_MENU_LOCK:
     case USBINT_SERVER_OPCODE_MENU_UNLOCK:
         // nop
         break;
     }
 
+    // clear the execution cheats
+    if (!server_info.error && (server_info.flags & USBINT_SERVER_FLAGS_CLRX)) {
+        fpga_set_snescmd_addr(SNESCMD_WRAM_CHEATS);
+        fpga_write_snescmd(ASM_RTS);
+
+        // FIXME: this is a hack.  add a proper spinloop with status bit
+        // wait to make sure we are out of the code.  one frame should do
+        // could add a data region and wait for the write
+        sleep_ms(16);
+    }
+    
     // create response
     send_buffer[send_buffer_index][0] = 'U';
     send_buffer[send_buffer_index][1] = 'S';
@@ -370,35 +465,60 @@ int usbint_handler_cmd(void) {
     send_buffer[send_buffer_index][254] = (server_info.size >>  8) & 0xFF;
     send_buffer[send_buffer_index][255] = (server_info.size >>  0) & 0xFF;
     
+    // send response
+    usbint_send_block(USB_BLOCK_SIZE);
+
+    // boot the ROM
+    if (server_info.opcode == USBINT_SERVER_OPCODE_BOOT) {
+        strncpy ((char *)file_lfn, (char *)fileName, 256);
+        cfg_add_last_game(file_lfn);
+        // there may not be a menu to interact with so don't wait for SNES
+        load_rom(file_lfn, 0, LOADROM_WITH_RESET | LOADROM_WITH_SRAM | LOADROM_WITH_FPGA /*| LOADROM_WAIT_SNES*/);
+        // enter the game loop like the menu would
+        // NOTE: there seems to be some conflict with patching and GAMELOOP
+        ret = SNES_CMD_GAMELOOP;
+    }
+    
+    PRINT_STATE(server_state);
     // decide next state
     if (server_info.opcode == USBINT_SERVER_OPCODE_GET || server_info.opcode == USBINT_SERVER_OPCODE_LS) {
-        server_state = (server_info.space == USBINT_SERVER_SPACE_FILE) ? USBINT_SERVER_STATE_HANDLE_DAT : USBINT_SERVER_STATE_HANDLE_DATPUSH;
+        // we lock on data transfers so use interrupt for everything
+        server_state = USBINT_SERVER_STATE_HANDLE_DAT;
     }
     else if (server_info.opcode == USBINT_SERVER_OPCODE_MENU_LOCK) {
-        server_state = USBINT_SERVER_STATE_HANDLE_LCK;
-        while (server_state == USBINT_SERVER_STATE_HANDLE_LCK) {}
+        server_state = USBINT_SERVER_STATE_HANDLE_LOCK;
+    }
+    else if (server_info.opcode == USBINT_SERVER_OPCODE_EXE) {
+        server_state = USBINT_SERVER_STATE_HANDLE_LOCK;
+    }
+    else if (server_info.opcode == USBINT_SERVER_OPCODE_PUT/* && server_info.space == USBINT_SERVER_SPACE_SNES*/) {
+        server_state = USBINT_SERVER_STATE_HANDLE_LOCK;
     }
     else {
         server_state = USBINT_SERVER_STATE_IDLE;
     }
+    PRINT_STATE(server_state);
     
-    // try moving boot to the end to see if we avoid timeout
+    PRINT_CMD(recv_buffer);
+    
     if (server_info.opcode == USBINT_SERVER_OPCODE_BOOT) {
-        load_rom(fileName, 0, LOADROM_WITH_RESET | LOADROM_WITH_SRAM);
-        //ret = SNES_CMD_GAMELOOP;
+        printf("Boot name: %s ", (char *)file_lfn);        
     }
 
-    // send response
-    usbint_send_block(USB_BLOCK_SIZE);
+    PRINT_END();
+    
+    // lock process.  this avoids a conclusion with the rest of the menu accessing the file system or sram
+    while(server_state == USBINT_SERVER_STATE_HANDLE_LOCK || server_state == USBINT_SERVER_STATE_HANDLE_DAT) {};
     
     return ret;
 
 }
 
-void usbint_handler_dat(void) {
+int usbint_handler_dat(void) {
+    int ret = 0;
     static int count = 0;
     int bytesSent = 0;
-
+    
     // if there is no data to send, do not call the send function so the CDC function is no longer called
     //if (server_state != USBINT_SERVER_STATE_HANDLE_DAT && server_state != USBINT_SERVER_STATE_HANDLE_DATPUSH) return;
     
@@ -432,14 +552,17 @@ void usbint_handler_dat(void) {
     case USBINT_SERVER_OPCODE_LS: {
         uint8_t *name = NULL;
         do {
+            int fiContPrev = fiCont;
+            fiCont = 0;
+            
             /* Read the next entry */
-            if (server_info.error || f_readdir(&dh, &fi) != FR_OK) {
+            if (server_info.error || (!fiContPrev && f_readdir(&dh, &fi) != FR_OK)) {
                 send_buffer[send_buffer_index][bytesSent++] = 0xFF;
                 count = 1; // signal done
                 f_closedir(&dh);
                 break;
             }
-            
+
             /* Abort if none was found */
             if (!fi.fname[0]) {
                 send_buffer[send_buffer_index][bytesSent++] = 0xFF;
@@ -471,10 +594,9 @@ void usbint_handler_dat(void) {
             else {
                 // send continuation.  overwrite string flag to simplify parsing
                 send_buffer[send_buffer_index][bytesSent++] = 2;
+                fiCont = 1;
                 break;
             }
-
-            printf("\n");
         } while (bytesSent < USB_DATABLOCK_SIZE);
         break;
     }
@@ -500,10 +622,24 @@ void usbint_handler_dat(void) {
         send_buffer_index = (send_buffer_index + 1) & 0x1;
     }
 
+    // printing state seems to cause some locks
+    //PRINT_STATE(server_state);
     if (count >= server_info.size) {
-        count = 0;
+        //PRINT_FUNCTION();
+        //PRINT_MSG("[hdat]")
+
+        //PRINT_STATE(server_state);
         server_state = USBINT_SERVER_STATE_IDLE;
-    }
+        //PRINT_STATE(server_state);
+
+        //PRINT_DAT((int)count, (int)server_info.size);
+        
+        count = 0;
+
+        //PRINT_END();
+    }    
+    
+    return ret;
 }
 
 int usbint_handler_req(void) {
@@ -533,6 +669,65 @@ int usbint_handler_req(void) {
         
         // check if we need to send a write
     }
+    
+    return ret;
+}
+
+int usbint_handler_exe(void) {
+    int ret = 0;
+
+    PRINT_FUNCTION();
+    PRINT_MSG("[hexe]")
+    
+    if (!server_info.error) {
+        // disable current hooks
+        //cheat_wram_present(0);
+        //snescmd_prepare_nmihook();
+
+        //cheat_enable(0);
+        //cheat_nmi_enable(0);
+        //cheat_irq_enable(0);
+        //cheat_wram_present(0);
+        
+        // write SRAM
+        //sram_writeblock(recv_buffer, SRAM_CHEAT_ADDR, server_info.size);
+        
+        // clear out existing patch by overwriting with a RTS
+        fpga_set_snescmd_addr(SNESCMD_WRAM_CHEATS);
+        fpga_write_snescmd(ASM_RTS);
+        
+        // wait to make sure we are out of the code.  one frame should do
+        // could add a data region and wait for the write
+        sleep_ms(16);
+        
+        for (int i = 1; i < server_info.size; i++) {
+            uint8_t val = sram_readbyte(server_info.offset + i);
+            fpga_write_snescmd(val);
+        }
+        // write RTS
+        fpga_write_snescmd(ASM_RTS);
+
+        fpga_set_snescmd_addr(SNESCMD_WRAM_CHEATS);
+        fpga_write_snescmd(sram_readbyte(SRAM_CHEAT_ADDR));
+        
+        // unlock the address range so the patch can remove itself
+        //fpga_set_features(romprops.fpga_features | FEAT_CMD_UNLOCK);
+        
+        //snescmd_writebyte(1, SNESCMD_NMI_WRAM_PATCH_COUNT);
+        //fpga_write_cheat(6, 0);
+        //cheat_enable(1);
+        //cheat_nmi_enable(1);
+        //cheat_irq_enable(1);
+        //cheat_holdoff_enable(CFG.enable_irq_holdoff);
+        //cheat_buttons_enable(CFG.enable_irq_buttons);
+        //cheat_wram_present(1);
+    }
+    
+    PRINT_STATE(server_state);
+    server_state = USBINT_SERVER_STATE_IDLE;
+    PRINT_STATE(server_state);
+
+    PRINT_END();
     
     return ret;
 }

@@ -266,6 +266,10 @@ void smc_id(snes_romprops_t* props, uint8_t flags) {
           props->mapper_id = 1; // whatever
       }
   }
+  
+  // FIXME: hack to expand ram
+  //header->ramsize = 8;
+  
   if(header->romsize == 0 || header->romsize > 13) {
     props->romsize_bytes = 1024;
     header->romsize = 0;

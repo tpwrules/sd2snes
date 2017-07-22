@@ -31,6 +31,7 @@ module address(
   output IS_WRITABLE,       // address somehow mapped as writable area?
   input [23:0] SAVERAM_MASK,
   input [23:0] ROM_MASK,
+  input  snescmd_unlock,
   output msu_enable,
   output srtc_enable,
   output use_bsx,
@@ -41,6 +42,7 @@ module address(
   output dspx_a0,
   output r213f_enable,
   output snescmd_enable,
+  output snescmd_reg_enable,
   output nmicmd_enable,
   output return_vector_enable,
   output branch1_enable,
@@ -76,7 +78,7 @@ wire [23:0] SRAM_SNES_ADDR;
 assign IS_ROM = ((!SNES_ADDR[22] & SNES_ADDR[15])
                  |(SNES_ADDR[22]));
 
-assign IS_SAVERAM = SAVERAM_MASK[0]
+assign IS_SAVERAM = (~snescmd_unlock & SAVERAM_MASK[0])
                     &(featurebits[FEAT_ST0010]
                       ?((SNES_ADDR[22:19] == 4'b1101)
                         & &(~SNES_ADDR[15:12])
@@ -106,6 +108,8 @@ assign IS_SAVERAM = SAVERAM_MASK[0]
                       ? (&SNES_ADDR[23:20])
                       : 1'b0));
 
+// give the patch free reign over $F0-$FF banks
+assign IS_PATCH = snescmd_unlock && (&SNES_ADDR[23:20]);
 
 /* BS-X has 4 MBits of extra RAM that can be mapped to various places */
 // LoROM: A23 = r03/r04  A22 = r06  A21 = r05  A20 = 0    A19 = d/c
@@ -136,6 +140,7 @@ wire BSX_IS_HOLE = BSX_HOLE_LOHI
 assign bsx_tristate = (MAPPER == 3'b011) & ~BSX_IS_CARTROM & ~BSX_IS_PSRAM & BSX_IS_HOLE;
 
 assign IS_WRITABLE = IS_SAVERAM
+                     |IS_PATCH
                      |((MAPPER == 3'b011) & BSX_IS_PSRAM);
 
 wire [23:0] BSX_ADDR = bsx_regs[2] ? {1'b0, SNES_ADDR[22:0]}
@@ -152,7 +157,9 @@ wire [23:0] BSX_ADDR = bsx_regs[2] ? {1'b0, SNES_ADDR[22:0]}
     8   1=map BSX cartridge ROM @80-9f:8000-ffff
 */
 
-assign SRAM_SNES_ADDR = ((MAPPER == 3'b000)
+assign SRAM_SNES_ADDR = IS_PATCH
+                        ? SNES_ADDR
+                        : ((MAPPER == 3'b000)
                           ?(IS_SAVERAM
                             ? 24'hE00000 + ({SNES_ADDR[20:16], SNES_ADDR[12:0]}
                                             & SAVERAM_MASK)
@@ -203,6 +210,9 @@ assign SRAM_SNES_ADDR = ((MAPPER == 3'b000)
                             )
                            : 24'b0);
 
+// when unlocked provide a bank at the top of SRAM.  Note that unlock has a delay after we exit the handler
+// so there is a possibility we'll read these addresses instead of ROM.  It would be safer to put this in an
+// unused address that is unmapped
 assign ROM_ADDR = SRAM_SNES_ADDR;
 
 assign ROM_HIT = IS_ROM | IS_WRITABLE | bs_page_enable;
@@ -244,6 +254,7 @@ assign dspx_a0 = featurebits[FEAT_DSPX]
 assign r213f_enable = featurebits[FEAT_213F] & (SNES_PA == 8'h3f);
 
 assign snescmd_enable = ({SNES_ADDR[22], SNES_ADDR[15:9]} == 8'b0_0010101);
+assign snescmd_reg_enable = ({SNES_ADDR[22], SNES_ADDR[15:7],7'h00} == 17'h02B00);
 assign nmicmd_enable = (SNES_ADDR == 24'h002BF2);
 assign return_vector_enable = (SNES_ADDR == 24'h002A5A);
 assign branch1_enable = (SNES_ADDR == 24'h002A13);

@@ -253,7 +253,9 @@ uint8_t menu_main_loop() {
     cli_entrycheck();
     //usb upload/boot/lock
     // *interrupt
-    usbint_handler();
+    if (!cmd) {
+      cmd = usbint_handler();
+    }
   }
 
   return cmd;

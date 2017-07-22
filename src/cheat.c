@@ -56,10 +56,11 @@ void cheat_program() {
   fpga_write_cheat(6, enable_mask);
   cheat_enable(1);
   cheat_nmi_enable(CFG.enable_irq_hook);
-  cheat_irq_enable(CFG.enable_irq_hook);
+  //cheat_irq_enable(CFG.enable_irq_hook);
+  cheat_irq_enable(0/*CFG.enable_irq_hook*/);
   cheat_holdoff_enable(CFG.enable_irq_holdoff);
   cheat_buttons_enable(CFG.enable_irq_buttons);
-  cheat_wram_present(wram_index);
+  cheat_wram_present(1/*wram_index*/);
 }
 
 void cheat_program_single(cheat_patch_record_t *cheat) {

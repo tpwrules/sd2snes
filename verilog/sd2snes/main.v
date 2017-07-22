@@ -158,6 +158,7 @@ wire [7:0] snescmd_data_out_mcu;
 wire [7:0] snescmd_data_in_mcu;
 
 reg [7:0] SNES_PARDr;
+reg [7:0] SNES_PAWRr;
 reg [7:0] SNES_READr;
 reg [7:0] SNES_WRITEr;
 reg [7:0] SNES_CPU_CLKr;
@@ -171,9 +172,16 @@ reg SNES_reset_strobe = 0;
 
 reg free_strobe = 0;
 
+reg [3:0] SNES_PAWR_count;
+reg [3:0] SNES_PARD_count;
+
 wire SNES_PARD_start = ((SNES_PARDr[6:1] | SNES_PARDr[7:2]) == 6'b111110);
+wire SNES_PARD_end = SNES_PARD_count == 5;
+wire SNES_PAWR_start = ((SNES_PAWRr[4:1] | SNES_PAWRr[5:2]) == 4'b1110);
+wire SNES_PAWR_end   = SNES_PAWR_count == 5; // 5
 wire SNES_RD_start = ((SNES_READr[6:1] | SNES_READr[7:2]) == 6'b111100);
 wire SNES_RD_end = ((SNES_READr[6:1] & SNES_READr[7:2]) == 6'b000001);
+wire SNES_WR_start = ((SNES_WRITEr[6:1] & SNES_WRITEr[7:2]) == 6'b111000);
 wire SNES_WR_end = ((SNES_WRITEr[6:1] & SNES_WRITEr[7:2]) == 6'b000001);
 wire SNES_cycle_start = ((SNES_CPU_CLKr[7:2] & SNES_CPU_CLKr[6:1]) == 6'b000011);
 wire SNES_cycle_end = ((SNES_CPU_CLKr[7:2] | SNES_CPU_CLKr[6:1]) == 6'b111000);
@@ -181,6 +189,8 @@ wire SNES_WRITE = SNES_WRITEr[2] & SNES_WRITEr[1];
 wire SNES_READ = SNES_READr[2] & SNES_READr[1];
 wire SNES_CPU_CLK = SNES_CPU_CLKr[2] & SNES_CPU_CLKr[1];
 wire SNES_PARD = SNES_PARDr[2] & SNES_PARDr[1];
+wire SNES_PAWR = SNES_PAWRr[2] & SNES_PAWRr[1];
+wire SNES_ROMSEL_EARLY = (SNES_ROMSELr[2] & SNES_ROMSELr[1]);
 
 wire SNES_ROMSEL = (SNES_ROMSELr[5] & SNES_ROMSELr[4]);
 wire [23:0] SNES_ADDR = (SNES_ADDRr[6] & SNES_ADDRr[5]);
@@ -205,8 +215,10 @@ always @(posedge CLK2) begin
   if(SNES_cycle_start) free_strobe <= ~ROM_HIT;
 end
 
+integer j;
 always @(posedge CLK2) begin
   SNES_PARDr <= {SNES_PARDr[6:0], SNES_PARD_IN};
+  SNES_PAWRr <= {SNES_PAWRr[6:0], SNES_PAWR_IN};
   SNES_READr <= {SNES_READr[6:0], SNES_READ_IN};
   SNES_WRITEr <= {SNES_WRITEr[6:0], SNES_WRITE_IN};
   SNES_CPU_CLKr <= {SNES_CPU_CLKr[6:0], SNES_CPU_CLK_IN};
@@ -225,11 +237,39 @@ always @(posedge CLK2) begin
   SNES_PAr[2] <= SNES_PAr[1];
   SNES_PAr[1] <= SNES_PAr[0];
   SNES_PAr[0] <= SNES_PA_IN;
+  
+  //for (j = 1; j < 32; j = j + 1) SNES_DATAr[j] <= SNES_DATAr[j - 1];
+  
   SNES_DATAr[4] <= SNES_DATAr[3];
   SNES_DATAr[3] <= SNES_DATAr[2];
   SNES_DATAr[2] <= SNES_DATAr[1];
   SNES_DATAr[1] <= SNES_DATAr[0];
   SNES_DATAr[0] <= SNES_DATA;
+  
+  // count of write low
+  if (SNES_reset_strobe | SNES_PAWR_end) begin
+    SNES_PAWR_count <= 0;
+  end
+  else if (SNES_PAWR_start & SNES_READ) begin 
+    // ignore DMAs which also seem to assert under certain conditions when they are reading WRAM  
+    SNES_PAWR_count <= 1;
+  end
+  else if (|SNES_PAWR_count) begin
+    SNES_PAWR_count <= SNES_PAWR_count + 1;
+  end
+
+  // count of write low
+  if (SNES_reset_strobe | SNES_PARD_end) begin
+    SNES_PARD_count <= 0;
+  end
+  else if (SNES_PAWR_start & SNES_READ) begin 
+    // ignore DMAs which also seem to assert under certain conditions when they are reading WRAM  
+    SNES_PARD_count <= 1;
+  end
+  else if (|SNES_PARD_count) begin
+    SNES_PARD_count <= SNES_PARD_count + 1;
+  end
+
 end
 
 parameter ST_IDLE        = 5'b00001;
@@ -513,6 +553,7 @@ address snes_addr(
   .IS_WRITABLE(IS_WRITABLE),
   .SAVERAM_MASK(SAVERAM_MASK),
   .ROM_MASK(ROM_MASK),
+  .snescmd_unlock(snescmd_unlock),
   //MSU-1
   .msu_enable(msu_enable),
   //BS-X
@@ -530,6 +571,7 @@ address snes_addr(
   .dspx_a0(DSPX_A0),
   .r213f_enable(r213f_enable),
   .snescmd_enable(snescmd_enable),
+  .snescmd_reg_enable(snescmd_reg_enable),
   .nmicmd_enable(nmicmd_enable),
   .return_vector_enable(return_vector_enable),
   .branch1_enable(branch1_enable),
@@ -598,6 +640,121 @@ always @(posedge CLK2) begin
   end
 end
 
+// map a portion of the snescmd address space to support reading of the registers
+reg [7:0] r21XX [0:63][1:0]; // $2100-$213F
+reg [63:0]r21XX_readIndex;
+reg [7:0] r420X [0:15]; // $4200-$420F
+
+reg [7:0] r21XX_BG_latch;
+reg [7:0] r21XX_M7_latch;
+
+integer i;
+
+wire snoop_21XX_enable = SNES_PA <= 8'h33;
+wire snoop_420X_enable = ({SNES_ADDR[22], SNES_ADDR[15:4], 4'h0} == 17'h04200) && ~(&SNES_ADDR[3:1]);
+wire snoop_2140_enable = SNES_PA == 8'h40;
+wire SNES_PAWR_DATA_OE = |SNES_PAWR_count;
+wire SNES_PARD_DATA_OE = |SNES_PARD_count;
+
+reg r21XX_dual_active;
+
+reg       r21XX_val;
+reg [7:0] r21XX_PA;
+reg [7:0] r21XX_DATA;
+reg       r21XX_cgram_toggle;
+reg       r21XX_oam_toggle;
+
+always @(posedge CLK2) begin
+  if (SNES_reset_strobe) begin
+    for (i = 0; i < 64; i = i + 1) r21XX_readIndex[i] <= 0;
+	 r21XX_val <= 1'b0;
+    r21XX_cgram_toggle <= 1'b0;
+    r21XX_oam_toggle <= 1'b0;
+    r420X[4'hF] <= 0;
+  end
+  else begin
+    if (SNES_PAWR_end & snoop_21XX_enable) begin
+	   r21XX_val <= 1'b1;
+		r21XX_PA <= SNES_PA;
+		r21XX_DATA <= SNES_DATA;
+	 end
+    else if (r21XX_val) begin
+	   r21XX_val <= 1'b0;
+		
+	   if (r21XX_PA >= 8'h0D && r21XX_PA <= 8'h0E) begin
+			r21XX[r21XX_PA[5:0]][1] <= r21XX_DATA[7:0];
+			r21XX[r21XX_PA[5:0]][0] <= r21XX_BG_latch;
+			r21XX_BG_latch         <= r21XX_DATA[7:0];
+			r21XX_M7_latch         <= r21XX_DATA[7:0];
+		end	 
+	   else if (r21XX_PA >= 8'h0F && r21XX_PA <= 8'h14) begin
+			r21XX[r21XX_PA[5:0]][1] <= r21XX_DATA[7:0];
+			r21XX[r21XX_PA[5:0]][0] <= r21XX_BG_latch;
+			r21XX_BG_latch         <= r21XX_DATA[7:0];
+		end
+		else if (r21XX_PA >= 8'h1B && r21XX_PA <= 8'h20) begin
+			r21XX[r21XX_PA[5:0]][1] <= r21XX_DATA[7:0];
+			r21XX[r21XX_PA[5:0]][0] <= r21XX_M7_latch;
+			r21XX_M7_latch         <= r21XX_DATA[7:0];
+		end
+		else if (r21XX_PA[7:6] == 2'b00) begin
+			r21XX[r21XX_PA[5:0]][1] <= r21XX_DATA[7:0];
+			r21XX[r21XX_PA[5:0]][0] <= r21XX_DATA[7:0];
+			
+			if (r21XX_PA == 8'h21) begin
+           r21XX_cgram_toggle <= 1'b0;
+			end
+			else if (r21XX_PA == 8'h22) begin
+				// increment cgram address on write
+				if (r21XX_cgram_toggle) begin
+				  r21XX_cgram_toggle <= 1'b0;
+				  r21XX[6'h21][0] <= r21XX[6'h21][0] + 1'b1;
+				  r21XX[6'h21][1] <= r21XX[6'h21][1] + 1'b1;
+				end
+				else begin
+				  r21XX_cgram_toggle <= 1'b1;
+				end
+			end
+			else if (((r21XX_PA == 8'h18) & ~r21XX[6'h15][0][7]) | ((r21XX_PA == 8'h19) & r21XX[6'h15][0][7])) begin
+				// increment vram address on write
+				// TODO: handle reads, too
+				{r21XX[6'h17][0], r21XX[6'h16][0]} <= {r21XX[6'h17][0], r21XX[6'h16][0]} + (r21XX[6'h15][0][1] ? 16'h80 : r21XX[6'h15][0][0] ? 16'h20 : 16'h1);
+				{r21XX[6'h17][1], r21XX[6'h16][1]} <= {r21XX[6'h17][1], r21XX[6'h16][1]} + (r21XX[6'h15][1][1] ? 16'h80 : r21XX[6'h15][1][0] ? 16'h20 : 16'h1);
+			end
+			else if (r21XX_PA == 8'h04) begin
+				// increment oam address on write
+				if (r21XX_oam_toggle) begin
+				  r21XX_oam_toggle <= 1'b0;
+				  {r21XX[6'h03][0], r21XX[6'h02][0]} <= {r21XX[6'h03][0], r21XX[6'h02][0]} + 1'b1;
+				  {r21XX[6'h03][1], r21XX[6'h02][1]} <= {r21XX[6'h03][1], r21XX[6'h02][1]} + 1'b1;
+				end
+				else begin
+				  r21XX_oam_toggle <= 1'b1;
+				end
+			end
+		end
+    end
+
+    if (SNES_WR_end & snoop_420X_enable) begin
+      r420X[SNES_ADDR[3:0]] <= SNES_DATA[7:0];
+    end
+	 else if (SNES_PAWR_end & snoop_2140_enable) begin
+	   // save mirror of audio write
+      r420X[4'hE] <= SNES_DATA;
+	 end
+	 
+    if (snescmd_reg_enable & ~SNES_ADDR[6] & SNES_RD_end) begin
+      r21XX_readIndex[SNES_ADDR[5:0]] <= ~r21XX_readIndex[SNES_ADDR[5:0]];
+	 end
+
+  end
+end
+
+wire [7:0] snescmd_reg_out;
+
+assign snescmd_reg_out = ({SNES_ADDR[22], SNES_ADDR[15:6], 6'h0} == 17'h02B00) ? r21XX[SNES_ADDR[5:0]][r21XX_readIndex[SNES_ADDR[5:0]]]
+                                                                               : r420X[SNES_ADDR[3:0]];
+
 assign SNES_DATA = (r213f_enable & ~SNES_PARD & ~r213f_forceread) ? r213fr
                    :(~SNES_READ ^ (r213f_forceread & r213f_enable & ~SNES_PARD))
                                 ? (srtc_enable ? SRTC_SNES_DATA_OUT
@@ -606,6 +763,7 @@ assign SNES_DATA = (r213f_enable & ~SNES_PARD & ~r213f_forceread) ? r213fr
                                   :msu_enable ? MSU_SNES_DATA_OUT
                                   :bsx_data_ovr ? BSX_SNES_DATA_OUT
                                   :(cheat_hit & ~feat_cmd_unlock) ? cheat_data_out
+                                  :((snescmd_unlock | feat_cmd_unlock) & snescmd_reg_enable) ? snescmd_reg_out
                                   :((snescmd_unlock | feat_cmd_unlock) & snescmd_enable) ? snescmd_dout
                                   :(ROM_ADDR0 ? ROM_DATA[7:0] : ROM_DATA[15:8])
                                   ) : 8'bZ;
@@ -739,6 +897,12 @@ assign ROM_CE = 1'b0;
 assign ROM_BHE = ROM_ADDR0;
 assign ROM_BLE = !ROM_ADDR0;
 
+wire cart_read_oe = ( (IS_ROM & SNES_ROMSEL)
+                    | (!IS_ROM & !IS_SAVERAM & !IS_WRITABLE & !IS_FLASHWR)
+                    | (SNES_READ & SNES_WRITE)
+                    | (bsx_tristate)
+                    );
+
 assign SNES_DATABUS_OE = (dspx_enable | dspx_dp_enable) ? 1'b0 :
                          msu_enable ? 1'b0 :
                          bsx_data_ovr ? (SNES_READ & SNES_WRITE) :
@@ -747,13 +911,12 @@ assign SNES_DATABUS_OE = (dspx_enable | dspx_dp_enable) ? 1'b0 :
                          bs_page_enable ? (SNES_READ) :
                          r213f_enable & !SNES_PARD ? 1'b0 :
                          snoop_4200_enable ? SNES_WRITE :
-                         ((IS_ROM & SNES_ROMSEL)
-                          |(!IS_ROM & !IS_SAVERAM & !IS_WRITABLE & !IS_FLASHWR)
-                          |(SNES_READ & SNES_WRITE)
-                          | bsx_tristate
-                         );
+								 snoop_420X_enable ? SNES_WRITE :
+								 (snoop_21XX_enable & SNES_PAWR_DATA_OE)? 1'b0 :
+								 (snoop_2140_enable & SNES_PARD_DATA_OE)? 1'b0 : 
+								 cart_read_oe;
 
-assign SNES_DATABUS_DIR = (~SNES_READ | (~SNES_PARD & (r213f_enable)))
+assign SNES_DATABUS_DIR = ((~SNES_READ & ((~SNES_PAWR_DATA_OE & ~SNES_PARD_DATA_OE) | ~SNES_ROMSEL_EARLY)) | (~SNES_PARD & (r213f_enable)))
                            ? 1'b1 ^ (r213f_forceread & r213f_enable & ~SNES_PARD)
                            : 1'b0;
 

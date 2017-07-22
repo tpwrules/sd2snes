@@ -51,7 +51,8 @@ int usbint_server_dat(void);
 int usbint_handler(void);
 //void usbint_handler_server(void);
 int usbint_handler_cmd(void);
-void usbint_handler_dat(void);
+int usbint_handler_dat(void);
 int usbint_handler_req(void);
+int usbint_handler_exe(void);
 
 #endif

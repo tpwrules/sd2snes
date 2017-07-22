@@ -30,11 +30,13 @@ module address(
   output IS_WRITABLE,       // address somehow mapped as writable area?
   input [23:0] SAVERAM_MASK,
   input [23:0] ROM_MASK,
+  input snescmd_unlock,
   output msu_enable,
   output cx4_enable,
   output cx4_vect_enable,
   output r213f_enable,
   output snescmd_enable,
+  output snescmd_reg_enable,
   output nmicmd_enable,
   output return_vector_enable,
   output branch1_enable,
@@ -57,17 +59,24 @@ wire [23:0] SRAM_SNES_ADDR;
 assign IS_ROM = ((!SNES_ADDR[22] & SNES_ADDR[15])
                  |(SNES_ADDR[22]));
 
-assign IS_SAVERAM = |SAVERAM_MASK & (~SNES_ADDR[23] & &SNES_ADDR[22:20] & ~SNES_ADDR[19] & ~SNES_ADDR[15]);
+assign IS_SAVERAM = (~snescmd_unlock & (|SAVERAM_MASK)) & (~SNES_ADDR[23] & &SNES_ADDR[22:20] & ~SNES_ADDR[19] & ~SNES_ADDR[15]);
 
-assign SRAM_SNES_ADDR = IS_SAVERAM
-                        ? (24'hE00000 | ({SNES_ADDR[19:16], SNES_ADDR[14:0]}
-                         & SAVERAM_MASK))
-                        : ({2'b00, SNES_ADDR[22:16], SNES_ADDR[14:0]}
-                         & ROM_MASK);
+assign IS_PATCH = snescmd_unlock && (&SNES_ADDR[23:20]);
 
+assign SRAM_SNES_ADDR = IS_PATCH
+                        ? SNES_ADDR
+                        : (IS_SAVERAM
+                          ? (24'hE00000 | ({SNES_ADDR[19:16], SNES_ADDR[14:0]}
+                           & (snescmd_unlock ? 24'h3FFFF : SAVERAM_MASK)))
+                          : ({2'b00, SNES_ADDR[22:16], SNES_ADDR[14:0]}
+                           & ROM_MASK));
+
+// when unlocked provide a bank at the top of SRAM.  Note that unlock has a delay after we exit the handler
+// so there is a possibility we'll read these addresses instead of ROM.  It would be safer to put this in an
+// unused address that is unmapped
 assign ROM_ADDR = SRAM_SNES_ADDR;
 
-assign IS_WRITABLE = IS_SAVERAM;
+assign IS_WRITABLE = IS_SAVERAM | IS_PATCH;
 
 assign ROM_HIT = IS_ROM | IS_WRITABLE;
 
@@ -79,9 +88,10 @@ assign cx4_enable = cx4_enable_w;
 
 assign cx4_vect_enable = &SNES_ADDR[15:5];
 
-assign r213f_enable = featurebits[FEAT_213F] & (SNES_PA == 9'h3f);
+assign r213f_enable = featurebits[FEAT_213F] & (SNES_PA == 8'h3f);
 
 assign snescmd_enable = ({SNES_ADDR[22], SNES_ADDR[15:9]} == 8'b0_0010101);
+assign snescmd_reg_enable = ({SNES_ADDR[22], SNES_ADDR[15:7],7'h00} == 17'h02B00);
 assign nmicmd_enable = (SNES_ADDR == 24'h002BF2);
 assign return_vector_enable = (SNES_ADDR == 24'h002A5A);
 assign branch1_enable = (SNES_ADDR == 24'h002A13);

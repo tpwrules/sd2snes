@@ -246,17 +246,26 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   file_close();
 
   if(filename == (uint8_t*)"/sd2snes/menu.bin") {
+    printf("Setting menu features...");
     fpga_set_features(romprops.fpga_features | FEAT_CMD_UNLOCK);
+    printf("OK.\n");
   }
   /* TODO check prerequisites and set error code here */
-  if(flags & LOADROM_WAIT_SNES) snes_set_snes_cmd(0x55);
+  if(flags & LOADROM_WAIT_SNES) {
+    printf("Setting cmd=0x55...");
+    snes_set_snes_cmd(0x55);
+    printf("OK.\n");
+  }
   /* reconfigure FPGA if necessary */
   if(flags & LOADROM_WAIT_SNES) {
+    printf("Checking if ok to reconfigure...");
     while(snes_get_mcu_cmd() != SNES_CMD_FPGA_RECONF);
+    printf("OK.\n");
   }
-  if(romprops.fpga_conf) {
-    printf("reconfigure FPGA with %s...\n", romprops.fpga_conf);
-    fpga_pgm((uint8_t*)romprops.fpga_conf);
+  if(romprops.fpga_conf || (flags & LOADROM_WITH_FPGA)) {
+    const uint8_t *fpga_conf = romprops.fpga_conf ? romprops.fpga_conf : FPGA_BASE;
+    printf("reconfigure FPGA with %s...\n", fpga_conf);
+    fpga_pgm((uint8_t*)fpga_conf);
     fpga_set_features(romprops.fpga_features | FEAT_CMD_UNLOCK);
   }
   if(flags & LOADROM_WAIT_SNES) snes_set_snes_cmd(0x77);
@@ -335,8 +344,8 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   readled(0);
 
   if(flags & LOADROM_WITH_SRAM) {
-    if(romprops.ramsize_bytes) {
-      sram_memset(SRAM_SAVE_ADDR, romprops.ramsize_bytes, 0xFF);
+    if(romprops.ramsize_bytes  || 1) {
+      sram_memset(SRAM_SAVE_ADDR, (1024 << 8)/*romprops.ramsize_bytes*/, 0xFF);
       migrate_and_load_srm(filename, SRAM_SAVE_ADDR);
       /* file not found error is ok (SRM file might not exist yet) */
       if(file_res == FR_NO_FILE) file_res = 0;
