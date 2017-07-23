@@ -31,7 +31,7 @@ module address(
   output IS_WRITABLE,       // address somehow mapped as writable area?
   input [23:0] SAVERAM_MASK,
   input [23:0] ROM_MASK,
-  input  snescmd_unlock,
+  input  map_unlock,
   output msu_enable,
   output srtc_enable,
   output use_bsx,
@@ -78,7 +78,7 @@ wire [23:0] SRAM_SNES_ADDR;
 assign IS_ROM = ((!SNES_ADDR[22] & SNES_ADDR[15])
                  |(SNES_ADDR[22]));
 
-assign IS_SAVERAM = (~snescmd_unlock & SAVERAM_MASK[0])
+assign IS_SAVERAM = (~map_unlock & SAVERAM_MASK[0])
                     &(featurebits[FEAT_ST0010]
                       ?((SNES_ADDR[22:19] == 4'b1101)
                         & &(~SNES_ADDR[15:12])
@@ -109,7 +109,7 @@ assign IS_SAVERAM = (~snescmd_unlock & SAVERAM_MASK[0])
                       : 1'b0));
 
 // give the patch free reign over $F0-$FF banks
-assign IS_PATCH = snescmd_unlock && (&SNES_ADDR[23:20]);
+assign IS_PATCH = map_unlock && (&SNES_ADDR[23:20]);
 
 /* BS-X has 4 MBits of extra RAM that can be mapped to various places */
 // LoROM: A23 = r03/r04  A22 = r06  A21 = r05  A20 = 0    A19 = d/c

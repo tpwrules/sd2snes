@@ -40,7 +40,8 @@ module cheat(
   input [31:0] pgm_in,
   output [7:0] data_out,
   output cheat_hit,
-  output snescmd_unlock
+  output snescmd_unlock,
+  output map_unlock
 );
 
 wire snescmd_wr_strobe = snescmd_enable & SNES_wr_strobe;
@@ -80,6 +81,9 @@ reg [5:0] cheat_enable_mask;
 
 reg snescmd_unlock_r = 0;
 assign snescmd_unlock = snescmd_unlock_r;
+
+reg map_unlock_r = 0;
+assign map_unlock = map_unlock_r;
 
 reg [7:0] nmicmd = 0;
 reg [7:0] return_vector = 8'hea;
@@ -194,7 +198,7 @@ always @(posedge clk) begin
   if(SNES_reset_strobe) begin
     snescmd_unlock_r <= 0;
     snescmd_unlock_disable <= 0;
-	 //snescmd_unlock_stack <= 0;
+	 map_unlock_r <= 0;
   end else begin
     if(SNES_rd_strobe) begin
       if(hook_enable_sync
@@ -204,7 +208,7 @@ always @(posedge clk) begin
         // remember where we came from (IRQ/NMI) for hook exit
         return_vector <= SNES_ADDR[7:0];
         snescmd_unlock_r <= 1;
-        //snescmd_unlock_stack <= snescmd_unlock_stack + 1;
+		  map_unlock_r <= 1;
       end
       if(rst_match_bits[1] & |reset_unlock_r) begin
         snescmd_unlock_r <= 1;
@@ -222,11 +226,10 @@ always @(posedge clk) begin
       end
     end
     if(snescmd_unlock_disable_strobe) begin
-	   //if (snescmd_unlock_stack == 1) begin
-        snescmd_unlock_disable_countdown <= 7'd72;
-        snescmd_unlock_disable <= 1;
-		//end
-		//snescmd_unlock_stack <= snescmd_unlock_stack - 1;
+      snescmd_unlock_disable_countdown <= 7'd72;
+      snescmd_unlock_disable <= 1;
+		// disable mapping immediately - fixes CT
+		map_unlock_r <= 0;
     end
   end
 end

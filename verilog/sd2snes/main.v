@@ -553,7 +553,7 @@ address snes_addr(
   .IS_WRITABLE(IS_WRITABLE),
   .SAVERAM_MASK(SAVERAM_MASK),
   .ROM_MASK(ROM_MASK),
-  .snescmd_unlock(snescmd_unlock),
+  .map_unlock(map_unlock),
   //MSU-1
   .msu_enable(msu_enable),
   //BS-X
@@ -604,7 +604,8 @@ cheat snes_cheat(
   .pgm_in(cheat_pgm_data),
   .data_out(cheat_data_out),
   .cheat_hit(cheat_hit),
-  .snescmd_unlock(snescmd_unlock)
+  .snescmd_unlock(snescmd_unlock),
+  .map_unlock(map_unlock)
 );
 
 wire [7:0] snescmd_dout;
