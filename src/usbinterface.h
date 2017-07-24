@@ -46,6 +46,7 @@ void usbint_send_block(int blockSize);
 // BUSY interface
 int usbint_server_busy(void);
 int usbint_server_dat(void);
+int usbint_server_reset(void);
 
 // menu/game state machine
 int usbint_handler(void);

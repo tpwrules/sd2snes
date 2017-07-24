@@ -1,4 +1,5 @@
-ORG $002A90
+ORG $D00000
+FORCEPC $002A90
 print "Hook Bank Starting at: ", pc
 
 hook:

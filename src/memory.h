@@ -68,6 +68,9 @@
 #define SAVE_BASEDIR    ("/sd2snes/saves/")
 
 uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags);
+void assert_reset(void);
+void init(uint8_t *filename);
+void deassert_reset(void);
 uint32_t load_spc(uint8_t* filename, uint32_t spc_data_addr, uint32_t spc_header_addr);
 uint32_t migrate_and_load_srm(uint8_t *filename, uint32_t base_addr);
 uint32_t load_sram(uint8_t* filename, uint32_t base_addr);

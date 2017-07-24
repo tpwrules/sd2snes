@@ -58,9 +58,10 @@
 #define GENERATE_STRING(STRING) #STRING,
 
 #define PRINT_FUNCTION() printf("%-20s ", __FUNCTION__);
-#define PRINT_CMD(buf) printf("header=%c%c%c%c op=%s space=%s ", buf[0], buf[1], buf[2], buf[3]          \
-                                                               , usbint_server_opcode_s[buf[4]]          \
-                                                               , usbint_server_space_s[buf[5]]           \
+#define PRINT_CMD(buf) printf("header=%c%c%c%c op=%s space=%s flags=%d ", buf[0], buf[1], buf[2], buf[3]          \
+                                                                        , usbint_server_opcode_s[buf[4]]          \
+                                                                        , usbint_server_space_s[buf[5]]           \
+                                                                        , buf[6]                                  \
                                                                );
 #define PRINT_DAT(num, total) printf("%d/%d ", num, total);
 #define PRINT_MSG(msg) printf("%-5s ", msg);
@@ -135,17 +136,19 @@ static const char *usbint_server_space_s[] = { FOREACH_SERVER_SPACE(GENERATE_STR
 
 #define FOREACH_SERVER_FLAGS(OP)               \
   OP(USBINT_SERVER_FLAGS_NONE)                 \
-  OP(USBINT_SERVER_FLAGS_FAST)                 \
+  OP(USBINT_SERVER_FLAGS_SKIPRESET)            \
+  OP(USBINT_SERVER_FLAGS_ONLYRESET)            \
+  OP(USBINT_SERVER_FLAGS_3)                    \
   OP(USBINT_SERVER_FLAGS_CLRX)                 \
-  OP(USBINT_SERVER_FLAGS_FAST_CLRX)            \
-  OP(USBINT_SERVER_FLAGS_SETX)                 \
-  OP(USBINT_SERVER_FLAGS_FAST_SETX)            \
-  OP(USBINT_SERVER_FLAGS_CLRX_SETX)            \
-  OP(USBINT_SERVER_FLAGS_FAST_CLRX_SETX)       
+  OP(USBINT_SERVER_FLAGS_5)                    \
+  OP(USBINT_SERVER_FLAGS_6)                    \
+  OP(USBINT_SERVER_FLAGS_7)                    \
+  OP(USBINT_SERVER_FLAGS_SETX)                 
 enum usbint_server_flags_e { FOREACH_SERVER_FLAGS(GENERATE_ENUM) };
 //static const char *usbint_server_flags_s[] = { FOREACH_SERVER_FLAGS(GENERATE_STRING) };
 
 volatile enum usbint_server_state_e server_state = USBINT_SERVER_STATE_IDLE;
+static int reset_state = 0;
 
 struct usbint_server_info_t {
   enum usbint_server_opcode_e opcode;
@@ -296,6 +299,8 @@ int usbint_server_dat() {
     // LCK isn't considered busy
     return server_state == USBINT_SERVER_STATE_HANDLE_DAT;
 }
+
+int usbint_server_reset() { return reset_state; }
 
 // top level state machine
 int usbint_handler(void) {
@@ -450,33 +455,27 @@ int usbint_handler_cmd(void) {
         sleep_ms(16);
     }
     
-    // create response
-    send_buffer[send_buffer_index][0] = 'U';
-    send_buffer[send_buffer_index][1] = 'S';
-    send_buffer[send_buffer_index][2] = 'B';
-    send_buffer[send_buffer_index][3] = 'A';
-    // opcode
-    send_buffer[send_buffer_index][4] = USBINT_SERVER_OPCODE_RESPONSE;
-    // error
-    send_buffer[send_buffer_index][5] = server_info.error;
-    // size
-    send_buffer[send_buffer_index][252] = (server_info.size >> 24) & 0xFF;
-    send_buffer[send_buffer_index][253] = (server_info.size >> 16) & 0xFF;
-    send_buffer[send_buffer_index][254] = (server_info.size >>  8) & 0xFF;
-    send_buffer[send_buffer_index][255] = (server_info.size >>  0) & 0xFF;
-    
-    // send response
-    usbint_send_block(USB_BLOCK_SIZE);
-
     // boot the ROM
     if (server_info.opcode == USBINT_SERVER_OPCODE_BOOT) {
-        strncpy ((char *)file_lfn, (char *)fileName, 256);
-        cfg_add_last_game(file_lfn);
-        // there may not be a menu to interact with so don't wait for SNES
-        load_rom(file_lfn, 0, LOADROM_WITH_RESET | LOADROM_WITH_SRAM | LOADROM_WITH_FPGA /*| LOADROM_WAIT_SNES*/);
-        // enter the game loop like the menu would
-        // NOTE: there seems to be some conflict with patching and GAMELOOP
-        ret = SNES_CMD_GAMELOOP;
+        // manually control reset in case we want to patch
+        if (!(server_info.flags & USBINT_SERVER_FLAGS_ONLYRESET)) {
+            strncpy ((char *)file_lfn, (char *)fileName, 256);
+            cfg_add_last_game(file_lfn);
+            // assert reset before loading
+            assert_reset();
+            // there may not be a menu to interact with so don't wait for SNES
+            load_rom(file_lfn, 0, LOADROM_WITH_SRAM | LOADROM_WITH_FPGA /*| LOADROM_WAIT_SNES*/);
+            //assert_reset();
+            init(file_lfn);
+            reset_state = 1;
+        }               
+
+        if (!(server_info.flags & USBINT_SERVER_FLAGS_SKIPRESET)) {
+            deassert_reset();
+            // enter the game loop like the menu would
+            ret = SNES_CMD_GAMELOOP;
+            reset_state = 0;
+        }
     }
     
     PRINT_STATE(server_state);
@@ -506,7 +505,25 @@ int usbint_handler_cmd(void) {
     }
 
     PRINT_END();
-    
+
+    // create response
+    send_buffer[send_buffer_index][0] = 'U';
+    send_buffer[send_buffer_index][1] = 'S';
+    send_buffer[send_buffer_index][2] = 'B';
+    send_buffer[send_buffer_index][3] = 'A';
+    // opcode
+    send_buffer[send_buffer_index][4] = USBINT_SERVER_OPCODE_RESPONSE;
+    // error
+    send_buffer[send_buffer_index][5] = server_info.error;
+    // size
+    send_buffer[send_buffer_index][252] = (server_info.size >> 24) & 0xFF;
+    send_buffer[send_buffer_index][253] = (server_info.size >> 16) & 0xFF;
+    send_buffer[send_buffer_index][254] = (server_info.size >>  8) & 0xFF;
+    send_buffer[send_buffer_index][255] = (server_info.size >>  0) & 0xFF;
+     
+    // send response
+    usbint_send_block(USB_BLOCK_SIZE);
+ 
     // lock process.  this avoids a conclusion with the rest of the menu accessing the file system or sram
     while(server_state == USBINT_SERVER_STATE_HANDLE_LOCK || server_state == USBINT_SERVER_STATE_HANDLE_DAT) {};
     

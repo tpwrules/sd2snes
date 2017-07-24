@@ -336,6 +336,10 @@ printf("PCONP=%lx\n", LPC_SC->PCONP);
 
 //        sleep_ms(250);
       sram_reliable();
+      
+      // loop if we are in the middle of a reset
+      if (usbint_server_reset()) continue;
+      
       if(reset_changed) {
         printf("reset\n");
         reset_changed = 0;

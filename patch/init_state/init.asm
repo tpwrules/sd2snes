@@ -333,6 +333,9 @@ start:
 +   %ai16()
     ;%cgram()
     
+    ; FORCE LOAD
+    jmp .load_state
+    
     lda.l .CS_INPUT_CUR
     sta.l .CS_INPUT_PREV
     lda $002BF0

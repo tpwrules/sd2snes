@@ -231,6 +231,7 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   UINT bytes_read;
   DWORD filesize;
   UINT count=0;
+  UINT is_menu = filename == (uint8_t*)"/sd2snes/menu.bin";
   tick_t ticksstart, ticks_total=0;
   ticksstart=getticks();
 
@@ -244,8 +245,8 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   filesize = file_handle.fsize;
   smc_id(&romprops, flags);
   file_close();
-
-  if(filename == (uint8_t*)"/sd2snes/menu.bin") {
+  
+  if(is_menu) {
     printf("Setting menu features...");
     fpga_set_features(romprops.fpga_features | FEAT_CMD_UNLOCK);
     printf("OK.\n");
@@ -364,7 +365,7 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   }
   printf("done\n");
 
-  if(cfg_is_r213f_override_enabled() && (filename != (uint8_t*)"/sd2snes/menu.bin") && !ST.is_u16) {
+  if(cfg_is_r213f_override_enabled() && !is_menu && !ST.is_u16) {
     romprops.fpga_features |= FEAT_213F; /* e.g. for general consoles */
   }
   fpga_set_213f(romprops.region);
@@ -391,24 +392,36 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
 
 //printf("%04lx\n", romprops.header_address + ((void*)&romprops.header.vect_irq16 - (void*)&romprops.header));
   if(flags & (LOADROM_WITH_RESET|LOADROM_WAIT_SNES)) {
-    printf("resetting SNES\n");
-    fpga_dspx_reset(1);
-    snes_reset(1);
-    if(ST.is_u16 && (ST.u16_cfg & 0x01)) {
-      delay_ms(60*SNES_RESET_PULSELEN_MS);
-    } else {
-      delay_ms(SNES_RESET_PULSELEN_MS);
-    }
-    snescmd_prepare_nmihook();
-    cheat_yaml_load(filename);
-// XXX    cheat_yaml_save(filename);
-    cheat_program();
-    fpga_set_features(romprops.fpga_features);
-    snes_reset(0);
-    fpga_dspx_reset(0);
+    assert_reset();
+    init(filename);
+    deassert_reset();
   }
 
   return (uint32_t)filesize;
+}
+
+void assert_reset() {
+  printf("resetting SNES\n");
+  fpga_dspx_reset(1);
+  snes_reset(1);
+  if(ST.is_u16 && (ST.u16_cfg & 0x01)) {
+    delay_ms(60*SNES_RESET_PULSELEN_MS);
+  } else {
+    delay_ms(SNES_RESET_PULSELEN_MS);
+  }
+}
+
+void init(uint8_t *filename) {
+  snescmd_prepare_nmihook();
+  cheat_yaml_load(filename);
+// XXX    cheat_yaml_save(filename);
+  cheat_program();
+  fpga_set_features(romprops.fpga_features);
+}
+
+void deassert_reset() {
+  snes_reset(0);
+  fpga_dspx_reset(0);    
 }
 
 uint32_t load_spc(uint8_t* filename, uint32_t spc_data_addr, uint32_t spc_header_addr) {
