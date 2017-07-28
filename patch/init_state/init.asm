@@ -13,63 +13,43 @@ start:
 	dw $1000|$2100, $80
 	; Single address, B bus -> A bus.  B address = reflector to WRAM ($2180).
 	dw $0000|$4310, $8080  ; direction = B->A, byte reg, B addr = $2180
-	; Copy WRAM 7E0000-7E7FFF to F00000-F07FFF.
+	; Copy WRAM 7E0000-7EFFFF to F00000-F0FFFF.
 	dw $0000|$4312, $0000  ; A addr = $xx0000
 	dw $0000|$4314, $00F0  ; A addr = $F0xxxx, size = $xx00
-	dw $0000|$4316, $0080  ; size = $80xx ($8000), unused bank reg = $00.
+	dw $0000|$4316, $0000  ; size = $00xx ($0000), unused bank reg = $00.
 	dw $0000|$2181, $0000  ; WRAM addr = $xx0000
 	dw $1000|$2183, $00    ; WRAM addr = $7Exxxx  (bank is relative to $7E)
 	dw $1000|$420B, $02    ; Trigger DMA on channel 1
-	; Copy WRAM 7E8000-7EFFFF to F08000-F0FFFF.
-	dw $0000|$4312, $8000  ; A addr = $xx8000
-	dw $0000|$4314, $00F0  ; A addr = $F0xxxx, size = $xx00
-	dw $0000|$4316, $0080  ; size = $80xx ($8000), unused bank reg = $00.
-	dw $0000|$2181, $8000  ; WRAM addr = $xx8000
-	dw $1000|$2183, $00    ; WRAM addr = $7Exxxx  (bank is relative to $7E)
-	dw $1000|$420B, $02    ; Trigger DMA on channel 1
-	; Copy WRAM 7F0000-7F7FFF to F10000-F17FFF.
+	; Copy WRAM 7F0000-7FFFFF to F10000-F1FFFF.
 	dw $0000|$4312, $0000  ; A addr = $xx0000
 	dw $0000|$4314, $00F1  ; A addr = $F1xxxx, size = $xx00
-	dw $0000|$4316, $0080  ; size = $80xx ($8000), unused bank reg = $00.
+	dw $0000|$4316, $0000  ; size = $00xx ($0000), unused bank reg = $00.
 	dw $0000|$2181, $0000  ; WRAM addr = $xx0000
-	dw $1000|$2183, $01    ; WRAM addr = $7Fxxxx  (bank is relative to $7E)
-	dw $1000|$420B, $02    ; Trigger DMA on channel 1
-	; Copy WRAM 7F8000-7FFFFF to F18000-F1FFFF.
-	dw $0000|$4312, $8000  ; A addr = $xx8000
-	dw $0000|$4314, $00F1  ; A addr = $F1xxxx, size = $xx00
-	dw $0000|$4316, $0080  ; size = $80xx ($8000), unused bank reg = $00.
-	dw $0000|$2181, $8000  ; WRAM addr = $xx8000
 	dw $1000|$2183, $01    ; WRAM addr = $7Fxxxx  (bank is relative to $7E)
 	dw $1000|$420B, $02    ; Trigger DMA on channel 1
 	; Address pair, B bus -> A bus.  B address = VRAM read ($2139).
 	dw $0000|$4310, $3981  ; direction = B->A, word reg, B addr = $2139
 	dw $1000|$2115, $00    ; VRAM address increment mode.
-	; Copy VRAM 0000-7FFF to F20000-F27FFF.
+	; Copy VRAM 0000-FFFF to F20000-F2FFFF.
 	dw $0000|$2116, $0000  ; VRAM address >> 1.
 	dw $8000|$2139, $0000  ; VRAM dummy read.
 	dw $0000|$4312, $0000  ; A addr = $xx0000
 	dw $0000|$4314, $00F2  ; A addr = $75xxxx, size = $xx00
-	dw $0000|$4316, $0080  ; size = $80xx ($0000), unused bank reg = $00.
+	dw $0000|$4316, $0000  ; size = $00xx ($0000), unused bank reg = $00.
 	dw $1000|$420B, $02    ; Trigger DMA on channel 1
-	; Copy VRAM 8000-7FFF to F28000-F2FFFF.
-	dw $0000|$2116, $4000  ; VRAM address >> 1.
-	dw $8000|$2139, $0000  ; VRAM dummy read.
-	dw $0000|$4312, $8000  ; A addr = $xx8000
-	dw $0000|$4314, $00F2  ; A addr = $F2xxxx, size = $xx00
-	dw $0000|$4316, $0080  ; size = $80xx ($0000), unused bank reg = $00.
-	dw $1000|$420B, $02    ; Trigger DMA on channel 1
-	; Copy CGRAM 000-1FF to F30000-F301FF.
+    ; TODO add audio
+	; Copy CGRAM 000-1FF to F40000-F401FF.
 	dw $1000|$2121, $00    ; CGRAM address
 	dw $0000|$4310, $3B80  ; direction = B->A, byte reg, B addr = $213B
 	dw $0000|$4312, $0000  ; A addr = $xx0000
-	dw $0000|$4314, $00F3  ; A addr = $F3xxxx, size = $xx00
+	dw $0000|$4314, $00F4  ; A addr = $F4xxxx, size = $xx00
 	dw $0000|$4316, $0002  ; size = $02xx ($0200), unused bank reg = $00.
 	dw $1000|$420B, $02    ; Trigger DMA on channel 1
-	; Copy OAM 000-21F to F30200-F3041F.
+	; Copy OAM 000-21F to F40200-F4041F.
 	dw $0000|$2102, $0000  ; OAM address
 	dw $0000|$4310, $3880  ; direction = B->A, byte reg, B addr = $2138
 	dw $0000|$4312, $0200  ; A addr = $xx0200
-	dw $0000|$4314, $20F3  ; A addr = $F3xxxx, size = $xx20
+	dw $0000|$4314, $20F4  ; A addr = $F4xxxx, size = $xx20
 	dw $0000|$4316, $0002  ; size = $02xx ($0220), unused bank reg = $00.
 	dw $1000|$420B, $02    ; Trigger DMA on channel 1
 	; Done
@@ -83,61 +63,42 @@ start:
 	dw $1000|$2100, $80
 	; Single address, A bus -> B bus.  B address = reflector to WRAM ($2180).
 	dw $0000|$4310, $8000  ; direction = A->B, B addr = $2180
-	; Copy F00000-F07FFF to WRAM 7E0000-7E7FFF.
+	; Copy F00000-F0FFFF to WRAM 7E0000-7EFFFF.
 	dw $0000|$4312, $0000  ; A addr = $xx0000
 	dw $0000|$4314, $00F0  ; A addr = $F0xxxx, size = $xx00
-	dw $0000|$4316, $0080  ; size = $80xx ($8000), unused bank reg = $00.
+	dw $0000|$4316, $0000  ; size = $00xx ($0000), unused bank reg = $00.
 	dw $0000|$2181, $0000  ; WRAM addr = $xx0000
 	dw $1000|$2183, $00    ; WRAM addr = $7Exxxx  (bank is relative to $7E)
 	dw $1000|$420B, $02    ; Trigger DMA on channel 1
-	; Copy F08000-F0FFFF to WRAM 7E8000-7EFFFF.
-	dw $0000|$4312, $8000  ; A addr = $xx8000
-	dw $0000|$4314, $00F0  ; A addr = $F0xxxx, size = $xx00
-	dw $0000|$4316, $0080  ; size = $80xx ($8000), unused bank reg = $00.
-	dw $0000|$2181, $8000  ; WRAM addr = $xx8000
-	dw $1000|$2183, $00    ; WRAM addr = $7Exxxx  (bank is relative to $7E)
-	dw $1000|$420B, $02    ; Trigger DMA on channel 1
-	; Copy F10000-F17FFF to WRAM 7F0000-7F7FFF.
+	; Copy F10000-F1FFFF to WRAM 7F0000-7FFFFF.
 	dw $0000|$4312, $0000  ; A addr = $xx0000
 	dw $0000|$4314, $00F1  ; A addr = $F1xxxx, size = $xx00
-	dw $0000|$4316, $0080  ; size = $80xx ($8000), unused bank reg = $00.
+	dw $0000|$4316, $0000  ; size = $00xx ($0000), unused bank reg = $00.
 	dw $0000|$2181, $0000  ; WRAM addr = $xx0000
-	dw $1000|$2183, $01    ; WRAM addr = $7Fxxxx  (bank is relative to $7E)
-	dw $1000|$420B, $02    ; Trigger DMA on channel 1
-	; Copy F18000-F1FFFF to WRAM 7F8000-7FFFFF.
-	dw $0000|$4312, $8000  ; A addr = $xx8000
-	dw $0000|$4314, $00F1  ; A addr = $F1xxxx, size = $xx00
-	dw $0000|$4316, $0080  ; size = $80xx ($8000), unused bank reg = $00.
-	dw $0000|$2181, $8000  ; WRAM addr = $xx8000
 	dw $1000|$2183, $01    ; WRAM addr = $7Fxxxx  (bank is relative to $7E)
 	dw $1000|$420B, $02    ; Trigger DMA on channel 1
 	; Address pair, A bus -> B bus.  B address = VRAM write ($2118).
 	dw $0000|$4310, $1801  ; direction = A->B, B addr = $2118
 	dw $1000|$2115, $00    ; VRAM address increment mode.
-	; Copy F20000-F27FFF to VRAM 0000-7FFF.
+	; Copy F20000-F2FFFF to VRAM 0000-FFFF.
 	dw $0000|$2116, $0000  ; VRAM address >> 1.
 	dw $0000|$4312, $0000  ; A addr = $xx0000
 	dw $0000|$4314, $00F2  ; A addr = $F2xxxx, size = $xx00
-	dw $0000|$4316, $0080  ; size = $80xx ($0000), unused bank reg = $00.
+	dw $0000|$4316, $0000  ; size = $00xx ($0000), unused bank reg = $00.
 	dw $1000|$420B, $02    ; Trigger DMA on channel 1
-	; Copy F28000-F2FFFF to VRAM 8000-7FFF.
-	dw $0000|$2116, $4000  ; VRAM address >> 1.
-	dw $0000|$4312, $8000  ; A addr = $xx8000
-	dw $0000|$4314, $00F2  ; A addr = $F2xxxx, size = $xx00
-	dw $0000|$4316, $0080  ; size = $80xx ($0000), unused bank reg = $00.
-	dw $1000|$420B, $02    ; Trigger DMA on channel 1
-	; Copy F30000-F301FF to CGRAM 000-1FF.
+    ; TODO: add audio
+	; Copy F40000-F401FF to CGRAM 000-1FF.
 	dw $1000|$2121, $00    ; CGRAM address
 	dw $0000|$4310, $2200  ; direction = A->B, byte reg, B addr = $2122
 	dw $0000|$4312, $0000  ; A addr = $xx0000
-	dw $0000|$4314, $00F3  ; A addr = $F3xxxx, size = $xx00
+	dw $0000|$4314, $00F4  ; A addr = $F4xxxx, size = $xx00
 	dw $0000|$4316, $0002  ; size = $02xx ($0200), unused bank reg = $00.
 	dw $1000|$420B, $02    ; Trigger DMA on channel 1
-	; Copy F30200-F3041F to OAM 000-21F.
+	; Copy F40200-F4041F to OAM 000-21F.
 	dw $0000|$2102, $0000  ; OAM address
 	dw $0000|$4310, $0400  ; direction = A->B, byte reg, B addr = $2104
 	dw $0000|$4312, $0200  ; A addr = $xx0200
-	dw $0000|$4314, $20F3  ; A addr = $F3xxxx, size = $xx20
+	dw $0000|$4314, $20F4  ; A addr = $F4xxxx, size = $xx20
 	dw $0000|$4316, $0002  ; size = $02xx ($0220), unused bank reg = $00.
 	dw $1000|$420B, $02    ; Trigger DMA on channel 1
 	; Done

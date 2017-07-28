@@ -1,5 +1,4 @@
-ORG $000000
-FORCEPC $008000
+ORG $008000 : ipsoffset $000000
 print "Hook Bank Starting at: ", pc
 
 hook:
@@ -57,8 +56,7 @@ hook:
     
 ; NOTE: this really starts at $2A90
 ;ORG $002A90
-ORG $D00000
-FORCEPC $002A90
+ORG $002A90 : ipsoffset $D00000
     jmp.l start
 hook_return:
     ; one shot

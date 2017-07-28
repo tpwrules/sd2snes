@@ -1,5 +1,4 @@
-ORG $D00000
-FORCEPC $002A90
+ORG $002A90 : ipsoffset $D00000
 print "Hook Bank Starting at: ", pc
 
 hook:
