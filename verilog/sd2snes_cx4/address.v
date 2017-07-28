@@ -78,7 +78,7 @@ assign SRAM_SNES_ADDR = IS_PATCH
 assign ROM_ADDR = SRAM_SNES_ADDR;
 
 // FIXME: this may break DMAs from ROM to WRAM
-assign IS_WRITABLE = IS_SAVERAM | IS_PATCH | (map_unlock & ~SNES_ROMSEL);
+assign IS_WRITABLE = IS_SAVERAM | IS_PATCH; // | (map_unlock & ~SNES_ROMSEL);
 
 assign ROM_HIT = IS_ROM | IS_WRITABLE;
 
