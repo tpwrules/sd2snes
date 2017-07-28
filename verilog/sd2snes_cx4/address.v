@@ -23,6 +23,7 @@ module address(
   input [2:0] MAPPER,       // MCU detected mapper
   input [23:0] SNES_ADDR,   // requested address from SNES
   input [7:0] SNES_PA,      // peripheral address from SNES
+  input SNES_ROMSEL,        // ROMSEL from SNES
   output [23:0] ROM_ADDR,   // Address to request from SRAM0
   output ROM_HIT,           // want to access RAM0
   output IS_SAVERAM,        // address/CS mapped as SRAM?
@@ -30,7 +31,7 @@ module address(
   output IS_WRITABLE,       // address somehow mapped as writable area?
   input [23:0] SAVERAM_MASK,
   input [23:0] ROM_MASK,
-  input snescmd_unlock,
+  input map_unlock,
   output msu_enable,
   output cx4_enable,
   output cx4_vect_enable,
@@ -59,15 +60,15 @@ wire [23:0] SRAM_SNES_ADDR;
 assign IS_ROM = ((!SNES_ADDR[22] & SNES_ADDR[15])
                  |(SNES_ADDR[22]));
 
-assign IS_SAVERAM = (~snescmd_unlock & (|SAVERAM_MASK)) & (~SNES_ADDR[23] & &SNES_ADDR[22:20] & ~SNES_ADDR[19] & ~SNES_ADDR[15]);
+assign IS_SAVERAM = (~map_unlock & (|SAVERAM_MASK)) & (~SNES_ADDR[23] & &SNES_ADDR[22:20] & ~SNES_ADDR[19] & ~SNES_ADDR[15]);
 
-assign IS_PATCH = snescmd_unlock && (&SNES_ADDR[23:20]);
+assign IS_PATCH = map_unlock && (&SNES_ADDR[23:20]);
 
 assign SRAM_SNES_ADDR = IS_PATCH
                         ? SNES_ADDR
                         : (IS_SAVERAM
                           ? (24'hE00000 | ({SNES_ADDR[19:16], SNES_ADDR[14:0]}
-                           & (snescmd_unlock ? 24'h3FFFF : SAVERAM_MASK)))
+                           & SAVERAM_MASK))
                           : ({2'b00, SNES_ADDR[22:16], SNES_ADDR[14:0]}
                            & ROM_MASK));
 
@@ -76,7 +77,8 @@ assign SRAM_SNES_ADDR = IS_PATCH
 // unused address that is unmapped
 assign ROM_ADDR = SRAM_SNES_ADDR;
 
-assign IS_WRITABLE = IS_SAVERAM | IS_PATCH;
+// FIXME: this may break DMAs from ROM to WRAM
+assign IS_WRITABLE = IS_SAVERAM | IS_PATCH | (map_unlock & ~SNES_ROMSEL);
 
 assign ROM_HIT = IS_ROM | IS_WRITABLE;
 

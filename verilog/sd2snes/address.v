@@ -140,7 +140,8 @@ wire BSX_IS_HOLE = BSX_HOLE_LOHI
 assign bsx_tristate = (MAPPER == 3'b011) & ~BSX_IS_CARTROM & ~BSX_IS_PSRAM & BSX_IS_HOLE;
 
 assign IS_WRITABLE = IS_SAVERAM
-                     |IS_PATCH
+                     |IS_PATCH // allow writing of the patch region
+							|(map_unlock & ~SNES_ROMSEL) // allow writing of the ROM in the PATCH region.  FIXME: this may break DMAs from ROM to WRAM
                      |((MAPPER == 3'b011) & BSX_IS_PSRAM);
 
 wire [23:0] BSX_ADDR = bsx_regs[2] ? {1'b0, SNES_ADDR[22:0]}

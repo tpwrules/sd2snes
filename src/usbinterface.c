@@ -210,17 +210,17 @@ void usbint_recv_block(void) {
                 // put operations require
                 cmdDat = 1;
             }
-            PRINT_FUNCTION();
-            PRINT_MSG("[ cmd]");
+            //PRINT_FUNCTION();
+            //PRINT_MSG("[ cmd]");
             
             // FIXME: this needs to have release semantics
             //if (server_state != USBINT_SERVER_STATE_HANDLE_LOCK || recv_buffer[4] == USBINT_SERVER_OPCODE_MENU_UNLOCK) {
-            PRINT_STATE(server_state);
+            //PRINT_STATE(server_state);
             server_state = USBINT_SERVER_STATE_HANDLE_CMD;
-            PRINT_STATE(server_state);
+            //PRINT_STATE(server_state);
 
-            PRINT_CMD(recv_buffer);
-            PRINT_END();
+            //PRINT_CMD(recv_buffer);
+            //PRINT_END();
         }
     }
     else {
@@ -257,11 +257,11 @@ void usbint_recv_block(void) {
             if (server_info.space == USBINT_SERVER_SPACE_FILE) {
                 f_close(&fh);
             }
-            PRINT_FUNCTION();
-            PRINT_MSG("[ dat]");
+            //PRINT_FUNCTION();
+            //PRINT_MSG("[ dat]");
 
             // unlock any sram transfer lock
-            PRINT_STATE(server_state);
+            //PRINT_STATE(server_state);
             if (server_info.flags & USBINT_SERVER_FLAGS_SETX) {
                 // enable hook
                 server_state = USBINT_SERVER_STATE_HANDLE_EXE;
@@ -269,14 +269,14 @@ void usbint_recv_block(void) {
             else if (server_state == USBINT_SERVER_STATE_HANDLE_LOCK) {
                 server_state = USBINT_SERVER_STATE_IDLE;
             }            
-            PRINT_STATE(server_state);
+            //PRINT_STATE(server_state);
 
-            PRINT_DAT((int)count, (int)server_info.size);
+            //PRINT_DAT((int)count, (int)server_info.size);
 
             cmdDat = 0;
             count = 0;
             
-            PRINT_END();
+            //PRINT_END();
         }
         
    }
