@@ -62,7 +62,7 @@ assign IS_ROM = ((!SNES_ADDR[22] & SNES_ADDR[15])
 
 assign IS_SAVERAM = (~map_unlock & (|SAVERAM_MASK)) & (~SNES_ADDR[23] & &SNES_ADDR[22:20] & ~SNES_ADDR[19] & ~SNES_ADDR[15]);
 
-assign IS_PATCH = map_unlock && (&SNES_ADDR[23:20]);
+assign IS_PATCH = map_unlock & (&SNES_ADDR[23:20]);
 
 assign SRAM_SNES_ADDR = IS_PATCH
                         ? SNES_ADDR
@@ -78,7 +78,7 @@ assign SRAM_SNES_ADDR = IS_PATCH
 assign ROM_ADDR = SRAM_SNES_ADDR;
 
 // FIXME: this may break DMAs from ROM to WRAM
-assign IS_WRITABLE = IS_SAVERAM | IS_PATCH; // | (map_unlock & ~SNES_ROMSEL);
+assign IS_WRITABLE = IS_SAVERAM | (map_unlock & ((&SNES_ADDR[23:20]) | ~SNES_ROMSEL)); //IS_PATCH; // | (map_unlock & ~SNES_ROMSEL);
 
 assign ROM_HIT = IS_ROM | IS_WRITABLE;
 

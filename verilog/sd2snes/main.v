@@ -782,6 +782,17 @@ wire MCU_WR_HIT = |(STATE & ST_MCU_WR_ADDR);
 wire MCU_RD_HIT = |(STATE & ST_MCU_RD_ADDR);
 wire MCU_HIT = MCU_WR_HIT | MCU_RD_HIT;
 
+// Map audio to ROM
+reg [7:0] rAudio[3:0];
+
+wire snoop_audio_enable = {SNES_PA[7:6],6'b000000} == 8'h40;
+
+always @(posedge CLK2) begin
+  if (SNES_PAWR_end & snoop_audio_enable) begin
+    rAudio[SNES_PA[1:0]] <= SNES_DATA;
+  end
+end
+
 assign ROM_ADDR  = (SD_DMA_TO_ROM) ? MCU_ADDR[23:1] : MCU_HIT ? ROM_ADDRr[23:1] : MAPPED_SNES_ADDR[23:1];
 assign ROM_ADDR0 = (SD_DMA_TO_ROM) ? MCU_ADDR[0] : MCU_HIT ? ROM_ADDRr[0] : MAPPED_SNES_ADDR[0];
 
