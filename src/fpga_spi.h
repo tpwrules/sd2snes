@@ -97,11 +97,7 @@
 #define FPGA_CMD_GETSTATUS       (0xf1)
 #define FPGA_CMD_MSUGETADDR      (0xf2)
 #define FPGA_CMD_MSUGETTRACK     (0xf3)
-#define FPGA_CMD_USBGETCTRL      (0xf4)
-#define FPGA_CMD_USBGETADDR      (0xf5)
-#define FPGA_CMD_USBGETDATA      (0xf6)
-#define FPGA_CMD_USBSETBITS      (0xf7)
-#define FPGA_CMD_USBSETDATA      (0xf8)
+#define FPGA_CMD_USBSETBITS      (0xf8)
 #define FPGA_CMD_GETSYSCLK       (0xfe)
 #define FPGA_CMD_ECHO            (0xff)
 
@@ -139,9 +135,5 @@ void fpga_write_snescmd(uint8_t data);
 uint8_t fpga_read_snescmd(void);
 void fpga_write_cheat(uint8_t index, uint32_t code);
 void fpga_set_dspfeat(uint16_t feat);
-uint32_t get_usb_addr(void);
-uint32_t get_usb_data(void);
-uint8_t get_usb_ctrl(void);
-void set_usb_data(uint32_t data);
 void set_usb_status(uint16_t status);
 #endif

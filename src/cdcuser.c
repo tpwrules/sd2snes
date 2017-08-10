@@ -226,7 +226,7 @@ uint32_t CDC_SetLineCoding (void) {
   CDC_LineCoding.bCharFormat =  EP0Buf[4];
   CDC_LineCoding.bParityType =  EP0Buf[5];
   CDC_LineCoding.bDataBits   =  EP0Buf[6];
-
+  
   return (1);
 }
 
@@ -258,8 +258,16 @@ uint32_t CDC_GetLineCoding (void) {
   Return Value: 1 - Success, 0 - Error
  *---------------------------------------------------------------------------*/
 uint32_t CDC_SetControlLineState (unsigned short wControlSignalBitmap) {
-
+  static unsigned short prev = 0;
   /* ... add code to handle request */
+  
+  // init USB state
+  if ((wControlSignalBitmap ^ prev) & 0x1) {
+    usbint_set_state(wControlSignalBitmap & 0x1);
+  }
+  
+  prev = wControlSignalBitmap;
+  
   return (1);
 }
 

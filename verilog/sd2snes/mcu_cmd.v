@@ -72,6 +72,11 @@ module mcu_cmd(
   output [13:0] msu_ptr_out,
   output msu_reset_out,
 
+  // USB
+  output [7:0] usb_status_reset_out,
+  output [7:0] usb_status_set_out,
+  output usb_status_reset_we,
+
   // BS-X
   output [7:0] bsx_regs_reset_out,
   output [7:0] bsx_regs_set_out,
@@ -145,6 +150,10 @@ reg [5:0] msu_status_set_out_buf;
 reg [5:0] msu_status_reset_out_buf;
 reg msu_status_reset_we_buf = 0;
 reg MSU_RESET_OUT_BUF;
+
+reg [7:0] usb_status_set_out_buf;
+reg [7:0] usb_status_reset_out_buf;
+reg usb_status_reset_we_buf = 0;
 
 reg [7:0] bsx_regs_set_out_buf;
 reg [7:0] bsx_regs_reset_out_buf;
@@ -422,6 +431,18 @@ always @(posedge clk) begin
             dsp_feat_out <= {dsp_feat_tmp, param_data[7:0]};
           end
         endcase
+      8'hf8:
+        case (spi_byte_cnt)
+          32'h2: begin
+            usb_status_set_out_buf <= param_data[7:0];
+          end
+          32'h3: begin
+            usb_status_reset_out_buf <= param_data[7:0];
+            usb_status_reset_we_buf <= 1'b1;
+          end
+          32'h4:
+            usb_status_reset_we_buf <= 1'b0;
+        endcase
     endcase
   end
 end
@@ -566,6 +587,10 @@ assign msu_status_reset_out = msu_status_reset_out_buf;
 assign msu_status_set_out = msu_status_set_out_buf;
 assign msu_reset_out = MSU_RESET_OUT_BUF;
 assign msu_ptr_out = MSU_PTR_OUT_BUF;
+
+assign usb_status_reset_we = usb_status_reset_we_buf;
+assign usb_status_reset_out = usb_status_reset_out_buf;
+assign usb_status_set_out = usb_status_set_out_buf;
 
 assign bsx_regs_reset_we = bsx_regs_reset_we_buf;
 assign bsx_regs_reset_out = bsx_regs_reset_out_buf;

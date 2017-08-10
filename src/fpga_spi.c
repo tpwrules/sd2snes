@@ -100,8 +100,9 @@
         F3        -             get MSU audio track no. (16bit, MSB first)
         F4        -             get MSU volume (8bit)
 
-        F8        -             get USB address (32bit, MSB first)
-        F9        -             get USB data (32bit, MSB first)
+        F8        ssrr          set USB-1 status register (=FPGA status [7:0])
+                                ss = bits to set in status register (1=set)
+                                rr = bits to reset in status register (1=reset)
         
         FE        -             get SNES master clock frequency (32bit, MSB first)
                                 measured 1x/sec
@@ -116,8 +117,8 @@
          12        reserved (0)
          11        reserved (0)
          10        reserved (0)
-          9        USB Read request from SNES
-          8        USB Write request from SNES
+          9        reserved (0)
+          8        reserved (0)
           7        reserved (0)
           6        MSU1 Audio request from SNES
           5        MSU1 Data request from SNES
@@ -471,51 +472,11 @@ void fpga_set_dspfeat(uint16_t feat) {
   FPGA_DESELECT();
 }
 
-uint8_t get_usb_ctrl() {
-  FPGA_SELECT();
-  FPGA_TX_BYTE(FPGA_CMD_USBGETCTRL);
-  uint8_t result = (FPGA_RX_BYTE());
-  FPGA_DESELECT();
-  return result;
-}
-
-uint32_t get_usb_addr() {
-  FPGA_SELECT();
-  FPGA_TX_BYTE(FPGA_CMD_USBGETADDR);
-  uint32_t result = (FPGA_RX_BYTE()) << 24;
-  result |= (FPGA_RX_BYTE()) << 16;
-  result |= (FPGA_RX_BYTE()) << 8;
-  result |= (FPGA_RX_BYTE());
-  FPGA_DESELECT();
-  return result;
-}
-
-uint32_t get_usb_data() {
-  FPGA_SELECT();
-  FPGA_TX_BYTE(FPGA_CMD_USBGETDATA);
-  uint32_t result = (FPGA_RX_BYTE()) << 24;
-  result |= (FPGA_RX_BYTE()) << 16;
-  result |= (FPGA_RX_BYTE()) << 8;
-  result |= (FPGA_RX_BYTE());
-  FPGA_DESELECT();
-  return result;
-}
-
 void set_usb_status(uint16_t status) {
   FPGA_SELECT();
   FPGA_TX_BYTE(FPGA_CMD_USBSETBITS);
   FPGA_TX_BYTE(status & 0xff);
   FPGA_TX_BYTE((status >> 8) & 0xff);
   FPGA_TX_BYTE(0x00); /* latch reset */
-  FPGA_DESELECT();
-}
-
-void set_usb_data(uint32_t data) {
-  FPGA_SELECT();
-  FPGA_TX_BYTE(FPGA_CMD_USBSETDATA);
-  FPGA_TX_BYTE((data>>24)&0xff);
-  FPGA_TX_BYTE((data>>16)&0xff);
-  FPGA_TX_BYTE((data>> 8)&0xff);
-  FPGA_TX_BYTE((data>> 0)&0xff);
   FPGA_DESELECT();
 }

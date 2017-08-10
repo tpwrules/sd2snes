@@ -30,6 +30,11 @@
 /* defines */
 #define USB_BLOCK_SIZE 512
 #define USB_DATABLOCK_SIZE 512
+
+#define USB_SNES_STATUS_SET_CONNECTED    (0x0001)
+
+#define USB_SNES_STATUS_CLR_CONNECTED    (0x0100)
+
 /* enums */
 
 /* structs */
@@ -37,6 +42,8 @@
 /* functions */
 
 // CDC SIDE FLIT COLLECTION
+// reset state
+void usbint_set_state(unsigned open);
 // collect a flit
 void usbint_recv_flit(const unsigned char *in, int length);
 // manage blocks
@@ -55,5 +62,6 @@ int usbint_handler_cmd(void);
 int usbint_handler_dat(void);
 int usbint_handler_req(void);
 int usbint_handler_exe(void);
+void usbint_check_connect(void);
 
 #endif

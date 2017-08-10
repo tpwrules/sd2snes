@@ -365,6 +365,9 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   }
   printf("done\n");
 
+  // FIXME: force USB features for now.  Might be better to set this in the client
+  romprops.fpga_features |= FEAT_USB1;
+  
   if(cfg_is_r213f_override_enabled() && !is_menu && !ST.is_u16) {
     romprops.fpga_features |= FEAT_213F; /* e.g. for general consoles */
   }

@@ -58,10 +58,12 @@
 #define GENERATE_STRING(STRING) #STRING,
 
 #define PRINT_FUNCTION() printf("%-20s ", __FUNCTION__);
-#define PRINT_CMD(buf) printf("header=%c%c%c%c op=%s space=%s flags=%d ", buf[0], buf[1], buf[2], buf[3]          \
+#define PRINT_CMD(buf) printf("header=%c%c%c%c op=%s space=%s flags=%d size=%d"                                   \
+                                                                        , buf[0], buf[1], buf[2], buf[3]          \
                                                                         , usbint_server_opcode_s[buf[4]]          \
                                                                         , usbint_server_space_s[buf[5]]           \
                                                                         , buf[6]                                  \
+                                                                        , (int)server_info.size                   \
                                                                );
 #define PRINT_DAT(num, total) printf("%d/%d ", num, total);
 #define PRINT_MSG(msg) printf("%-5s ", msg);
@@ -149,6 +151,8 @@ enum usbint_server_flags_e { FOREACH_SERVER_FLAGS(GENERATE_ENUM) };
 
 volatile enum usbint_server_state_e server_state = USBINT_SERVER_STATE_IDLE;
 static int reset_state = 0;
+volatile static int cmdDat = 0;
+volatile static unsigned connected = 0;
 
 struct usbint_server_info_t {
   enum usbint_server_opcode_e opcode;
@@ -180,6 +184,11 @@ static char    fbuf[MAX_STRING_LENGTH + 2];
 
 extern cfg_t CFG;
 
+// reset
+void usbint_set_state(unsigned open) {
+    connected = open;
+}
+
 // collect a flit
 void usbint_recv_flit(const unsigned char *in, int length) {
     // copy up to remaining bytes
@@ -197,7 +206,6 @@ void usbint_recv_flit(const unsigned char *in, int length) {
 }
 
 void usbint_recv_block(void) {
-    static int cmdDat = 0;
     static uint32_t count = 0;
     
     // check header
@@ -286,7 +294,7 @@ void usbint_recv_block(void) {
 // send a block
 void usbint_send_block(int blockSize) {
     // FIXME: don't need to double buffer anymore if using interrupt
-    while(CDC_block_send((unsigned char*)send_buffer[send_buffer_index], blockSize) == -1) { }
+    while(CDC_block_send((unsigned char*)send_buffer[send_buffer_index], blockSize) == -1) { usbint_check_connect(); }
     send_buffer_index = (send_buffer_index + 1) & 0x1;
 }
 
@@ -302,25 +310,65 @@ int usbint_server_dat() {
 
 int usbint_server_reset() { return reset_state; }
 
+void usbint_check_connect(void) {
+    static unsigned connected_prev = 0;
+
+    if (connected_prev ^ connected) {
+        if (!connected) {
+            server_state = USBINT_SERVER_STATE_IDLE;
+            cmdDat = 0;
+        }
+        set_usb_status(connected ? USB_SNES_STATUS_SET_CONNECTED : USB_SNES_STATUS_CLR_CONNECTED);
+        
+        PRINT_FUNCTION();
+        PRINT_MSG(connected ? "[open]" : "[clos]");
+        PRINT_END();
+        
+        connected_prev = connected;
+    }
+}
+
 // top level state machine
 int usbint_handler(void) {
-  int ret = 0;
+    int ret = 0;
 
-  // *interrupt
-  // make sure we can fill something
-  //if (CDC_BulkIn_occupied()) { return; }
-  
-    switch(server_state) {
-        case USBINT_SERVER_STATE_IDLE:       ret = usbint_handler_req(); break; 
-        case USBINT_SERVER_STATE_HANDLE_CMD: ret = usbint_handler_cmd(); break;
-        // **interrupt
-        case USBINT_SERVER_STATE_HANDLE_DATPUSH: ret = usbint_handler_dat(); break;
-        case USBINT_SERVER_STATE_HANDLE_EXE: ret = usbint_handler_exe(); break;
-                
-        default: break;
-    }
+    usbint_check_connect();
+
+    /*     // check connection status.  If disconnected then reset and clear HW bit
+    if (!BITBAND(USB_CONNREG->FIOPIN, USB_CONNBIT)) {        
+        set_usb_status(USB_SNES_STATUS_CLR_CONNECTED);
+        server_state = USBINT_SERVER_STATE_IDLE;
+        cmdDat = 0;
         
-  return ret;
+        if (!connected) {
+            PRINT_FUNCTION();
+            PRINT_MSG("[dcon]");
+            PRINT_END();
+        }
+        
+        connected = 0;
+    }
+    else {
+        if (!connected) {
+            set_usb_status(USB_SNES_STATUS_SET_CONNECTED);
+            connected = 1;
+
+            PRINT_FUNCTION();
+            PRINT_MSG("[conn]");
+            PRINT_END();
+        }
+ */        switch(server_state) {
+            case USBINT_SERVER_STATE_IDLE:       ret = usbint_handler_req(); break; 
+            case USBINT_SERVER_STATE_HANDLE_CMD: ret = usbint_handler_cmd(); break;
+            // **interrupt
+            case USBINT_SERVER_STATE_HANDLE_DATPUSH: ret = usbint_handler_dat(); break;
+            case USBINT_SERVER_STATE_HANDLE_EXE: ret = usbint_handler_exe(); break;
+                
+            default: break;
+        }        
+    //}
+
+    return ret;
 }
 
 int usbint_handler_cmd(void) {
@@ -524,8 +572,8 @@ int usbint_handler_cmd(void) {
     // send response
     usbint_send_block(USB_BLOCK_SIZE);
  
-    // lock process.  this avoids a conclusion with the rest of the menu accessing the file system or sram
-    while(server_state == USBINT_SERVER_STATE_HANDLE_LOCK || server_state == USBINT_SERVER_STATE_HANDLE_DAT) {};
+    // lock process.  this avoids a conflict with the rest of the menu accessing the file system or sram
+    while(server_state == USBINT_SERVER_STATE_HANDLE_LOCK || server_state == USBINT_SERVER_STATE_HANDLE_DAT) { usbint_check_connect(); };
     
     return ret;
 
