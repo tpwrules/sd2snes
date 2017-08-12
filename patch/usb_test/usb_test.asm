@@ -15,25 +15,44 @@ print "USB start at: ", pc
     bra init
     %save_registers()
     
-    %usb_sendq_full() : beq + ; skip if queue is full
-    lda #$0000
-    %a8() : lda.l $7EF357 : beq + ; moon pearl
-    %a16() : tay
-    lda.l .U_TEST : bne + ; temp flag
-    inc
-    sta.l .U_TEST
-    ; send moon pearl to other clients
-    lda #$357<<4|!USBNET_OPCODE_8BIT|!USBNET_OPCODE_WRITE
-    %usb_sendq_enqueue()
+    ldx #$0340
+send: 
+    %usb_sendq_full() : bne cont : jmp recv; skip if queue is full
+cont:
+    lda.l $7EF000, x : cmp.l !USBNET_DATA_BANK|!USBNET_DATA, x : bne lower
+next:
+    inx #2 : cpx #$035C : bne send
+    jmp recv
+single:
+    %a16() : dex : bra next
     
-; +   lda.l .U_TEST2 : bne +
-    ; %a8() : ldx #$357 : lda.l !USBNET_DATA_BANK|!USBNET_DATA, x : beq +
-    ; sta.l $7EF357
-    ; %a16() : lda.l .U_TEST2 : inc : sta.l .U_TEST2
-
+    ; check lower 8b
+lower:
+    %a8()
+    lda.l $7EF000, x : cmp.l !USBNET_DATA_BANK|!USBNET_DATA, x : beq upper
+    sta.l !USBNET_DATA_BANK|!USBNET_DATA, x ; update data bank to avoid spamming before broadcast
+    %a16() : and #$00FF : tay ; move data to y
+    phx : txa : asl #4 : ora !USBNET_OPCODE_8BIT|!USBNET_OPCODE_MAX
+    %usb_sendq_enqueue()
+    plx
+    %usb_sendq_full() : beq recv
+    ; check upper 8b
+upper:
+    %a8()
+    inx
+    cpx #$0343 : beq single ; ignore bombs
+    lda.l $7EF000, x : cmp.l !USBNET_DATA_BANK|!USBNET_DATA, x : beq single
+    sta.l !USBNET_DATA_BANK|!USBNET_DATA, x ; update data bank to avoid spamming before broadcast
+    %a16() : and #$00FF : tay ; swap to upper 8b
+    phx : txa : asl #4 : ora !USBNET_OPCODE_8BIT|!USBNET_OPCODE_MAX
+    %usb_sendq_enqueue()
+    plx
+    jmp single
+    
 print "USB RecvQ at: ", pc
 
-+   %a16()
+recv:
+    %a16()
     %usb_recvq_empty() : bne ++ : jmp +
 ++  %usb_recvq_deque()
 print "USB ReqcQ Exe at: ", pc
@@ -47,6 +66,6 @@ print "USB ReqcQ Exe at: ", pc
     
 ; DATA
 .data
-.U_TEST         dw $0000
+; .U_TEST         dw $0000
 	
 print "USB Bank Ending at: ", pc

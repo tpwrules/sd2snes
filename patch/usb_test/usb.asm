@@ -131,13 +131,13 @@ macro usb_exe()
     bne ?4
     tya
     cmp.l !USBNET_DATA_BANK|!USBNET_DATA, x
-    bcc ?done
+    bcs ?done
     bra ?op
 ?4: dec ;cmp !USBNET_OPCODE_MAX
     bne ?5
     tya
     cmp.l !USBNET_DATA_BANK|!USBNET_DATA, x
-    bcs ?done
+    bcc ?done
     bra ?op
 ?5: dec ;cmp !USBNET_OPCODE_AND
     bne ?6
