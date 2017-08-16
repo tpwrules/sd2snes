@@ -6,7 +6,7 @@
 !USBNET_OPCODE_MIN            = #$3
 !USBNET_OPCODE_MAX            = #$4
 !USBNET_OPCODE_AND            = #$5
-!USBNET_OPCODE_EOR            = #$6
+!USBNET_OPCODE_OR             = #$6
 !USBNET_OPCODE_CAS            = #$7
 !USBNET_OPCODE_FLUSH          = #$F
 !USBNET_OPCODE_8BIT           = #$0
@@ -98,6 +98,7 @@ endmacro
 ; execute command - a=16,i=16
 ; A = address | command
 ; Y = data
+; Y <- local CAS success
 macro usb_exe()
     ; test for precision
     pha : lsr #4 : tax : pla
@@ -105,59 +106,92 @@ macro usb_exe()
     bne ?p16
     sep #$20
     and.b #$07
+    clc ; remote requestor for CAS
     bra ?p
 ?p16:
     and.w #$0007
+    sec ; set local requestor for CAS
 ?p:
     bne ?1
     ;!USBNET_OPCODE_WRITE          = #$0
-    tya
+    tya : ldy #$0000
     bra ?op
 ?1: dec ;cmp !USBNET_OPCODE_ADD
     bne ?2
-    tya
+    tya : ldy #$0000
     clc
     adc.l !USBNET_DATA_BANK|!USBNET_DATA, x
     bra ?op
 ?2: dec ;cmp !USBNET_OPCODE_SUB
     bne ?3
-    tya
-    ; twos complement
-    clc
-    sbc.l !USBNET_DATA_BANK|!USBNET_DATA, x
-    eor #$FFFF
+    tya : ldy #$0000
+    pha ; use the stack to hold the operand
+    lda.l !USBNET_DATA_BANK|!USBNET_DATA, x
+    sec
+    sbc 1,s
+    pla
     bra ?op
 ?3: dec ;cmp !USBNET_OPCODE_MIN
     bne ?4
-    tya
+    tya : ldy #$0000
     cmp.l !USBNET_DATA_BANK|!USBNET_DATA, x
     bcs ?done
     bra ?op
 ?4: dec ;cmp !USBNET_OPCODE_MAX
     bne ?5
-    tya
+    tya : ldy #$0000
     cmp.l !USBNET_DATA_BANK|!USBNET_DATA, x
     bcc ?done
     bra ?op
 ?5: dec ;cmp !USBNET_OPCODE_AND
     bne ?6
-    tya
+    tya : ldy #$0000
     and.l !USBNET_DATA_BANK|!USBNET_DATA, x
     bra ?op
-?6: dec ;cmp !USBNET_OPCODE_EOR
+?6: dec ;cmp !USBNET_OPCODE_OR
     bne ?7
-    tya
-    eor.l !USBNET_DATA_BANK|!USBNET_DATA, x
+    tya : ldy #$0000
+    ora.l !USBNET_DATA_BANK|!USBNET_DATA, x
     bra ?op
 ?7: dec ;;!USBNET_OPCODE_CAS ; only opcode left
+    bcc ?remote ; dec does not change carry
+    ; local
     rep #$20
-    tya
+    tya : ldy #$0001
+    bra ?cas
+?remote:
+    rep #$20
+    tya : ldy #$0000
+?cas:
     xba
     sep #$20
     cmp.l !USBNET_DATA_BANK|!USBNET_DATA, x
-    bne ?done
+    beq ?success
+    xba
+    ldy #$0000 ; force fail
+    bra ?done
+?success:
+    ; success if local otherwise fail
     xba
 ?op:
     sta.l !USBNET_DATA_BANK|!USBNET_DATA, x
 ?done:
+endmacro
+
+; lock acquire - a=16,i=16
+; value is unique ID to perform the CAS.  The lock is a 16b memory location composed of
+; 8b for the (global) lock and 8b for (local) state.
+; state: 0=idle, 1=wait
+; nonblocking
+macro usb_lock_acquire(addr, value)
+    ; A=data,X=index,Y=
+    ; if active lock check pass/fail after execute
+    
+    ; else 
+    
+endmacro
+
+; lock release - a=16,i=16
+; nonblocking
+macro usb_lock_release(dataAddr)
 endmacro
