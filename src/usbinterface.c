@@ -314,7 +314,8 @@ void usbint_check_connect(void) {
     static unsigned connected_prev = 0;
 
     if (connected_prev ^ connected) {
-        if (!connected) {
+		// FIXME: this is a race because data is sent, then dtr.  If dtr is fast enough it will be checked before EXE can run.
+        if (!connected && (server_state != USBINT_SERVER_STATE_HANDLE_EXE)) {
             server_state = USBINT_SERVER_STATE_IDLE;
             cmdDat = 0;
         }

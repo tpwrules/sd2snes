@@ -337,10 +337,10 @@ start:
     sta.l .CS_STATE
 
     ; disable interrupts
-   	lda.l $2B00|$0040
+   	lda.l $F90700|$0000
 	sta !SRAM_OTH_BANK
     and #$01
-    sta.l $4200
+    sta.l $004200
     
     phb
     phd
@@ -348,34 +348,32 @@ start:
     %save_registers()
 
     %a8()
-	pea $0000
-	plb
-	plb
     
     ; disable DMA
-	lda $2B00|$004C
-	sta !SRAM_OTH_BANK|$C
+	lda.l $F90500|$000C
+	sta.l !SRAM_OTH_BANK|$C
     lda #$00
     sta $420B
     sta $420C
     
 	jsr .pre_save_state
 
-    ; wait for audio to sync
-    ldx #$00FF
--   dex
-    beq +
-    lda $2B00|$004E
-    cmp $2140
-    bne -
+    ; FIXME: no more saves of $2140.  Is this useful still?
+    ; ; wait for audio to sync
+    ; ldx #$00FF
+; -   dex
+    ; beq +
+    ; lda.l $FF80F4
+    ; cmp $002140
+    ; bne -
 
     ; save $21XX
 +	%a8()
 	ldy #$0000
     tyx
 
--	lda $2B00|$0000, y : sta !SRAM_PPU_BANK, x : inx
-	lda $2B00|$0000, y : sta !SRAM_PPU_BANK, x : inx
+-	lda.l $F90500|$0000, x : sta.l !SRAM_PPU_BANK, x : inx
+	lda.l $F90500|$0000, x : sta.l !SRAM_PPU_BANK, x : inx
     iny
     cpy #$0040
 	bne -
@@ -384,12 +382,12 @@ start:
 	%a8()
 	ldx #$0001    
 
--	lda $2B00|$0040, x
-	sta !SRAM_OTH_BANK, x
+-	lda.l $F90700|$0000, x
+	sta.l !SRAM_OTH_BANK, x
 	inx
 	cpx #$0010
 	bne -
-
+    
 	; save DMA registers
 	%a8()
 	ldy #$0000
@@ -406,8 +404,6 @@ start:
 	inx #5
 	ldy #$0000
 	bra -
-
-    ;%cgram()
     
 +	%ai16()
 	ldy #.save_write_table
@@ -430,9 +426,16 @@ start:
 	pea $0000
 	plb
 	plb
-
-    lda $2B00|$004E
-    sta.l !SRAM_SAVED_40
+    
+; save APU state - TODO: create a generic HW DMA engine
+	%a16()
+	ldx #$0000
+-	lda.l $F80000, x : sta.l $F30000, x
+    inx #2
+    bne -
+    
+    ;lda $2B00|$004E
+    ;sta.l !SRAM_SAVED_40
     
 	jsr .post_save_state
 
@@ -452,7 +455,7 @@ start:
     sta.l .CS_STATE
   
     ; disable interrupts
-   	lda.l $2B00|$0040
+   	lda.l $F90700|$0000
     and #$01
     sta.l $4200
   
@@ -465,14 +468,14 @@ start:
 	plb
 	plb
 	
-    ; wait for audio to sync
-    ldx #$00FF
+    ; ; wait for audio to sync
+    ; ldx #$00FF
 
--   dex
-    beq +
-    lda $2B00|$004E
-    cmp $2140
-    bne -
+; -   dex
+    ; beq +
+    ; lda $2B00|$004E
+    ; cmp $2140
+    ; bne -
 
 +	ldy #.load_write_table
 	jmp .run_vm
@@ -552,24 +555,24 @@ start:
     ; FIXME: we probably want to do this on a match, too.  Should this be ++?
     bne +
 
-    ; FIXME: does this do anything?  maybe it's only relevant for loads for sync and is missing the STA?
-    ; generic audio sync code by checking previous write of $2140 in saved context
-    ldx #$00FF
-    lda.l !SRAM_SAVED_40
--   dex
-    beq ++
-    cmp $2140
-    beq +
-    bra -
+    ; ; FIXME: does this do anything?  maybe it's only relevant for loads for sync and is missing the STA?
+    ; ; generic audio sync code by checking previous write of $2140 in saved context
+    ; ldx #$00FF
+    ; lda.l !SRAM_SAVED_40
+; -   dex
+    ; beq ++
+    ; cmp $2140
+    ; beq +
+    ; bra -
     
-    ; wait for audio to sync to prior write
-++  ldx #$00FF
--   dex
-    beq +
-    lda $2B00|$004E
-    cmp $2140
-    bne -
-
+    ; ; wait for audio to sync to prior write
+; ++  ldx #$00FF
+; -   dex
+    ; beq +
+    ; lda $2B00|$004E
+    ; cmp $2140
+    ; bne -
+    
 +   jmp .load_dma_regs_start
 
 .audio_table
@@ -615,6 +618,7 @@ start:
     dw $CAE6, $0625,$00, $2141; might and magic 3 (US)
     dw $5AD0, $FF09,$7F, $2142; goof troop (US)
     dw $614A, $000A,$00, $2142; mickey's magical quest (US)
+    ;dw $24DD, $0207,$7E,   $00; nosferatu (US) ; Something w/ interrupts going on in this game.
 
     dw $0000, $0000,$00, $0000
     

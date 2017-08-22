@@ -148,8 +148,8 @@ assign bsx_tristate = (MAPPER == 3'b011) & ~BSX_IS_CARTROM & ~BSX_IS_PSRAM & BSX
 
 assign IS_WRITABLE = IS_SAVERAM
                      |IS_PATCH // allow writing of the patch region
-							|IS_USB
-							|(map_unlock & ~SNES_ROMSEL) // allow writing of the ROM in the PATCH region.  FIXME: this may break DMAs from ROM to WRAM
+					 |IS_USB
+					 |(map_unlock & ~SNES_ROMSEL) // allow writing of the ROM in the PATCH region.  FIXME: this may break DMAs from ROM to WRAM
                      |((MAPPER == 3'b011) & BSX_IS_PSRAM);
 
 wire [23:0] BSX_ADDR = bsx_regs[2] ? {1'b0, SNES_ADDR[22:0]}
@@ -168,8 +168,8 @@ wire [23:0] BSX_ADDR = bsx_regs[2] ? {1'b0, SNES_ADDR[22:0]}
 
 assign SRAM_SNES_ADDR = IS_PATCH
                         ? SNES_ADDR
-								: IS_USB
-								? (24'hF9E000 + {SNES_ADDR[16],SNES_ADDR[11:0]})
+						: IS_USB
+						? (24'hF9E000 + {SNES_ADDR[16],SNES_ADDR[11:0]})
                         : ((MAPPER == 3'b000)
                           ?(IS_SAVERAM
                             ? 24'hE00000 + ({SNES_ADDR[20:16], SNES_ADDR[12:0]}

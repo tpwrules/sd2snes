@@ -364,13 +364,13 @@ start:
     
 	jsr .pre_save_state
 
-    ; wait for audio to sync
-    ldx #$00FF
--   dex
-    beq +
-    lda $2B00|$004E
-    cmp $2140
-    bne -
+    ; ; wait for audio to sync
+    ; ldx #$00FF
+; -   dex
+    ; beq +
+    ; lda $2B00|$004E
+    ; cmp $2140
+    ; bne -
 
     ; save $21XX
 +	%a8()
@@ -455,7 +455,7 @@ start:
     sta.l .CS_STATE
   
     ; disable interrupts
-   	lda.l $2B00|$0040
+   	lda.l $F90700|$0000
     and #$01
     sta.l $4200
   
@@ -468,14 +468,14 @@ start:
 	plb
 	plb
 	
-    ; wait for audio to sync
-    ldx #$00FF
+    ; ; wait for audio to sync
+    ; ldx #$00FF
 
--   dex
-    beq +
-    lda $2B00|$004E
-    cmp $2140
-    bne -
+; -   dex
+    ; beq +
+    ; lda $2B00|$004E
+    ; cmp $2140
+    ; bne -
 
 +	ldy #.load_write_table
 	jmp .run_vm
@@ -488,7 +488,48 @@ start:
 	pea $0000
 	plb
 	plb
-	
+
+    ; load APU state
+    %a16()
+    lda #$BBAA
+-   cmp $2140
+    bne -
+    lda #$0100
+    sta $2142
+    %a8()
+    lda #$01
+    sta $2141
+    lda #$CC
+    sta $2140
+-   cmp $2140
+    bne -
+
+    ; write data (TODO: ok to ignore byte 0?)
+	ldx #$0100
+-	lda.l $F30000, x
+    sta $2141
+    txa
+    sta $2140
+--  cmp $2140
+    bne --
+    inx
+    bne -
+
+	; execute
+    %a16()
+    lda.l $F30000|$F6
+    sta $2142
+    %a8()
+    lda #$00
+    sta $2141
+    lda $2140
+    inc #2
+    bne +
+    inc
++   sta $2140
+-   cmp $2140
+    bne -
+    
     ; moved this up so we can reuse load_dma_regs for store
 	%ai16()
 	jsr .post_load_state
@@ -555,23 +596,23 @@ start:
     ; FIXME: we probably want to do this on a match, too.  Should this be ++?
     bne +
 
-    ; FIXME: does this do anything?  maybe it's only relevant for loads for sync and is missing the STA?
-    ; generic audio sync code by checking previous write of $2140 in saved context
-    ldx #$00FF
-    lda.l !SRAM_SAVED_40
--   dex
-    beq ++
-    cmp $2140
-    beq +
-    bra -
+    ; ; FIXME: does this do anything?  maybe it's only relevant for loads for sync and is missing the STA?
+    ; ; generic audio sync code by checking previous write of $2140 in saved context
+    ; ldx #$00FF
+    ; lda.l !SRAM_SAVED_40
+; -   dex
+    ; beq ++
+    ; cmp $2140
+    ; beq +
+    ; bra -
     
-    ; wait for audio to sync to prior write
-++  ldx #$00FF
--   dex
-    beq +
-    lda $2B00|$004E
-    cmp $2140
-    bne -
+    ; ; wait for audio to sync to prior write
+; ++  ldx #$00FF
+; -   dex
+    ; beq +
+    ; lda $2B00|$004E
+    ; cmp $2140
+    ; bne -
 
 +   jmp .load_dma_regs_start
 

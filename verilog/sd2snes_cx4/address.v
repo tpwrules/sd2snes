@@ -33,6 +33,7 @@ module address(
   input [23:0] ROM_MASK,
   input map_unlock,
   output msu_enable,
+  output usb_enable,
   output cx4_enable,
   output cx4_vect_enable,
   output r213f_enable,
@@ -46,7 +47,8 @@ module address(
 
 parameter [2:0]
   FEAT_MSU1 = 3,
-  FEAT_213F = 4
+  FEAT_213F = 4,
+  FEAT_USB1 = 6
 ;
 
 wire [23:0] SRAM_SNES_ADDR;
@@ -64,8 +66,13 @@ assign IS_SAVERAM = (~map_unlock & (|SAVERAM_MASK)) & (~SNES_ADDR[23] & &SNES_AD
 
 assign IS_PATCH = map_unlock & (&SNES_ADDR[23:20]);
 
+// $1E-$1F:5000-5FFF -> $F9:E000-FFFF
+assign IS_USB = featurebits[FEAT_USB1] && ({SNES_ADDR[23:17],1'b0,SNES_ADDR[15:12],12'h000} == 24'h1E5000);
+
 assign SRAM_SNES_ADDR = IS_PATCH
                         ? SNES_ADDR
+								: IS_USB
+								? (24'hF9E000 + {SNES_ADDR[16],SNES_ADDR[11:0]})
                         : (IS_SAVERAM
                           ? (24'hE00000 | ({SNES_ADDR[19:16], SNES_ADDR[14:0]}
                            & SAVERAM_MASK))
@@ -77,13 +84,14 @@ assign SRAM_SNES_ADDR = IS_PATCH
 // unused address that is unmapped
 assign ROM_ADDR = SRAM_SNES_ADDR;
 
-// FIXME: this may break DMAs from ROM to WRAM
-assign IS_WRITABLE = IS_SAVERAM | (map_unlock & ((&SNES_ADDR[23:20]) | ~SNES_ROMSEL)); //IS_PATCH; // | (map_unlock & ~SNES_ROMSEL);
-
 assign ROM_HIT = IS_ROM | IS_WRITABLE;
+
+// FIXME: this may break DMAs from ROM to WRAM
+assign IS_WRITABLE = IS_SAVERAM | (map_unlock & ((&SNES_ADDR[23:20]) | ~SNES_ROMSEL)) | IS_USB; // IS_PATCH
 
 wire msu_enable_w = featurebits[FEAT_MSU1] & (!SNES_ADDR[22] && ((SNES_ADDR[15:0] & 16'hfff8) == 16'h2000));
 assign msu_enable = msu_enable_w;
+assign usb_enable = featurebits[FEAT_USB1] & (!SNES_ADDR[22] && ((SNES_ADDR[15:0] & 16'hfff8) == 16'h2010));
 
 wire cx4_enable_w = (!SNES_ADDR[22] && (SNES_ADDR[15:13] == 3'b011));
 assign cx4_enable = cx4_enable_w;
