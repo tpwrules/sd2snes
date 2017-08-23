@@ -60,7 +60,6 @@ int usbint_handler(void);
 //void usbint_handler_server(void);
 int usbint_handler_cmd(void);
 int usbint_handler_dat(void);
-int usbint_handler_req(void);
 int usbint_handler_exe(void);
 void usbint_check_connect(void);
 

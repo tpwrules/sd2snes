@@ -107,6 +107,7 @@ static const char *usbint_server_state_s[] = { FOREACH_SERVER_STATE(GENERATE_STR
 enum usbint_client_state_e { FOREACH_CLIENT_STATE(GENERATE_ENUM) };
 //static const char *usbint_client_state_s[] = { FOREACH_CLIENT_STATE(GENERATE_STRING) };
 
+// FIXME: EXE looks broken and unnecessary
 #define FOREACH_SERVER_OPCODE(OP)               \
   OP(USBINT_SERVER_OPCODE_GET)                  \
   OP(USBINT_SERVER_OPCODE_PUT)                  \
@@ -221,8 +222,6 @@ void usbint_recv_block(void) {
             //PRINT_FUNCTION();
             //PRINT_MSG("[ cmd]");
             
-            // FIXME: this needs to have release semantics
-            //if (server_state != USBINT_SERVER_STATE_HANDLE_LOCK || recv_buffer[4] == USBINT_SERVER_OPCODE_MENU_UNLOCK) {
             //PRINT_STATE(server_state);
             server_state = USBINT_SERVER_STATE_HANDLE_CMD;
             //PRINT_STATE(server_state);
@@ -235,7 +234,6 @@ void usbint_recv_block(void) {
         // data operations
 
         if (server_info.space == USBINT_SERVER_SPACE_FILE) {
-            //server_info.offset += file_writeblock(recv_buffer, server_info.offset, USB_BLOCK_SIZE);
             UINT bytesRecv = 0;
             server_info.error |= f_lseek(&fh, count);
             do {
@@ -270,11 +268,7 @@ void usbint_recv_block(void) {
 
             // unlock any sram transfer lock
             //PRINT_STATE(server_state);
-            if (server_info.flags & USBINT_SERVER_FLAGS_SETX) {
-                // enable hook
-                server_state = USBINT_SERVER_STATE_HANDLE_EXE;
-            }
-            else if (server_state == USBINT_SERVER_STATE_HANDLE_LOCK) {
+            if (server_state == USBINT_SERVER_STATE_HANDLE_LOCK) {
                 server_state = USBINT_SERVER_STATE_IDLE;
             }            
             //PRINT_STATE(server_state);
@@ -314,8 +308,7 @@ void usbint_check_connect(void) {
     static unsigned connected_prev = 0;
 
     if (connected_prev ^ connected) {
-		// FIXME: this is a race because data is sent, then dtr.  If dtr is fast enough it will be checked before EXE can run.
-        if (!connected && (server_state != USBINT_SERVER_STATE_HANDLE_EXE)) {
+        if (!connected) {
             server_state = USBINT_SERVER_STATE_IDLE;
             cmdDat = 0;
         }
@@ -335,39 +328,14 @@ int usbint_handler(void) {
 
     usbint_check_connect();
 
-    /*     // check connection status.  If disconnected then reset and clear HW bit
-    if (!BITBAND(USB_CONNREG->FIOPIN, USB_CONNBIT)) {        
-        set_usb_status(USB_SNES_STATUS_CLR_CONNECTED);
-        server_state = USBINT_SERVER_STATE_IDLE;
-        cmdDat = 0;
-        
-        if (!connected) {
-            PRINT_FUNCTION();
-            PRINT_MSG("[dcon]");
-            PRINT_END();
-        }
-        
-        connected = 0;
-    }
-    else {
-        if (!connected) {
-            set_usb_status(USB_SNES_STATUS_SET_CONNECTED);
-            connected = 1;
-
-            PRINT_FUNCTION();
-            PRINT_MSG("[conn]");
-            PRINT_END();
-        }
- */        switch(server_state) {
-            case USBINT_SERVER_STATE_IDLE:       ret = usbint_handler_req(); break; 
+    switch(server_state) {
             case USBINT_SERVER_STATE_HANDLE_CMD: ret = usbint_handler_cmd(); break;
-            // **interrupt
+            // FIXME: are these needed anymore?  PUSHDAT was for non-interrupt operation and EXE uses flags now
             case USBINT_SERVER_STATE_HANDLE_DATPUSH: ret = usbint_handler_dat(); break;
             case USBINT_SERVER_STATE_HANDLE_EXE: ret = usbint_handler_exe(); break;
                 
             default: break;
-        }        
-    //}
+	}
 
     return ret;
 }
@@ -575,6 +543,11 @@ int usbint_handler_cmd(void) {
  
     // lock process.  this avoids a conflict with the rest of the menu accessing the file system or sram
     while(server_state == USBINT_SERVER_STATE_HANDLE_LOCK || server_state == USBINT_SERVER_STATE_HANDLE_DAT) { usbint_check_connect(); };
+
+	// if the execute bit is set then perform operation
+	if (server_info.flags & USBINT_SERVER_FLAGS_SETX) {
+		usbint_handler_exe();
+	}
     
     return ret;
 
@@ -584,9 +557,6 @@ int usbint_handler_dat(void) {
     int ret = 0;
     static int count = 0;
     int bytesSent = 0;
-    
-    // if there is no data to send, do not call the send function so the CDC function is no longer called
-    //if (server_state != USBINT_SERVER_STATE_HANDLE_DAT && server_state != USBINT_SERVER_STATE_HANDLE_DATPUSH) return;
     
     switch (server_info.opcode) {
     case USBINT_SERVER_OPCODE_GET: {
@@ -708,37 +678,6 @@ int usbint_handler_dat(void) {
     return ret;
 }
 
-int usbint_handler_req(void) {
-    int ret = 0;
-    //static uint16_t control = 0;
-    
-    // read the status register
-    uint16_t status = fpga_status();
-    if (status & USB_FPGA_STATUS_ALL_FLAG_BIT) {
-        // check if any flags are set
-        
-        // check if we transition to disconnected at any point
-        // TODO: handle the race for an inflight access.
-        // - No good way to do this with the current busy bit definition.  Could force a timeout on busy on the FPGA.
-        // - We could handle it here in the firmware.  Basically, disconnected only serves as a status bit to SNES.  We need to handle
-        //   all transitions here so reads and writes complete.
-        
-        // first look at the control
-        if (status & USB_FPGA_STATUS_CTRL_FLAG_BIT) {
-            // get the new control information
-            //control = get_usb_ctrl();
-            
-            //set_usb_status(USB_SNES_STATUS_CLEAR_CTRL);
-        }
-                
-        // check if we need to send a read
-        
-        // check if we need to send a write
-    }
-    
-    return ret;
-}
-
 int usbint_handler_exe(void) {
     int ret = 0;
 
@@ -746,18 +685,6 @@ int usbint_handler_exe(void) {
     PRINT_MSG("[hexe]")
     
     if (!server_info.error) {
-        // disable current hooks
-        //cheat_wram_present(0);
-        //snescmd_prepare_nmihook();
-
-        //cheat_enable(0);
-        //cheat_nmi_enable(0);
-        //cheat_irq_enable(0);
-        //cheat_wram_present(0);
-        
-        // write SRAM
-        //sram_writeblock(recv_buffer, SRAM_CHEAT_ADDR, server_info.size);
-        
         // clear out existing patch by overwriting with a RTS
         fpga_set_snescmd_addr(SNESCMD_WRAM_CHEATS);
         fpga_write_snescmd(ASM_RTS);
@@ -776,22 +703,12 @@ int usbint_handler_exe(void) {
         fpga_set_snescmd_addr(SNESCMD_WRAM_CHEATS);
         fpga_write_snescmd(sram_readbyte(SRAM_CHEAT_ADDR));
         
-        // unlock the address range so the patch can remove itself
-        //fpga_set_features(romprops.fpga_features | FEAT_CMD_UNLOCK);
-        
-        //snescmd_writebyte(1, SNESCMD_NMI_WRAM_PATCH_COUNT);
-        //fpga_write_cheat(6, 0);
-        //cheat_enable(1);
-        //cheat_nmi_enable(1);
-        //cheat_irq_enable(1);
-        //cheat_holdoff_enable(CFG.enable_irq_holdoff);
-        //cheat_buttons_enable(CFG.enable_irq_buttons);
-        //cheat_wram_present(1);
     }
-    
-    PRINT_STATE(server_state);
-    server_state = USBINT_SERVER_STATE_IDLE;
-    PRINT_STATE(server_state);
+
+	// TODO: do we need this if we get a EXE opcode?
+    //PRINT_STATE(server_state);
+    //server_state = USBINT_SERVER_STATE_IDLE;
+    //PRINT_STATE(server_state);
 
     PRINT_END();
     
