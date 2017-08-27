@@ -115,6 +115,9 @@ wire [7:0] USB_SNES_DATA_OUT;
 wire [7:0] usb_status_reset_bits;
 wire [7:0] usb_status_set_bits;
 
+wire [7:0] DMA_SNES_DATA_IN;
+wire [7:0] DMA_SNES_DATA_OUT;
+
 wire [14:0] bsx_regs;
 wire [7:0] BSX_SNES_DATA_IN;
 wire [7:0] BSX_SNES_DATA_OUT;
@@ -176,6 +179,10 @@ reg SNES_DEADr = 1;
 reg SNES_reset_strobe = 0;
 
 reg free_strobe = 0;
+reg loop_enable;
+initial loop_enable = 0;
+reg [7:0] loop_data;
+initial loop_data = 8'h80; // BRA
 
 reg [3:0] SNES_PAWR_count;
 reg [3:0] SNES_PARD_count;
@@ -217,7 +224,7 @@ assign DCM_RST=0;
 
 always @(posedge CLK2) begin
   free_strobe <= 1'b0;
-  if(SNES_cycle_start) free_strobe <= ~ROM_HIT;
+  if(SNES_cycle_start) free_strobe <= (~ROM_HIT | loop_enable);
 end
 
 integer j;
@@ -274,25 +281,30 @@ always @(posedge CLK2) begin
 
 end
 
-parameter ST_IDLE        = 7'b0000001;
-parameter ST_MCU_RD_ADDR = 7'b0000010;
-parameter ST_MCU_RD_END  = 7'b0000100;
-parameter ST_MCU_WR_ADDR = 7'b0001000;
-parameter ST_MCU_WR_END  = 7'b0010000;
-parameter ST_CTX_WR_ADDR = 7'b0100000;
-parameter ST_CTX_WR_END  = 7'b1000000;
+parameter ST_IDLE        = 11'b00000000001;
+parameter ST_MCU_RD_ADDR = 11'b00000000010;
+parameter ST_MCU_RD_END  = 11'b00000000100;
+parameter ST_MCU_WR_ADDR = 11'b00000001000;
+parameter ST_MCU_WR_END  = 11'b00000010000;
+parameter ST_CTX_WR_ADDR = 11'b00000100000;
+parameter ST_CTX_WR_END  = 11'b00001000000;
+parameter ST_DMA_RD_ADDR = 11'b00010000000;
+parameter ST_DMA_RD_END  = 11'b00100000000;
+parameter ST_DMA_WR_ADDR = 11'b01000000000;
+parameter ST_DMA_WR_END  = 11'b10000000000;
 
 parameter SNES_DEAD_TIMEOUT = 17'd96000; // 1ms
 
 parameter ROM_CYCLE_LEN = 4'd7;
 
-reg [6:0] STATE;
+reg [10:0] STATE;
 initial STATE = ST_IDLE;
 
 assign DSPX_SNES_DATA_IN = BUS_DATA;
 assign SRTC_SNES_DATA_IN = BUS_DATA[3:0];
 assign MSU_SNES_DATA_IN = BUS_DATA;
 assign USB_SNES_DATA_IN = BUS_DATA;
+assign DMA_SNES_DATA_IN = BUS_DATA;
 assign BSX_SNES_DATA_IN = BUS_DATA;
 
 sd_dma snes_sd_dma(
@@ -431,6 +443,35 @@ ctx snes_ctx (
   .ROM_ADDR(CTX_ADDR),
   .ROM_DATA(CTX_DOUT),
   .ROM_WORD_ENABLE(CTX_WORD)
+);
+
+wire [23:0] DMA_ADDR;
+wire [15:0] DMA_DOUT;
+
+reg [15:0] DMA_DINr;
+
+dma snes_dma (
+  .clkin(CLK2),
+  .reset(SNES_reset_strobe),
+  .enable(dma_enable),
+
+  .reg_addr(SNES_ADDR[3:0]),
+  .reg_data_in(DMA_SNES_DATA_IN),
+  .reg_data_out(DMA_SNES_DATA_OUT),
+
+  .reg_oe_falling(SNES_RD_start),
+  .reg_we_rising(SNES_WR_end),
+  
+  .loop_enable(DMA_LOOP_ENABLE),
+  
+  .BUS_RDY(DMA_RDY),
+  .BUS_RRQ(DMA_RRQ),
+  .BUS_WRQ(DMA_WRQ),
+  
+  .ROM_ADDR(DMA_ADDR),
+  .ROM_DATA_OUT(DMA_DOUT),
+  .ROM_DATA_IN(DMA_DINr),
+  .ROM_WORD_ENABLE(DMA_WORD)
 );
 
 bsx snes_bsx(
@@ -606,6 +647,10 @@ address snes_addr(
   .map_unlock(map_unlock),
   //MSU-1
   .msu_enable(msu_enable),
+  //USB-1
+  .usb_enable(usb_enable),
+  //DMA-1
+  .dma_enable(dma_enable),
   //BS-X
   .use_bsx(use_bsx),
   .bsx_regs(bsx_regs),
@@ -621,7 +666,6 @@ address snes_addr(
   .dspx_a0(DSPX_A0),
   .r213f_enable(r213f_enable),
   .snescmd_enable(snescmd_enable),
-  .snescmd_reg_enable(snescmd_reg_enable),
   .nmicmd_enable(nmicmd_enable),
   .return_vector_enable(return_vector_enable),
   .branch1_enable(branch1_enable),
@@ -702,8 +746,11 @@ assign SNES_DATA = (r213f_enable & ~SNES_PARD & ~r213f_forceread) ? r213fr
                                   :dspx_dp_enable ? DSPX_SNES_DATA_OUT
                                   :msu_enable ? MSU_SNES_DATA_OUT
                                   :usb_enable ? USB_SNES_DATA_OUT
+                                  :dma_enable ? DMA_SNES_DATA_OUT
                                   :bsx_data_ovr ? BSX_SNES_DATA_OUT
                                   :(cheat_hit & ~feat_cmd_unlock) ? cheat_data_out
+                                  // put spinloop below cheat so we don't overwrite jmp target after NMI
+                                  :loop_enable ? loop_data
                                   :((snescmd_unlock | feat_cmd_unlock) & snescmd_enable) ? snescmd_dout
                                   :(ROM_ADDR0 ? ROM_DATA[7:0] : ROM_DATA[15:8])
                                   ) : 8'bZ;
@@ -721,15 +768,29 @@ reg [15:0] CTX_ROM_DATAr;
 initial CTX_ROM_DATAr = 16'h0000;
 reg CTX_ROM_WORDr;
 initial CTX_ROM_WORDr = 1'b0;
+// DMA
+reg DMA_WR_PENDr;
+initial DMA_WR_PENDr = 0;
+reg DMA_RD_PENDr;
+initial DMA_RD_PENDr = 0;
+reg [23:0] DMA_ROM_ADDRr;
+initial DMA_ROM_ADDRr = 24'h0;
+reg [15:0] DMA_ROM_DATAr;
+initial DMA_ROM_DATAr = 16'h0000;
+reg DMA_ROM_WORDr;
+initial DMA_ROM_WORDr = 1'b0;
 
 reg RQ_MCU_RDYr;
 initial RQ_MCU_RDYr = 1'b1;
 assign MCU_RDY = RQ_MCU_RDYr;
-
 // CTX
 reg RQ_CTX_RDYr;
 initial RQ_CTX_RDYr = 1'b1;
 assign CTX_RDY = RQ_CTX_RDYr;
+// DMA
+reg RQ_DMA_RDYr;
+initial RQ_DMA_RDYr = 1'b1;
+assign DMA_RDY = RQ_DMA_RDYr;
 
 wire MCU_WR_HIT = |(STATE & ST_MCU_WR_ADDR);
 wire MCU_RD_HIT = |(STATE & ST_MCU_RD_ADDR);
@@ -737,26 +798,29 @@ wire MCU_HIT = MCU_WR_HIT | MCU_RD_HIT;
 // CTX
 wire CTX_WR_HIT = |(STATE & ST_CTX_WR_ADDR);
 wire CTX_HIT = CTX_WR_HIT;
+// DMA
+wire DMA_WR_HIT = |(STATE & ST_DMA_WR_ADDR);
+wire DMA_RD_HIT = |(STATE & ST_DMA_RD_ADDR);
+wire DMA_HIT = DMA_WR_HIT | DMA_RD_HIT;
 
-assign ROM_ADDR  = (SD_DMA_TO_ROM) ? MCU_ADDR[23:1] : CTX_HIT ? CTX_ROM_ADDRr[23:1] : MCU_HIT ? ROM_ADDRr[23:1] : MAPPED_SNES_ADDR[23:1];
-assign ROM_ADDR0 = (SD_DMA_TO_ROM) ? MCU_ADDR[0] : CTX_HIT ? CTX_ROM_ADDRr[0] : MCU_HIT ? ROM_ADDRr[0] : MAPPED_SNES_ADDR[0];
+assign ROM_ADDR  = (SD_DMA_TO_ROM) ? MCU_ADDR[23:1] : CTX_HIT ? CTX_ROM_ADDRr[23:1] : DMA_HIT ? DMA_ROM_ADDRr[23:1] : MCU_HIT ? ROM_ADDRr[23:1] : MAPPED_SNES_ADDR[23:1];
+assign ROM_ADDR0 = (SD_DMA_TO_ROM) ? MCU_ADDR[0] : CTX_HIT ? CTX_ROM_ADDRr[0] : DMA_HIT ? DMA_ROM_ADDRr[0] : MCU_HIT ? ROM_ADDRr[0] : MAPPED_SNES_ADDR[0];
 
 reg[17:0] SNES_DEAD_CNTr;
 initial SNES_DEAD_CNTr = 0;
 
 // context engine request
 always @(posedge CLK2) begin
-  // FIXME: workaround for spurious writes is to include pending
-  if(CTX_WRQ & ~CTX_WR_PENDr) begin
+  if(CTX_WRQ) begin
     CTX_WR_PENDr <= 1'b1;
-	 RQ_CTX_RDYr <= 1'b0;
-	 CTX_ROM_ADDRr <= CTX_ADDR;
-	 CTX_ROM_DATAr <= CTX_DOUT;
-	 CTX_ROM_WORDr <= CTX_WORD;
+	RQ_CTX_RDYr <= 1'b0;
+	CTX_ROM_ADDRr <= CTX_ADDR;
+	CTX_ROM_DATAr <= CTX_DOUT;
+	CTX_ROM_WORDr <= CTX_WORD;
   end 
   else if(STATE & ST_CTX_WR_END) begin
     CTX_WR_PENDr <= 1'b0;
-	 RQ_CTX_RDYr <= 1'b1;
+	RQ_CTX_RDYr <= 1'b1;
   end
 end
 
@@ -773,6 +837,28 @@ always @(posedge CLK2) begin
     MCU_RD_PENDr <= 1'b0;
     MCU_WR_PENDr <= 1'b0;
     RQ_MCU_RDYr <= 1'b1;
+  end
+end
+
+// dma engine request
+always @(posedge CLK2) begin
+  if(DMA_RRQ) begin
+    DMA_RD_PENDr <= 1'b1;
+	  RQ_DMA_RDYr <= 1'b0;
+	  DMA_ROM_ADDRr <= DMA_ADDR;
+	  DMA_ROM_WORDr <= DMA_WORD;
+  end 
+  else if(DMA_WRQ) begin
+    DMA_WR_PENDr <= 1'b1;
+	  RQ_DMA_RDYr <= 1'b0;
+	  DMA_ROM_ADDRr <= DMA_ADDR;
+	  DMA_ROM_DATAr <= DMA_DOUT;
+	  DMA_ROM_WORDr <= DMA_WORD;
+  end
+  else if(STATE & (ST_DMA_RD_END | ST_DMA_WR_END)) begin
+    DMA_RD_PENDr <= 1'b0;
+    DMA_WR_PENDr <= 1'b0;
+	  RQ_DMA_RDYr <= 1'b1;
   end
 end
 
@@ -797,7 +883,7 @@ always @(posedge CLK2) begin
     ST_IDLE: begin
       STATE <= ST_IDLE;
       if(free_slot | SNES_DEADr) begin
-		if(CTX_WR_PENDr) begin
+        if(CTX_WR_PENDr) begin
           STATE <= ST_CTX_WR_ADDR;
           ST_MEM_DELAYr <= ROM_CYCLE_LEN;
         end
@@ -807,6 +893,14 @@ always @(posedge CLK2) begin
         end
         else if(MCU_WR_PENDr) begin
           STATE <= ST_MCU_WR_ADDR;
+          ST_MEM_DELAYr <= ROM_CYCLE_LEN;
+        end
+        else if(DMA_RD_PENDr) begin
+          STATE <= ST_DMA_RD_ADDR;
+          ST_MEM_DELAYr <= ROM_CYCLE_LEN;
+        end
+        else if(DMA_WR_PENDr) begin
+          STATE <= ST_DMA_WR_ADDR;
           ST_MEM_DELAYr <= ROM_CYCLE_LEN;
         end
       end
@@ -827,7 +921,19 @@ always @(posedge CLK2) begin
       ST_MEM_DELAYr <= ST_MEM_DELAYr - 1;
       if(ST_MEM_DELAYr == 0) STATE <= ST_CTX_WR_END;
     end
-    ST_MCU_RD_END, ST_MCU_WR_END, ST_CTX_WR_END: begin
+    ST_DMA_RD_ADDR: begin
+      STATE <= ST_DMA_RD_ADDR;
+      ST_MEM_DELAYr <= ST_MEM_DELAYr - 1;
+      if(ST_MEM_DELAYr == 0) STATE <= ST_DMA_RD_END;
+      // FIXME: seems like the lower byte is the upper byte (BIG ENDIAN)?  Maybe a bug in the DMA addressing logic.
+      DMA_DINr <= (ROM_ADDR0 ? ROM_DATA : {ROM_DATA[7:0],ROM_DATA[15:8]});
+    end
+    ST_DMA_WR_ADDR: begin
+      STATE <= ST_DMA_WR_ADDR;
+      ST_MEM_DELAYr <= ST_MEM_DELAYr - 1;
+      if(ST_MEM_DELAYr == 0) STATE <= ST_DMA_WR_END;
+    end
+    ST_MCU_RD_END, ST_MCU_WR_END, ST_CTX_WR_END, ST_DMA_RD_END, ST_DMA_WR_END: begin
       STATE <= ST_IDLE;
     end
   endcase
@@ -851,10 +957,11 @@ end
 reg MCU_WRITE_1;
 always @(posedge CLK2) MCU_WRITE_1<= MCU_WRITE;
 
-assign ROM_DATA[7:0] = (ROM_ADDR0 || (CTX_HIT && CTX_ROM_WORDr))
+assign ROM_DATA[7:0] = (ROM_ADDR0 || (CTX_HIT && CTX_ROM_WORDr) || (DMA_HIT && DMA_ROM_WORDr))
                        ?(SD_DMA_TO_ROM ? (!MCU_WRITE_1 ? MCU_DOUT : 8'bZ)
                                         : CTX_WR_HIT ? CTX_ROM_DATAr[15:8]
-                                        : (ROM_HIT & ~SNES_WRITE) ? SNES_DATA
+                                        : DMA_WR_HIT ? DMA_ROM_DATAr[15:8]
+                                        : (ROM_HIT & ~loop_enable & ~SNES_WRITE) ? SNES_DATA
                                         : MCU_WR_HIT ? MCU_DOUT : 8'bZ
                         )
                        :8'bZ;
@@ -862,15 +969,17 @@ assign ROM_DATA[7:0] = (ROM_ADDR0 || (CTX_HIT && CTX_ROM_WORDr))
 assign ROM_DATA[15:8] = ROM_ADDR0 ? 8'bZ
                         :(SD_DMA_TO_ROM ? (!MCU_WRITE_1 ? MCU_DOUT : 8'bZ)
                                         : CTX_WR_HIT ? CTX_ROM_DATAr[7:0]
-                                        : (ROM_HIT & ~SNES_WRITE) ? SNES_DATA
+                                        : DMA_WR_HIT ? DMA_ROM_DATAr[7:0]
+                                        : (ROM_HIT & ~loop_enable & ~SNES_WRITE) ? SNES_DATA
                                         : MCU_WR_HIT ? MCU_DOUT
                                         : 8'bZ
                          );
 
 assign ROM_WE = SD_DMA_TO_ROM
                 ?MCU_WRITE
-			    : CTX_WR_HIT ? 1'b0
-                : (ROM_HIT & (IS_WRITABLE | IS_FLASHWR) & SNES_CPU_CLK) ? SNES_WRITE
+                : CTX_WR_HIT ? 1'b0
+                : DMA_WR_HIT ? 1'b0
+                : (ROM_HIT & ~loop_enable & (IS_WRITABLE | IS_FLASHWR) & SNES_CPU_CLK) ? SNES_WRITE
                 : MCU_WR_HIT ? 1'b0
                 : 1'b1;
 
@@ -880,7 +989,7 @@ assign ROM_OE = 1'b0;
 assign ROM_CE = 1'b0;
 
 assign ROM_BHE = ROM_ADDR0;
-assign ROM_BLE = !ROM_ADDR0 && !(CTX_WR_HIT && CTX_ROM_WORDr);
+assign ROM_BLE = !ROM_ADDR0 && !(CTX_HIT && CTX_ROM_WORDr) && !(DMA_HIT && DMA_ROM_WORDr);
 
 wire cart_read_oe = ( (IS_ROM & SNES_ROMSEL)
                     | (!IS_ROM & !IS_SAVERAM & !IS_WRITABLE & !IS_FLASHWR)
@@ -890,18 +999,20 @@ wire cart_read_oe = ( (IS_ROM & SNES_ROMSEL)
 
 assign SNES_DATABUS_OE = (dspx_enable | dspx_dp_enable) ? 1'b0 :
                          msu_enable ? 1'b0 :
-								 usb_enable ? 1'b0 :
+                         usb_enable ? 1'b0 :
+                         dma_enable ? 1'b0 :
+                         loop_enable ? SNES_READ :
                          bsx_data_ovr ? (SNES_READ & SNES_WRITE) :
                          srtc_enable ? (SNES_READ & SNES_WRITE) :
                          snescmd_enable ? (~(snescmd_unlock | feat_cmd_unlock) | (SNES_READ & SNES_WRITE)) :
                          bs_page_enable ? (SNES_READ) :
                          r213f_enable & !SNES_PARD ? 1'b0 :
                          snoop_4200_enable ? SNES_WRITE :
-						 (ctx_rd_enable & ~SNES_READ) ? 1'b0 :
-						 (ctx_wr_enable & ~SNES_WRITE) ? 1'b0 :
-						 (ctx_pawr_enable & SNES_PAWR_DATA_OE)? 1'b0 :
-						 (ctx_pard_enable & SNES_PARD_DATA_OE)? 1'b0 :
-						 cart_read_oe;
+                         (ctx_rd_enable & ~SNES_READ) ? 1'b0 :
+                         (ctx_wr_enable & ~SNES_WRITE) ? 1'b0 :
+                         (ctx_pawr_enable & SNES_PAWR_DATA_OE)? 1'b0 :
+                         (ctx_pard_enable & SNES_PARD_DATA_OE)? 1'b0 :
+                         cart_read_oe;
 
 assign SNES_DATABUS_DIR = ((~SNES_READ & ((~SNES_PAWR_DATA_OE & ~SNES_PARD_DATA_OE & ~ctx_rd_enable) | ~SNES_ROMSEL_EARLY)) | (~SNES_PARD & (r213f_enable)))
                            ? 1'b1 ^ (r213f_forceread & r213f_enable & ~SNES_PARD)
@@ -923,6 +1034,37 @@ snescmd_buf snescmd (
   .dinb(snescmd_data_out_mcu), // input [7 : 0] dinb
   .doutb(snescmd_data_in_mcu) // output [7 : 0] doutb
 );
+
+// spin loop state machine
+// This is used to put the SNES into a spin loop.  It replaces the current instruction fetch with a branch
+// to itself.  Upon release it lets the SNES fetch.
+// TODO: add this to a more general-purpose debug module
+reg loop_state;
+initial loop_state = 0;
+
+always @(posedge CLK2) begin
+
+  if (!loop_enable) begin
+    loop_enable <= DMA_LOOP_ENABLE;
+  end  
+  else begin
+    case (loop_state)
+      0: begin
+        if (SNES_RD_end) begin
+          loop_state <= 1;
+          loop_data <= 8'hFE;
+        end
+      end
+      1: begin
+        if (SNES_RD_end) begin
+          loop_state <= 0;
+          loop_data <= 8'h80;
+          loop_enable <= DMA_LOOP_ENABLE;
+        end
+      end
+    endcase
+  end
+end
 
 /*
 wire [35:0] CONTROL0;

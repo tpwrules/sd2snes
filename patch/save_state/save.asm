@@ -5,7 +5,7 @@ print "Savestate Bank Starting at: ", pc
 start:
     jmp .ss_init
 
-.save_write_table
+.save_write_table_cx4
 	; Disable DMA
 	dw $1000|$420B, $00
 	dw $1000|$420C, $00
@@ -29,7 +29,7 @@ start:
 	dw $1000|$420B, $02    ; Trigger DMA on channel 1
 	; Address pair, B bus -> A bus.  B address = VRAM read ($2139).
 	dw $0000|$4310, $3981  ; direction = B->A, word reg, B addr = $2139
-	dw $1000|$2115, $00    ; VRAM address increment mode.
+	dw $1000|$2115, $80    ; VRAM address increment mode.
 	; Copy VRAM 0000-FFFF to F20000-F2FFFF.
 	dw $0000|$2116, $0000  ; VRAM address >> 1.
 	dw $8000|$2139, $0000  ; VRAM dummy read.
@@ -37,7 +37,6 @@ start:
 	dw $0000|$4314, $00F2  ; A addr = $75xxxx, size = $xx00
 	dw $0000|$4316, $0000  ; size = $00xx ($0000), unused bank reg = $00.
 	dw $1000|$420B, $02    ; Trigger DMA on channel 1
-    ; TODO add audio
 	; Copy CGRAM 000-1FF to F40000-F401FF.
 	dw $1000|$2121, $00    ; CGRAM address
 	dw $0000|$4310, $3B80  ; direction = B->A, byte reg, B addr = $213B
@@ -52,6 +51,18 @@ start:
 	dw $0000|$4314, $20F4  ; A addr = $F4xxxx, size = $xx20
 	dw $0000|$4316, $0002  ; size = $02xx ($0220), unused bank reg = $00.
 	dw $1000|$420B, $02    ; Trigger DMA on channel 1
+	; Done
+	dw $0000, .save_return
+	
+.save_write_table
+	; Disable DMA
+	dw $1000|$420B, $00
+	dw $1000|$420C, $00
+	; Turn PPU off
+	dw $1000|$2100, $80
+	; temp
+	dw $0000|$2116, $0000  ; VRAM address >> 1.
+	dw $8000|$2139, $0000  ; VRAM dummy read.
 	; Done
 	dw $0000, .save_return
 
@@ -79,7 +90,7 @@ start:
 	dw $1000|$420B, $02    ; Trigger DMA on channel 1
 	; Address pair, A bus -> B bus.  B address = VRAM write ($2118).
 	dw $0000|$4310, $1801  ; direction = A->B, B addr = $2118
-	dw $1000|$2115, $00    ; VRAM address increment mode.
+	dw $1000|$2115, $80    ; VRAM address increment mode.
 	; Copy F20000-F2FFFF to VRAM 0000-FFFF.
 	dw $0000|$2116, $0000  ; VRAM address >> 1.
 	dw $0000|$4312, $0000  ; A addr = $xx0000
@@ -144,6 +155,7 @@ start:
 
 -   cpx #$0001 : beq +
     cpx #$000B : beq +
+    cpx #$000C : beq +
 	lda !SRAM_OTH_BANK, x
 	sta $4200, x
 
@@ -182,6 +194,8 @@ start:
     ; re-enable all interrupts
   	lda !SRAM_OTH_BANK
 	sta.l $4200
+  	lda !SRAM_OTH_BANK|$C
+	sta.l $420C
     
 ; Code to run before returning back to the game
 .ss_exit
@@ -346,15 +360,15 @@ start:
     phd
     %ai16()
     %save_registers()
-
+	
     %a8()
     
     ; disable DMA
-	lda.l $F90500|$000C
+	lda.l $F90700|$000C
 	sta.l !SRAM_OTH_BANK|$C
     lda #$00
-    sta $420B
-    sta $420C
+    sta.l $00420B
+    sta.l $00420C
     
 	jsr .pre_save_state
 
@@ -366,7 +380,7 @@ start:
     ; lda.l $FF80F4
     ; cmp $002140
     ; bne -
-
+	
     ; save $21XX
 +	%a8()
 	ldy #$0000
@@ -384,7 +398,9 @@ start:
 
 -	lda.l $F90700|$0000, x
 	sta.l !SRAM_OTH_BANK, x
-	inx
+--	inx
+	cpx #$000C
+	beq --
 	cpx #$0010
 	bne -
     
@@ -393,7 +409,7 @@ start:
 	ldy #$0000
 	tyx
 	
--	lda $4300, x
+-	lda.l $004300, x
 	sta !SRAM_DMA_BANK, x
 	inx
 	iny
@@ -406,6 +422,13 @@ start:
 	bra -
     
 +	%ai16()
+	; check if we need to do the SW save
+	ldy #.save_write_table_cx4
+    lda.l $00FFDE
+    cmp #$09B7 : beq .run_vm
+    cmp #$8560 : beq .run_vm
+    cmp #$4055 : beq .run_vm
+    cmp #$6BE2 : beq .run_vm
 	ldy #.save_write_table
 
     ; run the unified VM. This covers save/load and all ROM mode types
@@ -417,6 +440,24 @@ start:
     
 .save_return
 	%ai16()
+
+	; copy region
+	lda #$F5F0	; srcBank:dstBank
+	sta.l $002020
+	lda #$0000	; srcOffset
+	sta.l $002022
+	lda #$0000	; dstOffset
+	sta.l $002024
+	lda #$0500	; length[15:0]
+	sta.l $002026
+	%a8()
+	lda #$04    ; length[23:16]
+	sta.l $002028
+	; opcode[4:0], loop, dir, enable
+	lda #$05
+	sta.l $002029
+	
+	%a16()
 	tsa
 	sta.l !SRAM_SAVED_SP
     
@@ -426,14 +467,9 @@ start:
 	pea $0000
 	plb
 	plb
-    
-; save APU state - TODO: create a generic HW DMA engine
+ 
 	%a16()
-	ldx #$0000
--	lda.l $F80000, x : sta.l $F30000, x
-    inx #2
-    bne -
-    
+	
     ;lda $2B00|$004E
     ;sta.l !SRAM_SAVED_40
     
@@ -618,7 +654,7 @@ start:
     dw $CAE6, $0625,$00, $2141; might and magic 3 (US)
     dw $5AD0, $FF09,$7F, $2142; goof troop (US)
     dw $614A, $000A,$00, $2142; mickey's magical quest (US)
-    ;dw $24DD, $0207,$7E,   $00; nosferatu (US) ; Something w/ interrupts going on in this game.
+    dw $24DD, $0176,$7E, $2140; nosferatu (US) ; Something w/ interrupts going on in this game.
 
     dw $0000, $0000,$00, $0000
     

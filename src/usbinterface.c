@@ -409,11 +409,11 @@ int usbint_handler_cmd(void) {
         break;
     }
     case USBINT_SERVER_OPCODE_RESET: {
-        snes_reset_pulse();
+		ret = SNES_CMD_RESET;
         break;
     }
     case USBINT_SERVER_OPCODE_MENU_RESET: {
-        snes_reset_pulse();
+		ret = SNES_CMD_RESET_TO_MENU;
         break;
     }
     case USBINT_SERVER_OPCODE_TIME: {

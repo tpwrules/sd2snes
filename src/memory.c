@@ -227,6 +227,19 @@ uint16_t sram_writeblock(void* buf, uint32_t addr, uint16_t size) {
   return size;
 }
 
+uint32_t sram_writeset(uint8_t val, uint32_t addr, uint32_t size) {
+  uint32_t count = size;
+  set_mcu_addr(addr);
+  FPGA_SELECT();
+  FPGA_TX_BYTE(0x98);   /* WRITE */
+  while(count--) {
+    FPGA_TX_BYTE(val);
+    FPGA_WAIT_RDY();
+  }
+  FPGA_DESELECT();
+  return size;
+}
+
 uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   UINT bytes_read;
   DWORD filesize;
@@ -367,6 +380,7 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
 
   // FIXME: force USB features for now.  Might be better to set this in the client
   romprops.fpga_features |= FEAT_USB1;
+  romprops.fpga_features |= FEAT_DMA1;
   
   if(cfg_is_r213f_override_enabled() && !is_menu && !ST.is_u16) {
     romprops.fpga_features |= FEAT_213F; /* e.g. for general consoles */
@@ -407,6 +421,7 @@ void assert_reset() {
   printf("resetting SNES\n");
   fpga_dspx_reset(1);
   snes_reset(1);
+  
   if(ST.is_u16 && (ST.u16_cfg & 0x01)) {
     delay_ms(60*SNES_RESET_PULSELEN_MS);
   } else {
@@ -420,6 +435,9 @@ void init(uint8_t *filename) {
 // XXX    cheat_yaml_save(filename);
   cheat_program();
   fpga_set_features(romprops.fpga_features);
+
+  // init save state region - VRAM, APURAM, CGRAM, OAM only
+  sram_writeset(0x0, 0xF70000, 0x30000);
 }
 
 void deassert_reset() {

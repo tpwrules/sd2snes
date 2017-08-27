@@ -34,6 +34,7 @@ module address(
   input  map_unlock,
   output msu_enable,
   output usb_enable,
+  output dma_enable,
   output srtc_enable,
   output use_bsx,
   output bsx_tristate,
@@ -43,7 +44,6 @@ module address(
   output dspx_a0,
   output r213f_enable,
   output snescmd_enable,
-  output snescmd_reg_enable,
   output nmicmd_enable,
   output return_vector_enable,
   output branch1_enable,
@@ -60,7 +60,8 @@ parameter [2:0]
   FEAT_MSU1 = 3,
   FEAT_213F = 4,
   FEAT_SNESUNLOCK = 5,
-  FEAT_USB1 = 6
+  FEAT_USB1 = 6,
+  FEAT_DMA1 = 7
 ;
 
 wire [23:0] SRAM_SNES_ADDR;
@@ -141,15 +142,16 @@ wire BSX_IS_HOLE = BSX_HOLE_LOHI
                                   : (SNES_ADDR[22:21] == {bsx_regs[11], 1'b0}));
 
 // $1E-$1F:5000-5FFF -> $F9:E000-FFFF
-//assign IS_USB = (SNES_ADDR[23:17] == 5'b0001111) & (SNES_ADDR[15:12] == 4'b0101);
 assign IS_USB = featurebits[FEAT_USB1] && ({SNES_ADDR[23:17],1'b0,SNES_ADDR[15:12],12'h000} == 24'h1E5000);
+
+
 
 assign bsx_tristate = (MAPPER == 3'b011) & ~BSX_IS_CARTROM & ~BSX_IS_PSRAM & BSX_IS_HOLE;
 
 assign IS_WRITABLE = IS_SAVERAM
                      |IS_PATCH // allow writing of the patch region
-					 |IS_USB
-					 |(map_unlock & ~SNES_ROMSEL) // allow writing of the ROM in the PATCH region.  FIXME: this may break DMAs from ROM to WRAM
+                     |IS_USB
+                     |(map_unlock & ~SNES_ROMSEL) // allow writing of the ROM in the PATCH region.  FIXME: this may break DMAs from ROM to WRAM
                      |((MAPPER == 3'b011) & BSX_IS_PSRAM);
 
 wire [23:0] BSX_ADDR = bsx_regs[2] ? {1'b0, SNES_ADDR[22:0]}
@@ -168,8 +170,8 @@ wire [23:0] BSX_ADDR = bsx_regs[2] ? {1'b0, SNES_ADDR[22:0]}
 
 assign SRAM_SNES_ADDR = IS_PATCH
                         ? SNES_ADDR
-						: IS_USB
-						? (24'hF9E000 + {SNES_ADDR[16],SNES_ADDR[11:0]})
+                        : IS_USB
+                        ? (24'hF9E000 + {SNES_ADDR[16],SNES_ADDR[11:0]})
                         : ((MAPPER == 3'b000)
                           ?(IS_SAVERAM
                             ? 24'hE00000 + ({SNES_ADDR[20:16], SNES_ADDR[12:0]}
@@ -230,6 +232,7 @@ assign ROM_HIT = IS_ROM | IS_WRITABLE | bs_page_enable;
 
 assign msu_enable = featurebits[FEAT_MSU1] & (!SNES_ADDR[22] && ((SNES_ADDR[15:0] & 16'hfff8) == 16'h2000));
 assign usb_enable = featurebits[FEAT_USB1] & (!SNES_ADDR[22] && ((SNES_ADDR[15:0] & 16'hfff8) == 16'h2010));
+assign dma_enable = featurebits[FEAT_DMA1] & (!SNES_ADDR[22] && ((SNES_ADDR[15:0] & 16'hfff0) == 16'h2020));
 assign use_bsx = (MAPPER == 3'b011);
 assign srtc_enable = featurebits[FEAT_SRTC] & (!SNES_ADDR[22] && ((SNES_ADDR[15:0] & 16'hfffe) == 16'h2800));
 
@@ -266,7 +269,6 @@ assign dspx_a0 = featurebits[FEAT_DSPX]
 assign r213f_enable = featurebits[FEAT_213F] & (SNES_PA == 8'h3f);
 
 assign snescmd_enable = ({SNES_ADDR[22], SNES_ADDR[15:9]} == 8'b0_0010101);
-assign snescmd_reg_enable = ({SNES_ADDR[22], SNES_ADDR[15:7],7'h00} == 17'h02B00);
 assign nmicmd_enable = (SNES_ADDR == 24'h002BF2);
 assign return_vector_enable = (SNES_ADDR == 24'h002A5A);
 assign branch1_enable = (SNES_ADDR == 24'h002A13);
