@@ -69,6 +69,8 @@ module mcu_cmd(
   input [31:0] msu_addressrq,
   input [15:0] msu_trackrq,
   input [7:0] msu_volumerq,
+  input [7:0] msu_data,
+  input [31:0] msu_scaddr,
   output [13:0] msu_ptr_out,
   output msu_reset_out,
 
@@ -119,7 +121,9 @@ module mcu_cmd(
   output reg cheat_pgm_we_out,
 
   // DSP core features
-  output reg [15:0] dsp_feat_out = 16'h0000
+  output reg [15:0] dsp_feat_out = 16'h0000,
+  
+  output DBG
 );
 
 initial begin
@@ -150,6 +154,7 @@ reg [5:0] msu_status_set_out_buf;
 reg [5:0] msu_status_reset_out_buf;
 reg msu_status_reset_we_buf = 0;
 reg MSU_RESET_OUT_BUF;
+reg [23:0] msu_scaddr_r;
 
 reg [7:0] usb_status_set_out_buf;
 reg [7:0] usb_status_reset_out_buf;
@@ -482,6 +487,8 @@ always @(posedge clk) begin
             ADDR_OUT_BUF[7:0] <= param_data;
         endcase
     endcase
+  end else if ((cmd_ready | param_ready) && cmd_data == 8'hF5 && ~featurebits_out[3]) begin
+    MSU_ADDR_OUT_BUF <= MSU_ADDR_OUT_BUF + 1;
   end else if (SD_DMA_NEXTADDR | (mcu_nextaddr & (cmd_data[7:5] == 3'h4)
                                && (cmd_data[3])
                                && (spi_byte_cnt >= (32'h1+cmd_data[4])))
@@ -530,6 +537,22 @@ always @(posedge clk) begin
       endcase
     else if (cmd_data[7:0] == 8'hF4)
       MCU_DATA_IN_BUF <= msu_volumerq;
+    else if (cmd_data[7:0] == 8'hF5)
+      MCU_DATA_IN_BUF <= msu_data;
+    else if (cmd_data[7:0] == 8'hF6)
+      // flop a version of the address in case it gets modified (and wraps) while we are reading it out
+      case (spi_byte_cnt)
+        32'h1: begin
+          MCU_DATA_IN_BUF <= msu_scaddr[31:24];
+          msu_scaddr_r <= msu_scaddr[23:0];
+        end
+        32'h2:
+          MCU_DATA_IN_BUF <= msu_scaddr_r[23:16];
+        32'h3:
+          MCU_DATA_IN_BUF <= msu_scaddr_r[15:8];
+        32'h4:
+          MCU_DATA_IN_BUF <= msu_scaddr_r[7:0];
+      endcase
     else if (cmd_data[7:0] == 8'hFE)
       case (spi_byte_cnt)
         32'h1:
@@ -607,4 +630,7 @@ assign rom_mask_out = ROM_MASK;
 assign saveram_mask_out = SAVERAM_MASK;
 
 assign DBG_mcu_nextaddr = mcu_nextaddr;
+
+assign DBG = (cmd_ready | param_ready) && cmd_data == 8'hF5 && ~featurebits_out[3];
+
 endmodule

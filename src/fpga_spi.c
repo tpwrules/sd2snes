@@ -314,6 +314,17 @@ uint16_t get_msu_track() {
   return result;
 }
 
+uint32_t get_msu_pointer() {
+  FPGA_SELECT();
+  FPGA_TX_BYTE(FPGA_CMD_MSUGETSCADDR);
+  uint32_t result = (FPGA_RX_BYTE()) << 24;
+  result |= (FPGA_RX_BYTE()) << 16;
+  result |= (FPGA_RX_BYTE()) <<  8;
+  result |= (FPGA_RX_BYTE()) <<  0;
+  FPGA_DESELECT();
+  return result;
+}
+
 uint32_t get_msu_offset() {
   FPGA_SELECT();
   FPGA_TX_BYTE(FPGA_CMD_MSUGETADDR);

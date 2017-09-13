@@ -169,11 +169,6 @@ start:
     plb
 
     %a8()
-    lda !SRAM_PPU_BANK
-    ;sta $2100
-    lda !SRAM_PPU_BANK
-    sta.l $2100
-
     ; consume current NMI
     lda.l $4210
     
@@ -187,6 +182,10 @@ start:
 -   lda.l .CS_STATE
     cmp #$2
     bne -
+
+	; reset picture
+    lda !SRAM_PPU_BANK
+    sta.l $2100
     
     ; consume any pending interrupts
     ;lda.l $4211
@@ -194,8 +193,9 @@ start:
     ; re-enable all interrupts
   	lda !SRAM_OTH_BANK
 	sta.l $4200
-  	lda !SRAM_OTH_BANK|$C
-	sta.l $420C
+	; NOTE: restoring HDMA is not necessary because it's 0 entering the NMI.
+  	;lda !SRAM_OTH_BANK|$C
+	;stz $420C
     
 ; Code to run before returning back to the game
 .ss_exit

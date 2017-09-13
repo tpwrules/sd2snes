@@ -77,6 +77,9 @@ module main(
   output p113_out
 );
 
+`define upper(i) (8*(i+1)-1)
+`define lower(i) (8*(i+0)-0)
+
 wire CLK2;
 
 wire dspx_dp_enable;
@@ -100,6 +103,8 @@ wire [2:0] dac_vol_select_out;
 wire [8:0] dac_ptr_addr;
 //wire [7:0] dac_volume;
 wire [7:0] msu_volumerq_out;
+wire [7:0] msu_data;
+wire [31:0] msu_scaddr;
 wire [7:0] msu_status_out;
 wire [31:0] msu_addressrq_out;
 wire [15:0] msu_trackrq_out;
@@ -184,13 +189,18 @@ initial loop_enable = 0;
 reg [7:0] loop_data;
 initial loop_data = 8'h80; // BRA
 
+//wire cpureg_enable;
+//wire [7:0] cpureg_data;
+
 reg [3:0] SNES_PAWR_count;
 reg [3:0] SNES_PARD_count;
 
 wire SNES_PARD_start = ((SNES_PARDr[6:1] | SNES_PARDr[7:2]) == 6'b111110);
 wire SNES_PARD_end = SNES_PARD_count == 5; // 5
+//wire SNES_PARD_end = ((SNES_PARDr[4:1] & SNES_PARDr[5:2]) == 4'b0001);
 wire SNES_PAWR_start = ((SNES_PAWRr[4:1] | SNES_PAWRr[5:2]) == 4'b1110);
 wire SNES_PAWR_end   = SNES_PAWR_count == 5; // 5
+//wire SNES_PAWR_end = ((SNES_PAWRr[4:1] & SNES_PAWRr[5:2]) == 4'b0001);
 wire SNES_RD_start = ((SNES_READr[6:1] | SNES_READr[7:2]) == 6'b111100);
 wire SNES_RD_end = ((SNES_READr[6:1] & SNES_READr[7:2]) == 6'b000001);
 wire SNES_WR_start = ((SNES_WRITEr[6:1] & SNES_WRITEr[7:2]) == 6'b111000);
@@ -374,13 +384,17 @@ rtc snes_rtc (
   .we1(srtc_rtc_we)
 );
 
+wire feat_msu_enable = featurebits[3];
+wire DBG_MSU;
+
 msu snes_msu (
   .clkin(CLK2),
   .enable(msu_enable),
+  .reset(SNES_reset_strobe),
   .pgm_address(msu_write_addr),
   .pgm_data(SD_DMA_SRAM_DATA),
   .pgm_we(SD_DMA_TGT==2'b10 ? SD_DMA_SRAM_WE : 1'b1),
-  .reg_addr(SNES_ADDR[2:0]),
+  .reg_addr(SNES_ADDR[3:0]),
   .reg_data_in(MSU_SNES_DATA_IN),
   .reg_data_out(MSU_SNES_DATA_OUT),
   .reg_oe_falling(SNES_RD_start),
@@ -396,11 +410,21 @@ msu snes_msu (
   .status_reset_we(msu_status_reset_we),
   .msu_address_ext(msu_ptr_addr),
   .msu_address_ext_write(msu_addr_reset),
+  .feature_enable(feat_msu_enable),
+  .SNES_RD_end(SNES_RD_end),
+  .SNES_WR_end(SNES_WR_end),
+  .SNES_PAWR_end(SNES_PAWR_end),
+  .SNES_ADDR(SNES_ADDR),
+  .SNES_PA(SNES_PA),
+  .SNES_DATA(SNES_DATA),
+  .msu_data_out(msu_data),
+  .msu_scaddr_out(msu_scaddr),
   .DBG_msu_reg_oe_rising(DBG_msu_reg_oe_rising),
   .DBG_msu_reg_oe_falling(DBG_msu_reg_oe_falling),
   .DBG_msu_reg_we_rising(DBG_msu_reg_we_rising),
   .DBG_msu_address(DBG_msu_address),
-  .DBG_msu_address_ext_write_rising(DBG_msu_address_ext_write_rising)
+  .DBG_msu_address_ext_write_rising(DBG_msu_address_ext_write_rising),
+  .DBG(DBG_MSU)
 );
 
 usb snes_usb (
@@ -419,6 +443,8 @@ usb snes_usb (
 
 wire [23:0] CTX_ADDR;
 wire [15:0] CTX_DOUT;
+//wire [23:0] CTX_SNESCAST_ADDR;
+//wire [15:0] CTX_SNESCAST_DOUT;
 
 ctx snes_ctx (
   .clkin(CLK2),
@@ -440,9 +466,17 @@ ctx snes_ctx (
   .BUS_WRQ(CTX_WRQ),
   .BUS_RDY(CTX_RDY),
 
+  .snescmd_unlock(snescmd_unlock),
+
   .ROM_ADDR(CTX_ADDR),
   .ROM_DATA(CTX_DOUT),
-  .ROM_WORD_ENABLE(CTX_WORD)
+  .ROM_WORD_ENABLE(CTX_WORD),
+  
+  //.ROM_SNESCAST_ADDR(CTX_SNESCAST_ADDR),
+  //.ROM_SNESCAST_DATA(CTX_SNESCAST_DOUT),
+  //.ROM_SNESCAST_ENABLE(CTX_SNESCAST_ENABLE),
+  
+  .DBG(CTX_DBG)
 );
 
 wire [23:0] DMA_ADDR;
@@ -543,6 +577,7 @@ wire [7:0] cheat_data_out;
 wire [2:0] cheat_pgm_idx;
 
 wire feat_cmd_unlock = featurebits[5];
+wire DBG_MCU;
 
 mcu_cmd snes_mcu_cmd(
   .clk(CLK2),
@@ -585,6 +620,8 @@ mcu_cmd snes_mcu_cmd(
   .msu_status_set_out(msu_status_set_bits),
   .msu_status_reset_we(msu_status_reset_we),
   .msu_volumerq(msu_volumerq_out),
+  .msu_data(msu_data),
+  .msu_scaddr(msu_scaddr),
   .msu_addressrq(msu_addressrq_out),
   .msu_trackrq(msu_trackrq_out),
   .msu_ptr_out(msu_ptr_addr),
@@ -617,7 +654,8 @@ mcu_cmd snes_mcu_cmd(
   .cheat_pgm_idx_out(cheat_pgm_idx),
   .cheat_pgm_data_out(cheat_pgm_data),
   .cheat_pgm_we_out(cheat_pgm_we),
-  .dsp_feat_out(dsp_feat)
+  .dsp_feat_out(dsp_feat),
+  .DBG(DBG_MCU)
 );
 
 wire [7:0] DCM_STATUS;
@@ -735,6 +773,8 @@ always @(posedge CLK2) begin
   end
 end
 
+//wire SNES_PAWR_DATA_OE = ~SNES_PAWR;
+//wire SNES_PARD_DATA_OE = ~SNES_PARD;
 wire SNES_PAWR_DATA_OE = |SNES_PAWR_count;
 wire SNES_PARD_DATA_OE = |SNES_PARD_count;
 
@@ -751,6 +791,7 @@ assign SNES_DATA = (r213f_enable & ~SNES_PARD & ~r213f_forceread) ? r213fr
                                   :(cheat_hit & ~feat_cmd_unlock) ? cheat_data_out
                                   // put spinloop below cheat so we don't overwrite jmp target after NMI
                                   :loop_enable ? loop_data
+                                  //:cpureg_enable ? cpureg_data
                                   :((snescmd_unlock | feat_cmd_unlock) & snescmd_enable) ? snescmd_dout
                                   :(ROM_ADDR0 ? ROM_DATA[7:0] : ROM_DATA[15:8])
                                   ) : 8'bZ;
@@ -768,6 +809,14 @@ reg [15:0] CTX_ROM_DATAr;
 initial CTX_ROM_DATAr = 16'h0000;
 reg CTX_ROM_WORDr;
 initial CTX_ROM_WORDr = 1'b0;
+
+//reg [23:0] CTX_ROM_SNESCAST_ADDRr;
+//initial CTX_ROM_SNESCAST_ADDRr = 24'h0;
+//reg [15:0] CTX_ROM_SNESCAST_DATAr;
+//initial CTX_ROM_SNESCAST_DATAr = 16'h0000;
+//reg CTX_ROM_SNESCAST_ENABLEr;
+//initial CTX_ROM_SNESCAST_ENABLEr = 0;
+
 // DMA
 reg DMA_WR_PENDr;
 initial DMA_WR_PENDr = 0;
@@ -813,14 +862,27 @@ initial SNES_DEAD_CNTr = 0;
 always @(posedge CLK2) begin
   if(CTX_WRQ) begin
     CTX_WR_PENDr <= 1'b1;
-	RQ_CTX_RDYr <= 1'b0;
-	CTX_ROM_ADDRr <= CTX_ADDR;
-	CTX_ROM_DATAr <= CTX_DOUT;
-	CTX_ROM_WORDr <= CTX_WORD;
+    RQ_CTX_RDYr <= 1'b0;
+    CTX_ROM_ADDRr <= CTX_ADDR;
+    CTX_ROM_DATAr <= CTX_DOUT;
+    CTX_ROM_WORDr <= CTX_WORD;
+    
+    //CTX_ROM_SNESCAST_ADDRr <= CTX_SNESCAST_ADDR;
+    //CTX_ROM_SNESCAST_DATAr <= CTX_SNESCAST_DOUT;
+    //CTX_ROM_SNESCAST_ENABLEr <= CTX_SNESCAST_ENABLE;
   end 
   else if(STATE & ST_CTX_WR_END) begin
-    CTX_WR_PENDr <= 1'b0;
-	RQ_CTX_RDYr <= 1'b1;
+    //if (!CTX_ROM_SNESCAST_ENABLEr) begin
+      CTX_WR_PENDr <= 1'b0;
+      RQ_CTX_RDYr <= 1'b1;
+    //end
+    //else begin
+    //  // make a second pass immediately and write the snescast info
+    //  CTX_ROM_SNESCAST_ENABLEr <= 0;
+    //  CTX_ROM_ADDRr <= CTX_ROM_SNESCAST_ADDRr;
+    //  CTX_ROM_DATAr <= CTX_ROM_SNESCAST_DATAr;
+    //  CTX_ROM_WORDr <= 1'b1;
+    //end
   end
 end
 
@@ -933,6 +995,16 @@ always @(posedge CLK2) begin
       ST_MEM_DELAYr <= ST_MEM_DELAYr - 1;
       if(ST_MEM_DELAYr == 0) STATE <= ST_DMA_WR_END;
     end
+//    ST_CTX_WR_END: begin
+//      if (CTX_ROM_SNESCAST_ENABLEr) begin
+//        // write the snescast address
+//        STATE <= ST_CTX_WR_ADDR;
+//        ST_MEM_DELAYr <= ROM_CYCLE_LEN;
+//      end
+//      else begin
+//        STATE <= ST_IDLE;
+//      end
+//    end
     ST_MCU_RD_END, ST_MCU_WR_END, ST_CTX_WR_END, ST_DMA_RD_END, ST_DMA_WR_END: begin
       STATE <= ST_IDLE;
     end
@@ -961,7 +1033,7 @@ assign ROM_DATA[7:0] = (ROM_ADDR0 || (CTX_HIT && CTX_ROM_WORDr) || (DMA_HIT && D
                        ?(SD_DMA_TO_ROM ? (!MCU_WRITE_1 ? MCU_DOUT : 8'bZ)
                                         : CTX_WR_HIT ? CTX_ROM_DATAr[15:8]
                                         : DMA_WR_HIT ? DMA_ROM_DATAr[15:8]
-                                        : (ROM_HIT & ~loop_enable & ~SNES_WRITE) ? SNES_DATA
+                                        : ((ROM_HIT/* | cpureg_enable*/) & ~loop_enable & ~SNES_WRITE) ? SNES_DATA
                                         : MCU_WR_HIT ? MCU_DOUT : 8'bZ
                         )
                        :8'bZ;
@@ -970,7 +1042,7 @@ assign ROM_DATA[15:8] = ROM_ADDR0 ? 8'bZ
                         :(SD_DMA_TO_ROM ? (!MCU_WRITE_1 ? MCU_DOUT : 8'bZ)
                                         : CTX_WR_HIT ? CTX_ROM_DATAr[7:0]
                                         : DMA_WR_HIT ? DMA_ROM_DATAr[7:0]
-                                        : (ROM_HIT & ~loop_enable & ~SNES_WRITE) ? SNES_DATA
+                                        : ((ROM_HIT/* | cpureg_enable*/) & ~loop_enable & ~SNES_WRITE) ? SNES_DATA
                                         : MCU_WR_HIT ? MCU_DOUT
                                         : 8'bZ
                          );
@@ -979,7 +1051,7 @@ assign ROM_WE = SD_DMA_TO_ROM
                 ?MCU_WRITE
                 : CTX_WR_HIT ? 1'b0
                 : DMA_WR_HIT ? 1'b0
-                : (ROM_HIT & ~loop_enable & (IS_WRITABLE | IS_FLASHWR) & SNES_CPU_CLK) ? SNES_WRITE
+                : ((ROM_HIT/* | cpureg_enable*/) & ~loop_enable & (IS_WRITABLE | IS_FLASHWR/* | cpureg_enable*/) & SNES_CPU_CLK) ? SNES_WRITE
                 : MCU_WR_HIT ? 1'b0
                 : 1'b1;
 
@@ -992,7 +1064,7 @@ assign ROM_BHE = ROM_ADDR0;
 assign ROM_BLE = !ROM_ADDR0 && !(CTX_HIT && CTX_ROM_WORDr) && !(DMA_HIT && DMA_ROM_WORDr);
 
 wire cart_read_oe = ( (IS_ROM & SNES_ROMSEL)
-                    | (!IS_ROM & !IS_SAVERAM & !IS_WRITABLE & !IS_FLASHWR)
+                    | (!IS_ROM & !IS_SAVERAM & !(IS_WRITABLE/* | cpureg_enable*/) & !IS_FLASHWR)
                     | (SNES_READ & SNES_WRITE)
                     | (bsx_tristate)
                     );
@@ -1008,6 +1080,7 @@ assign SNES_DATABUS_OE = (dspx_enable | dspx_dp_enable) ? 1'b0 :
                          bs_page_enable ? (SNES_READ) :
                          r213f_enable & !SNES_PARD ? 1'b0 :
                          snoop_4200_enable ? SNES_WRITE :
+                         //(cpureg_enable & ~SNES_READ) ? 1'b0 :
                          (ctx_rd_enable & ~SNES_READ) ? 1'b0 :
                          (ctx_wr_enable & ~SNES_WRITE) ? 1'b0 :
                          (ctx_pawr_enable & SNES_PAWR_DATA_OE)? 1'b0 :
@@ -1020,7 +1093,8 @@ assign SNES_DATABUS_DIR = ((~SNES_READ & ((~SNES_PAWR_DATA_OE & ~SNES_PARD_DATA_
 
 assign SNES_IRQ = 1'b0;
 
-assign p113_out = 1'b0;
+//assign p113_out = 1'b0;
+assign p113_out = DBG_MSU | DBG_MCU;
 
 snescmd_buf snescmd (
   .clka(CLK2), // input clka
@@ -1041,6 +1115,13 @@ snescmd_buf snescmd (
 // TODO: add this to a more general-purpose debug module
 reg loop_state;
 initial loop_state = 0;
+parameter [`upper(2):0] loop_code = { 8'h80, 8'hFE // BRA $FE
+                                   };
+//reg [7:0] loop_code[1:0];
+//initial begin
+//  loop_code[0] = 8'h80;
+//  loop_code[1] = 8'hFE;
+//end
 
 always @(posedge CLK2) begin
 
@@ -1052,19 +1133,102 @@ always @(posedge CLK2) begin
       0: begin
         if (SNES_RD_end) begin
           loop_state <= 1;
-          loop_data <= 8'hFE;
+          loop_data <= loop_code[`upper(0):`lower(0)];
         end
       end
       1: begin
         if (SNES_RD_end) begin
           loop_state <= 0;
-          loop_data <= 8'h80;
+          loop_data <= loop_code[`upper(1):`lower(1)];
           loop_enable <= DMA_LOOP_ENABLE;
         end
       end
     endcase
   end
 end
+
+//// CPU reg NMI exit state machine
+//// TODO: this should probably be on an enable since it can cause timing differences
+//reg [1:0] cpureg_state;
+//reg [4:0] cpureg_index;
+//reg [7:0] cpureg_nmistack[3:0];
+//reg [23:0] cpureg_ret;
+//
+//wire cpureg_nmijmp_start = ({SNES_ADDR == 24'h00FFEA}) && SNES_RD_start;
+//wire cpureg_nmiret_start = (SNES_ADDR == cpureg_ret) && SNES_RD_start;
+//
+//reg [7:0] cpureg_code[30:0];
+//initial begin
+//  cpureg_code[0]  = 8'h00; cpureg_code[1]  = 8'hEA;                                                   // BRK
+//  cpureg_code[2]  = 8'h00; cpureg_code[3]  = 8'h80;                                                   // $8000 BRK target
+//  cpureg_code[4]  = 8'hC2; cpureg_code[5]  = 8'h20;                                                   // REP #20
+//  cpureg_code[6]  = 8'h48;                                                                            // PHA
+//  cpureg_code[7]  = 8'hAF; cpureg_code[8]  = 8'h18; cpureg_code[9]  = 8'h42; cpureg_code[10] = 8'h00; // LDA.l $004218
+//  cpureg_code[11] = 8'h8F; cpureg_code[12] = 8'h18; cpureg_code[13] = 8'h07; cpureg_code[14] = 8'hF9; // STA.l $F90718
+//  cpureg_code[15] = 8'hAF; cpureg_code[16] = 8'h1A; cpureg_code[17] = 8'h42; cpureg_code[18] = 8'h00; // LDA.l $00421A
+//  cpureg_code[19] = 8'h8F; cpureg_code[20] = 8'h1A; cpureg_code[21] = 8'h07; cpureg_code[22] = 8'hF9; // STA.l $F9071A
+//  cpureg_code[23] = 8'hA3; cpureg_code[24] = 8'h04;                                                   // LDA 4,s
+//  cpureg_code[25] = 8'h3A; cpureg_code[26] = 8'h3A;                                                   // DEC, DEC
+//  cpureg_code[27] = 8'h83; cpureg_code[28] = 8'h04;                                                   // STA 4,s
+//  cpureg_code[29] = 8'h68;                                                                            // PLA
+//  cpureg_code[30] = 8'h40;                                                                            // RTI
+//end
+//
+//assign cpureg_enable = (cpureg_state == 2) && ~SNES_ROMSEL;
+//assign cpureg_data = cpureg_code[cpureg_index];
+//
+//always @(posedge CLK2) begin
+//  if (SNES_reset_strobe) begin
+//    cpureg_state <= 0;
+//    cpureg_index <= 0;
+//  end
+//  else begin
+//
+//    // Rely on context engine to enable the level shifter
+//    if (SNES_WR_end) begin
+//      cpureg_nmistack[3] <= cpureg_nmistack[2];
+//      cpureg_nmistack[2] <= cpureg_nmistack[1];
+//      cpureg_nmistack[1] <= cpureg_nmistack[0];
+//      cpureg_nmistack[0] <= SNES_DATA;
+//    end
+//
+//    if (cpureg_state == 0) begin
+//      if (cpureg_nmijmp_start) begin
+//        cpureg_state <= 1;
+//        cpureg_ret <= {cpureg_nmistack[3],cpureg_nmistack[2],cpureg_nmistack[1]};
+//      end
+//    end
+//    else if (cpureg_state == 1) begin
+//      if (cpureg_nmiret_start) begin
+//        if (~SNES_ROMSEL) begin
+//          cpureg_state <= 2;
+//        end
+//        else begin
+//          cpureg_state <= 0;
+//          cpureg_index <= 0;
+//        end
+//      end
+//    end
+//    else begin
+//      if (cpureg_nmijmp_start) begin
+//        cpureg_state <= 1;
+//        // FIXME: the stack is broken here because the wrong return address is present
+//        // we could provide a read interface to it and overwrite it.
+//        cpureg_ret <= {cpureg_nmistack[3],cpureg_nmistack[2],cpureg_nmistack[1]};
+//      end
+//      else if (SNES_RD_end && ~SNES_ROMSEL) begin
+//        if (cpureg_index == 30) begin
+//          cpureg_index <= 0;
+//          cpureg_state <= 0;
+//        end
+//        else begin
+//          cpureg_index <= cpureg_index + 1;
+//        end
+//      end      
+//    end
+//    
+//  end
+//end
 
 /*
 wire [35:0] CONTROL0;

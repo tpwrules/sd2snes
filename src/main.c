@@ -353,7 +353,10 @@ printf("PCONP=%lx\n", LPC_SC->PCONP);
         if(getticks() > loop_ticks + 25) {
           loop_ticks = getticks();
  //         sram_reliable();
-          printf("%s ", get_cic_statename(get_cic_state()));
+          char *s = get_cic_statename(get_cic_state());
+          s = s;
+          //printf("%s ", s);
+          //printf("%s ", get_cic_statename(get_cic_state()));
           cmd=snes_main_loop();
 		  if (usb_cmd && !cmd) cmd = usb_cmd;
           if(cmd) {

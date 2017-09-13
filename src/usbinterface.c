@@ -27,11 +27,13 @@
 #include <arm/NXP/LPC17xx/LPC17xx.h>
 #include <string.h>
 #include <libgen.h>
+#include <stdlib.h>
 #include "bits.h"
 #include "config.h"
 #include "uart.h"
 #include "snes.h"
 #include "memory.h"
+#include "msu1.h"
 #include "fileops.h"
 #include "ff.h"
 #include "led.h"
@@ -53,9 +55,6 @@
  ({ __typeof__ (a) _a = (a); \
  __typeof__ (b) _b = (b); \
  _a < _b ? _a : _b; })
- 
-#define GENERATE_ENUM(ENUM) ENUM,
-#define GENERATE_STRING(STRING) #STRING,
 
 #define PRINT_FUNCTION() printf("%-20s ", __FUNCTION__);
 #define PRINT_CMD(buf) printf("header=%c%c%c%c op=%s space=%s flags=%d size=%d"                                   \
@@ -74,7 +73,7 @@
 // Each packet it composed of Nx512B flits where N is 1 or more.
 // Flits are composed of 8x64B Phits.
 //
-// Example USBINT_OP_GET opcode.  Note that 
+// Example USBINT_OP_GET opcode.
 // client SEND CMD[USBINT_OP_GET]
 // server RECV CMD[USBINT_OP_GET]
 // server SEND RSP[USBINT_OP_GET]
@@ -84,6 +83,9 @@
 //
 // NOTE: it may be beneficial to support command interleaving to reduce
 // latency for push-style update operations from sd2snes
+ 
+#define GENERATE_ENUM(ENUM) ENUM,
+#define GENERATE_STRING(STRING) #STRING,
 
 #define FOREACH_SERVER_STATE(OP)            \
   OP(USBINT_SERVER_STATE_IDLE)              \
@@ -93,25 +95,33 @@
   OP(USBINT_SERVER_STATE_HANDLE_DATPUSH)    \
                                             \
   OP(USBINT_SERVER_STATE_HANDLE_REQDAT)     \
-  OP(USBINT_SERVER_STATE_HANDLE_EXE)        \
+  OP(USBINT_SERVER_STATE_HANDLE_STREAM)     \
                                             \
   OP(USBINT_SERVER_STATE_HANDLE_LOCK)       
 enum usbint_server_state_e { FOREACH_SERVER_STATE(GENERATE_ENUM) };
 static const char *usbint_server_state_s[] = { FOREACH_SERVER_STATE(GENERATE_STRING) };
 
+// CLIENT mode unnecessary (replaced by a server operation)
 #define FOREACH_CLIENT_STATE(OP)                \
   OP(USBINT_CLIENT_STATE_IDLE)                  \
                                                 \
   OP(USBINT_CLIENT_STATE_HANDLE_CMD)            \
   OP(USBINT_CLIENT_STATE_HANDLE_DAT)
-enum usbint_client_state_e { FOREACH_CLIENT_STATE(GENERATE_ENUM) };
+//enum usbint_client_state_e { FOREACH_CLIENT_STATE(GENERATE_ENUM) };
 //static const char *usbint_client_state_s[] = { FOREACH_CLIENT_STATE(GENERATE_STRING) };
 
-// FIXME: EXE looks broken and unnecessary
+#define FOREACH_SERVER_STREAM_STATE(OP)     \
+  OP(USBINT_SERVER_STREAM_STATE_IDLE)       \
+                                            \
+  OP(USBINT_SERVER_STREAM_STATE_INIT)       \
+  OP(USBINT_SERVER_STREAM_STATE_ACTIVE)
+enum usbint_server_stream_state_e { FOREACH_SERVER_STREAM_STATE(GENERATE_ENUM) };
+//static const char *usbint_server_stream_state_s[] = { FOREACH_SERVER_STREAM_STATE(GENERATE_STRING) };
+
 #define FOREACH_SERVER_OPCODE(OP)               \
   OP(USBINT_SERVER_OPCODE_GET)                  \
   OP(USBINT_SERVER_OPCODE_PUT)                  \
-  OP(USBINT_SERVER_OPCODE_EXECUTE)              \
+  OP(USBINT_SERVER_OPCODE_RESERVED)             \
   OP(USBINT_SERVER_OPCODE_ATOMIC)               \
                                                 \
   OP(USBINT_SERVER_OPCODE_LS)                   \
@@ -124,7 +134,7 @@ enum usbint_client_state_e { FOREACH_CLIENT_STATE(GENERATE_ENUM) };
   OP(USBINT_SERVER_OPCODE_MENU_LOCK)            \
   OP(USBINT_SERVER_OPCODE_MENU_UNLOCK)          \
   OP(USBINT_SERVER_OPCODE_MENU_RESET)           \
-  OP(USBINT_SERVER_OPCODE_EXE)                  \
+  OP(USBINT_SERVER_OPCODE_STREAM)               \
   OP(USBINT_SERVER_OPCODE_TIME)                 \
                                                 \
   OP(USBINT_SERVER_OPCODE_RESPONSE)                  
@@ -133,7 +143,8 @@ static const char *usbint_server_opcode_s[] = { FOREACH_SERVER_OPCODE(GENERATE_S
 
 #define FOREACH_SERVER_SPACE(OP)                \
   OP(USBINT_SERVER_SPACE_FILE)                  \
-  OP(USBINT_SERVER_SPACE_SNES)
+  OP(USBINT_SERVER_SPACE_SNES)					\
+  OP(USBINT_SERVER_SPACE_MSU)
 enum usbint_server_space_e { FOREACH_SERVER_SPACE(GENERATE_ENUM) };
 static const char *usbint_server_space_s[] = { FOREACH_SERVER_SPACE(GENERATE_STRING) };
 
@@ -151,6 +162,7 @@ enum usbint_server_flags_e { FOREACH_SERVER_FLAGS(GENERATE_ENUM) };
 //static const char *usbint_server_flags_s[] = { FOREACH_SERVER_FLAGS(GENERATE_STRING) };
 
 volatile enum usbint_server_state_e server_state = USBINT_SERVER_STATE_IDLE;
+volatile enum usbint_server_stream_state_e stream_state;
 static int reset_state = 0;
 volatile static int cmdDat = 0;
 volatile static unsigned connected = 0;
@@ -215,7 +227,7 @@ void usbint_recv_block(void) {
         //PRINT_MSG("[ cmd]");
  
         if (recv_buffer[0] == 'U' && recv_buffer[1] == 'S' && recv_buffer[2] == 'B' && recv_buffer[3] == 'A') {            
-            if (recv_buffer[4] == USBINT_SERVER_OPCODE_PUT || recv_buffer[4] == USBINT_SERVER_OPCODE_EXE) {
+            if (recv_buffer[4] == USBINT_SERVER_OPCODE_PUT) {
                 // put operations require
                 cmdDat = 1;
             }
@@ -294,12 +306,13 @@ void usbint_send_block(int blockSize) {
 
 int usbint_server_busy() {
     // LCK isn't considered busy
-    return server_state == USBINT_SERVER_STATE_HANDLE_CMD || server_state == USBINT_SERVER_STATE_HANDLE_DAT || server_state == USBINT_SERVER_STATE_HANDLE_DATPUSH || server_state == USBINT_SERVER_STATE_HANDLE_EXE;
+	// FIXME: stream locks up connection until disconnect
+    return server_state == USBINT_SERVER_STATE_HANDLE_CMD || server_state == USBINT_SERVER_STATE_HANDLE_DAT || server_state == USBINT_SERVER_STATE_HANDLE_DATPUSH || server_state == USBINT_SERVER_STATE_HANDLE_STREAM;
 }
 
 int usbint_server_dat() {
     // LCK isn't considered busy
-    return server_state == USBINT_SERVER_STATE_HANDLE_DAT;
+    return server_state == USBINT_SERVER_STATE_HANDLE_DAT || server_state == USBINT_SERVER_STATE_HANDLE_STREAM;
 }
 
 int usbint_server_reset() { return reset_state; }
@@ -332,7 +345,6 @@ int usbint_handler(void) {
             case USBINT_SERVER_STATE_HANDLE_CMD: ret = usbint_handler_cmd(); break;
             // FIXME: are these needed anymore?  PUSHDAT was for non-interrupt operation and EXE uses flags now
             case USBINT_SERVER_STATE_HANDLE_DATPUSH: ret = usbint_handler_dat(); break;
-            case USBINT_SERVER_STATE_HANDLE_EXE: ret = usbint_handler_exe(); break;
                 
             default: break;
 	}
@@ -379,6 +391,20 @@ int usbint_handler_cmd(void) {
         }
         break;
     }
+    case USBINT_SERVER_OPCODE_STREAM: {
+		// this is a special opcode that must point to the MSU space for streaming writes
+		server_info.error = server_info.space != USBINT_SERVER_SPACE_MSU;
+
+		if (!server_info.error) {
+			stream_state = USBINT_SERVER_STREAM_STATE_INIT;
+			
+	        server_info.offset  = recv_buffer[256]; server_info.offset <<= 8;
+			server_info.offset |= recv_buffer[257]; server_info.offset <<= 8;
+			server_info.offset |= recv_buffer[258]; server_info.offset <<= 8;
+			server_info.offset |= recv_buffer[259]; server_info.offset <<= 0;
+		}
+		break;
+	}
     case USBINT_SERVER_OPCODE_PUT: {
         if (server_info.space == USBINT_SERVER_SPACE_FILE) {
             // file
@@ -442,15 +468,6 @@ int usbint_handler_cmd(void) {
         server_info.error |= f_rename((TCHAR *)fileName, (TCHAR *)newFileName) != FR_OK;
         break;
     }
-    case USBINT_SERVER_OPCODE_EXE: {
-        // generate response.  check size for error
-        server_info.offset  = recv_buffer[256]; server_info.offset <<= 8;
-        server_info.offset |= recv_buffer[257]; server_info.offset <<= 8;
-        server_info.offset |= recv_buffer[258]; server_info.offset <<= 8;
-        server_info.offset |= recv_buffer[259]; server_info.offset <<= 0;
-        server_info.error = (server_info.size > 0x9D);
-        break;
-    }
     case USBINT_SERVER_OPCODE_ATOMIC: // unsupported
     default: // unrecognized
         server_info.error = 1;
@@ -504,12 +521,12 @@ int usbint_handler_cmd(void) {
     else if (server_info.opcode == USBINT_SERVER_OPCODE_MENU_LOCK) {
         server_state = USBINT_SERVER_STATE_HANDLE_LOCK;
     }
-    else if (server_info.opcode == USBINT_SERVER_OPCODE_EXE) {
-        server_state = USBINT_SERVER_STATE_HANDLE_LOCK;
-    }
     else if (server_info.opcode == USBINT_SERVER_OPCODE_PUT/* && server_info.space == USBINT_SERVER_SPACE_SNES*/) {
         server_state = USBINT_SERVER_STATE_HANDLE_LOCK;
     }
+	else if (server_info.opcode == USBINT_SERVER_OPCODE_STREAM) {
+		server_state = USBINT_SERVER_STATE_HANDLE_STREAM;
+	}
     else {
         server_state = USBINT_SERVER_STATE_IDLE;
     }
@@ -538,11 +555,12 @@ int usbint_handler_cmd(void) {
     send_buffer[send_buffer_index][254] = (server_info.size >>  8) & 0xFF;
     send_buffer[send_buffer_index][255] = (server_info.size >>  0) & 0xFF;
      
-    // send response
+    // send response.  also triggers data interrupt.
     usbint_send_block(USB_BLOCK_SIZE);
  
     // lock process.  this avoids a conflict with the rest of the menu accessing the file system or sram
-    while(server_state == USBINT_SERVER_STATE_HANDLE_LOCK || server_state == USBINT_SERVER_STATE_HANDLE_DAT) { usbint_check_connect(); };
+	// FIXME: streaming blocks saves
+    while(server_state == USBINT_SERVER_STATE_HANDLE_LOCK || server_state == USBINT_SERVER_STATE_HANDLE_DAT || server_state == USBINT_SERVER_STATE_HANDLE_STREAM) { usbint_check_connect(); };
 
 	// if the execute bit is set then perform operation
 	if (server_info.flags & USBINT_SERVER_FLAGS_SETX) {
@@ -577,7 +595,12 @@ int usbint_handler_dat(void) {
         else {
             do {
                 UINT bytesRead = 0;
-                bytesRead = sram_readblock((uint8_t *)send_buffer[send_buffer_index] + bytesSent, SRAM_ROM_ADDR + server_info.offset + count, USB_DATABLOCK_SIZE - bytesSent);
+				if (server_info.space == USBINT_SERVER_SPACE_SNES) {
+					bytesRead = sram_readblock((uint8_t *)send_buffer[send_buffer_index] + bytesSent, SRAM_ROM_ADDR + server_info.offset + count, USB_DATABLOCK_SIZE - bytesSent);
+				}
+				else {
+					bytesRead = msu_readblock((uint8_t *)send_buffer[send_buffer_index] + bytesSent, server_info.offset + count, USB_DATABLOCK_SIZE - bytesSent);
+				}	
                 bytesSent += bytesRead;
                 count += bytesRead;
             } while (bytesSent != USB_DATABLOCK_SIZE && count < server_info.size);
@@ -636,6 +659,55 @@ int usbint_handler_dat(void) {
         } while (bytesSent < USB_DATABLOCK_SIZE);
         break;
     }
+    case USBINT_SERVER_OPCODE_STREAM: {
+		static uint32_t preload_count = 0;
+		static uint16_t head_pointer = 0;
+		// perform stream operation
+		
+		if (stream_state == USBINT_SERVER_STREAM_STATE_INIT) {
+			count = 0;
+			preload_count = 0; // VRAM + PPUREG + CPUREG + DMAREG
+
+			head_pointer = get_msu_pointer() & 0xFFFF;
+			
+			stream_state = USBINT_SERVER_STREAM_STATE_ACTIVE;
+		}
+
+		// check preload
+		if ((count % 8 == 0) && (preload_count < 0x50000)) {
+            UINT bytesRead = 0;
+
+            // send state
+            bytesRead = sram_readblock((uint8_t *)send_buffer[send_buffer_index] + bytesSent, 0xF50000 + preload_count, 64 - bytesSent);
+            bytesSent += bytesRead;
+            
+            preload_count += bytesRead;
+		}
+		else {
+            UINT bytesRead = 0;
+     		// read queue state
+			uint32_t pointers = get_msu_pointer();
+			//uint16_t frame_pointer = (pointers >> 16) & 0xFFFF;
+			uint16_t tail_pointer = (pointers >> 0) & 0xFFFF;
+			
+            //printf("head: %hu, tail: %hu\n", head_pointer, tail_pointer);
+            
+			// fill buffer up to pointer
+            uint16_t bytesToRead = (tail_pointer - head_pointer) & 0x3FFF;
+			bytesRead = msu_readblock((uint8_t *)send_buffer[send_buffer_index] + bytesSent, head_pointer, min(64, bytesToRead));
+
+            bytesSent += bytesRead;
+			head_pointer = (head_pointer + bytesRead) & 0x3FFF;
+		}
+			
+		count++;
+		
+		// Fill remaining part of the buffer with NOPs.
+		// FIXME: if we do DMA compression we need to handled odd counts (probably add byte padding)
+        memset((unsigned char *)send_buffer[send_buffer_index] + bytesSent, 0xFF, 64 - bytesSent);
+
+		break;
+	}
     default: {
         // send back a single data beat with all 0xFF's
         memset((unsigned char *)send_buffer[send_buffer_index], 0xFF, USB_DATABLOCK_SIZE);
@@ -644,35 +716,47 @@ int usbint_handler_dat(void) {
     }
     }
     
-    if (count >= server_info.size) {
-        // clear out any remaining portion of the buffer
-        memset((unsigned char *)send_buffer[send_buffer_index] + bytesSent, 0x00, USB_DATABLOCK_SIZE - bytesSent);
+    if (server_state != USBINT_SERVER_STATE_HANDLE_STREAM) {
+        if (count >= server_info.size) {
+            // clear out any remaining portion of the buffer
+            // set to $FFs to enable stream NOP
+            memset((unsigned char *)send_buffer[send_buffer_index] + bytesSent, 0x00, USB_DATABLOCK_SIZE - bytesSent);
+        }
     }
-    
-    // **interrupt
+
     if (server_state == USBINT_SERVER_STATE_HANDLE_DATPUSH) {
+		// polling push
         usbint_send_block(USB_DATABLOCK_SIZE);
     }
+    else if (server_state == USBINT_SERVER_STATE_HANDLE_STREAM) {
+        CDC_block_init((unsigned char*)send_buffer[send_buffer_index], 64);
+        send_buffer_index = (send_buffer_index + 1) & 0x1;
+    }
     else {
+		// TODO: move buffer fill after this to speed up perf
+		// interrupt push
         CDC_block_init((unsigned char*)send_buffer[send_buffer_index], USB_DATABLOCK_SIZE);
         send_buffer_index = (send_buffer_index + 1) & 0x1;
     }
 
     // printing state seems to cause some locks
     //PRINT_STATE(server_state);
-    if (count >= server_info.size) {
-        //PRINT_FUNCTION();
-        //PRINT_MSG("[hdat]")
+	if (server_state != USBINT_SERVER_STATE_HANDLE_STREAM) {
+		if (count >= server_info.size) {
+			//PRINT_FUNCTION();
+			//PRINT_MSG("[hdat]")
 
-        //PRINT_STATE(server_state);
-        server_state = USBINT_SERVER_STATE_IDLE;
-        //PRINT_STATE(server_state);
+			//PRINT_STATE(server_state);
+			server_state = USBINT_SERVER_STATE_IDLE;
+		
+			//PRINT_STATE(server_state);
 
-        //PRINT_DAT((int)count, (int)server_info.size);
-        
-        count = 0;
+			//PRINT_DAT((int)count, (int)server_info.size);        
 
-        //PRINT_END();
+			count = 0;
+
+			//PRINT_END();
+		}
     }    
     
     return ret;
