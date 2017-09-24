@@ -47,13 +47,17 @@ reg flash_ovr_r;
 reg flash_we_r;
 reg flash_status_r = 0;
 reg [7:0] flash_cmd0;
+reg [23:0] snes_addr_d1;
+reg [23:0] snes_addr_r;
 
-wire cart_enable = (use_bsx) && ((snes_addr[23:12] & 12'hf0f) == 12'h005);
+wire cart_enable = (use_bsx) && ((snes_addr_r[23:12] & 12'hf0f) == 12'h005);
 
-wire base_enable = (use_bsx) && (!snes_addr[22] && (snes_addr[15:0] >= 16'h2188)
-                                 && (snes_addr[15:0] <= 16'h219f));
+//wire base_enable = (use_bsx) && (!snes_addr_r[22] && (snes_addr_r[15:0] >= 16'h2188)
+//                                 && (snes_addr_r[15:0] <= 16'h219f));
+wire base_enable = (use_bsx) && (!snes_addr_r[22] && (snes_addr_r[15:8] == 8'h21) && (snes_addr_r[7:0] >= 8'h88)
+                                 && (snes_addr_r[7:0] <= 8'h9f));
 
-wire flash_enable = (snes_addr[23:16] == 8'hc0);
+wire flash_enable = (snes_addr_r[23:16] == 8'hc0);
 
 wire flash_ovr = (use_bsx)
                  && (flash_enable & flash_ovr_r);
@@ -164,6 +168,9 @@ initial begin
 end
 
 always @(posedge clkin) begin
+  snes_addr_d1 <= snes_addr;
+  snes_addr_r <= snes_addr & snes_addr_d1;
+
   if(reg_oe_rising && base_enable) begin
     case(base_addr)
       5'h0b: begin

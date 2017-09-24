@@ -187,46 +187,76 @@ uint8_t get_snes_reset_state(void) {
  */
 uint32_t diffcount = 0, samecount = 0, didnotsave = 0, save_failed = 0, last_save_failed = 0;
 uint8_t sram_valid = 0;
+uint8_t perform_save = 0, save_in_progress = 0;
 uint8_t snes_main_loop() {
   if(romprops.ramsize_bytes) {
-    saveram_crc = calc_sram_crc(SRAM_SAVE_ADDR, romprops.ramsize_bytes);
-    sram_valid = sram_reliable();
-    if(crc_valid && sram_valid) {
-      if(save_failed) didnotsave++;
-      if(saveram_crc != saveram_crc_old) {
-        if(samecount) {
-          diffcount=1;
-        } else {
-          diffcount++;
-          didnotsave++;
-        }
-        samecount=0;
-      }
-      if(saveram_crc == saveram_crc_old) {
-        samecount++;
-      }
+    if (perform_save) {
       if(diffcount>=1 && samecount==5) {
-        printf("SaveRAM CRC: 0x%04lx; saving %s\n", saveram_crc, file_lfn);
-        writeled(1);
+        if (!save_in_progress) {
+          printf("SaveRAM CRC: 0x%04lx; saving %s\n", saveram_crc, file_lfn);
+          writeled(1);
+          save_in_progress = 1;
+        }
+
+        // TODO: figure out if we need to do partial saves
         save_srm(file_lfn, romprops.ramsize_bytes, SRAM_SAVE_ADDR);
-        last_save_failed = save_failed;
-        save_failed = file_res ? 1 : 0;
-        didnotsave = save_failed ? 25 : 0;
-        writeled(0);
+        save_in_progress = 0;
+
+        if (!save_in_progress) {
+          last_save_failed = save_failed;
+          save_failed = file_res ? 1 : 0;
+          didnotsave = save_failed ? 25 : 0;
+          writeled(0);
+          perform_save = 0;
+        }
       }
       if(didnotsave>50) {
-        printf("periodic save (sram contents keep changing or previous save failed)\n");
-        diffcount=0;
-        writeled(1);
+        if (!save_in_progress) {
+          printf("periodic save (sram contents keep changing or previous save failed)\n");
+          diffcount=0;
+          writeled(1);
+          save_in_progress = 1;
+        }
+
+        // TODO: figure out if we need to do partial saves
         save_srm(file_lfn, romprops.ramsize_bytes, SRAM_SAVE_ADDR);
-        last_save_failed = save_failed;
-        save_failed = file_res ? 1 : 0;
-        didnotsave = save_failed ? 25 : 0;
-        writeled(!last_save_failed);
+        save_in_progress = 0;
+
+        if (!save_in_progress) {
+          last_save_failed = save_failed;
+          save_failed = file_res ? 1 : 0;
+          didnotsave = save_failed ? 25 : 0;
+          // this used to be !last_save_failed which seemed odd.  I would think we would want to leave the light
+          // on when there is a fail, but it must have been there for a reason.
+          writeled(last_save_failed);
+          perform_save = 0;
+        }
       }
-      saveram_crc_old = saveram_crc;
     }
-    printf("crc=%lx crc_valid=%d sram_valid=%d diffcount=%ld samecount=%ld, didnotsave=%ld\n", saveram_crc, crc_valid, sram_valid, diffcount, samecount, didnotsave);
+    else {
+      saveram_crc = calc_sram_crc(SRAM_SAVE_ADDR, romprops.ramsize_bytes, 1);
+      sram_valid = sram_reliable();
+      if(crc_valid && sram_valid) {
+        if(save_failed) didnotsave++;
+        if(saveram_crc != saveram_crc_old) {
+          if(samecount) {
+            diffcount=1;
+          } else {
+            diffcount++;
+            didnotsave++;
+          }
+          samecount=0;
+        }
+        if(saveram_crc == saveram_crc_old) {
+          samecount++;
+        }
+        if((diffcount>=1 && samecount==5) || (didnotsave > 50)) {
+          perform_save = 1;
+        }
+        saveram_crc_old = saveram_crc;
+      }
+    }
+    printf("crc=%lx crc_valid=%d sram_valid=%d diffcount=%ld samecount=%ld, didnotsave=%ld, in_progres=%d\n", saveram_crc, crc_valid, sram_valid, diffcount, samecount, didnotsave, save_in_progress);
   }
 
   return snes_get_mcu_cmd();

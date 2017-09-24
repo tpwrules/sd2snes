@@ -358,12 +358,12 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   readled(0);
 
   if(flags & LOADROM_WITH_SRAM) {
-    if(romprops.ramsize_bytes  || 1) {
-      sram_memset(SRAM_SAVE_ADDR, (1024 << 8)/*romprops.ramsize_bytes*/, 0xFF);
+    if(romprops.ramsize_bytes) {
+      sram_memset(SRAM_SAVE_ADDR, romprops.ramsize_bytes, 0xFF);
       migrate_and_load_srm(filename, SRAM_SAVE_ADDR);
       /* file not found error is ok (SRM file might not exist yet) */
       if(file_res == FR_NO_FILE) file_res = 0;
-      saveram_crc_old = calc_sram_crc(SRAM_SAVE_ADDR, romprops.ramsize_bytes);
+      saveram_crc_old = calc_sram_crc(SRAM_SAVE_ADDR, romprops.ramsize_bytes, 0);
     } else {
       printf("No SRAM\n");
     }
@@ -378,9 +378,11 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   }
   printf("done\n");
 
-  // FIXME: force USB features for now.  Might be better to set this in the client
-  romprops.fpga_features |= FEAT_USB1;
-  romprops.fpga_features |= FEAT_DMA1;
+  if (CFG.enable_irq_hook) {
+    // only enable these if we have hooks enabled
+    romprops.fpga_features |= FEAT_USB1;
+    romprops.fpga_features |= FEAT_DMA1;
+  }
   
   if(cfg_is_r213f_override_enabled() && !is_menu && !ST.is_u16) {
     romprops.fpga_features |= FEAT_213F; /* e.g. for general consoles */
@@ -670,26 +672,46 @@ void save_sram(uint8_t* filename, uint32_t sram_size, uint32_t base_addr) {
   file_close();
 }
 
-
-uint32_t calc_sram_crc(uint32_t base_addr, uint32_t size) {
+uint32_t csc_crc = 0;
+uint32_t csc_count = 0;
+uint32_t calc_sram_crc(uint32_t base_addr, uint32_t size, uint8_t partial) {
   uint8_t data;
-  uint32_t count;
+  uint32_t limit;
   uint32_t crc;
   crc=0;
-  crc_valid=1;
-  set_mcu_addr(base_addr);
+  crc_valid=0;
+  
+  // handle resets at arbitrary points
+  // it's possible for a reset to happen and this not to get triggered which will result
+  // in a bogus crc.
+  if (csc_count >= size) {
+    csc_crc = 0;
+    csc_count = 0;
+  }
+  
+  limit = !partial ? size : min(size, csc_count + 32 * 1024);
+  set_mcu_addr(base_addr + csc_count);
   FPGA_SELECT();
   FPGA_TX_BYTE(0x88);
-  for(count=0; count<size; count++) {
+  for( ; csc_count < limit; csc_count++) {
     FPGA_WAIT_RDY();
     data = FPGA_RX_BYTE();
     if(get_snes_reset()) {
-      crc_valid = 0;
+      csc_crc = 0;
+      csc_count = 0;
       break;
     }
-    crc += crc32_update(crc, data);
+    csc_crc += crc32_update(csc_crc, data);
   }
   FPGA_DESELECT();
+
+  if (csc_count == size) {
+      crc = csc_crc;
+      csc_count = 0;
+      csc_crc = 0;
+      crc_valid = 1;
+  }
+
   return crc;
 }
 

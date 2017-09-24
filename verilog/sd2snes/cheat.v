@@ -198,7 +198,7 @@ always @(posedge clk) begin
   if(SNES_reset_strobe) begin
     snescmd_unlock_r <= 0;
     snescmd_unlock_disable <= 0;
-	 map_unlock_r <= 0;
+	  map_unlock_r <= 0;
   end else begin
     if(SNES_rd_strobe) begin
       if(hook_enable_sync
@@ -208,7 +208,7 @@ always @(posedge clk) begin
         // remember where we came from (IRQ/NMI) for hook exit
         return_vector <= SNES_ADDR[7:0];
         snescmd_unlock_r <= 1;
-		  map_unlock_r <= 1;
+		    map_unlock_r <= 1;
       end
       if(rst_match_bits[1] & |reset_unlock_r) begin
         snescmd_unlock_r <= 1;
@@ -228,8 +228,8 @@ always @(posedge clk) begin
     if(snescmd_unlock_disable_strobe) begin
       snescmd_unlock_disable_countdown <= 7'd72;
       snescmd_unlock_disable <= 1;
-		// disable mapping immediately - fixes CT
-		map_unlock_r <= 0;
+		  // disable mapping immediately - fixes CT
+		  map_unlock_r <= 0;
     end
   end
 end

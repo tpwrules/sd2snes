@@ -51,17 +51,14 @@
 
 #define MAX_STRING_LENGTH 255
 
-#define min(a,b) \
- ({ __typeof__ (a) _a = (a); \
- __typeof__ (b) _b = (b); \
- _a < _b ? _a : _b; })
-
 #define PRINT_FUNCTION() printf("%-20s ", __FUNCTION__);
-#define PRINT_CMD(buf) printf("header=%c%c%c%c op=%s space=%s flags=%d size=%d"                                   \
+#define PRINT_CMD(buf) printf("header=%c%c%c%c op=%s space=%s flags=%d cmd_size=%d block_size=%d size=%d"         \
                                                                         , buf[0], buf[1], buf[2], buf[3]          \
                                                                         , usbint_server_opcode_s[buf[4]]          \
                                                                         , usbint_server_space_s[buf[5]]           \
-                                                                        , buf[6]                                  \
+                                                                        , (int)buf[6]                             \
+                                                                        , (int)server_info.cmd_size               \
+                                                                        , (int)server_info.block_size             \
                                                                         , (int)server_info.size                   \
                                                                );
 #define PRINT_DAT(num, total) printf("%d/%d ", num, total);
@@ -121,8 +118,8 @@ enum usbint_server_stream_state_e { FOREACH_SERVER_STREAM_STATE(GENERATE_ENUM) }
 #define FOREACH_SERVER_OPCODE(OP)               \
   OP(USBINT_SERVER_OPCODE_GET)                  \
   OP(USBINT_SERVER_OPCODE_PUT)                  \
-  OP(USBINT_SERVER_OPCODE_RESERVED)             \
-  OP(USBINT_SERVER_OPCODE_ATOMIC)               \
+  OP(USBINT_SERVER_OPCODE_VGET)                 \
+  OP(USBINT_SERVER_OPCODE_VPUT)                 \
                                                 \
   OP(USBINT_SERVER_OPCODE_LS)                   \
   OP(USBINT_SERVER_OPCODE_MKDIR)                \
@@ -149,15 +146,13 @@ enum usbint_server_space_e { FOREACH_SERVER_SPACE(GENERATE_ENUM) };
 static const char *usbint_server_space_s[] = { FOREACH_SERVER_SPACE(GENERATE_STRING) };
 
 #define FOREACH_SERVER_FLAGS(OP)               \
-  OP(USBINT_SERVER_FLAGS_NONE)                 \
-  OP(USBINT_SERVER_FLAGS_SKIPRESET)            \
-  OP(USBINT_SERVER_FLAGS_ONLYRESET)            \
-  OP(USBINT_SERVER_FLAGS_3)                    \
-  OP(USBINT_SERVER_FLAGS_CLRX)                 \
-  OP(USBINT_SERVER_FLAGS_5)                    \
-  OP(USBINT_SERVER_FLAGS_6)                    \
-  OP(USBINT_SERVER_FLAGS_7)                    \
-  OP(USBINT_SERVER_FLAGS_SETX)                 
+  OP(USBINT_SERVER_FLAGS_NONE=0)               \
+  OP(USBINT_SERVER_FLAGS_SKIPRESET=1)          \
+  OP(USBINT_SERVER_FLAGS_ONLYRESET=2)          \
+  OP(USBINT_SERVER_FLAGS_CLRX=4)               \
+  OP(USBINT_SERVER_FLAGS_SETX=8)               \
+  OP(USBINT_SERVER_FLAGS_NORESP=64)            \
+  OP(USBINT_SERVER_FLAGS_64BDATA=128)               
 enum usbint_server_flags_e { FOREACH_SERVER_FLAGS(GENERATE_ENUM) };
 //static const char *usbint_server_flags_s[] = { FOREACH_SERVER_FLAGS(GENERATE_STRING) };
 
@@ -172,8 +167,14 @@ struct usbint_server_info_t {
   enum usbint_server_space_e space;
   enum usbint_server_flags_e flags;
   
+  uint32_t cmd_size;
+  uint32_t block_size;
   uint32_t size;
+  uint32_t total_size;
   uint32_t offset;
+  uint32_t vector_count;
+  uint8_t  vector_size[8];
+  uint32_t vector_offset[8];
   int error;
 };
 
@@ -182,11 +183,12 @@ extern snes_romprops_t romprops;
 
 unsigned recv_buffer_offset = 0;
 unsigned char recv_buffer[USB_BLOCK_SIZE];
+volatile unsigned char cmd_buffer[USB_BLOCK_SIZE];
 
 // double buffered because send only guarantees that a transfer is
 // volatile since CDC needs to send it
 volatile uint8_t send_buffer_index = 0;
-volatile unsigned char send_buffer[2][USB_DATABLOCK_SIZE];
+volatile unsigned char send_buffer[2][USB_BLOCK_SIZE];
 
 // directory
 static DIR     dh;
@@ -204,17 +206,53 @@ void usbint_set_state(unsigned open) {
 
 // collect a flit
 void usbint_recv_flit(const unsigned char *in, int length) {
-    // copy up to remaining bytes
-    unsigned bytesRead = min(length, USB_BLOCK_SIZE - recv_buffer_offset);
-    memcpy(recv_buffer + recv_buffer_offset, in, bytesRead);
-    recv_buffer_offset += bytesRead;
+    if (!length) return;
     
-    if (recv_buffer_offset == USB_BLOCK_SIZE) {
+    // read in new flit 
+    unsigned bytesRead = min(length, (!cmdDat ? USB_BLOCK_SIZE : server_info.block_size) - recv_buffer_offset);
+    memcpy(recv_buffer + recv_buffer_offset, in, bytesRead);
+    unsigned old_recv_buffer_offset = recv_buffer_offset;
+    recv_buffer_offset += bytesRead;
+
+    //PRINT_MSG("[ flt]");
+    //printf(" length: %d ", length);
+    //PRINT_END();
+
+    if (!cmdDat) {
+        // FIXME: make this more general.  Commands should be under 64B 
+        // check the command type for 64B vs 512B
+        if (recv_buffer_offset < 64) {
+            // make sure we don't accidentally accept a command that isn't ready.
+            server_info.cmd_size = USB_BLOCK_SIZE;
+        }
+        else if (old_recv_buffer_offset < 64 && 64 <= recv_buffer_offset) {
+            server_info.cmd_size = (recv_buffer[4] == USBINT_SERVER_OPCODE_VGET || recv_buffer[4] == USBINT_SERVER_OPCODE_VPUT) ? 64 : 512;
+        }
+    }
+    
+    unsigned size = (!cmdDat ? server_info.cmd_size : server_info.block_size);
+    if (recv_buffer_offset >= size) {
+        unsigned cmdDat_old = cmdDat;
+        if (!cmdDat) {
+            server_info.block_size = (recv_buffer[6] & USBINT_SERVER_FLAGS_64BDATA) ? 64 : USB_BLOCK_SIZE;
+            // copy the command to its buffer
+            memcpy((unsigned char*)cmd_buffer, recv_buffer, size);
+        }
+        //printf(" cmdDat: %d cmd_size: %d block_size: %d", cmdDat, (int)server_info.cmd_size, (int)server_info.block_size);
         usbint_recv_block();
+
+        // There's a race with NORESP where the data can show up before we have setup the handler.  If it does this then
+        // the old code would skip receiving the flit and it would hang because the interrupt handler wouldn't be called again
+        // To avoid that we disable the handler here and let the menu loop re-enable it when we have it locked.
+        if (!cmdDat_old && cmdDat) NVIC_DisableIRQ(USB_IRQn);
         
-        // copy any remaining bytes
-        memcpy(recv_buffer, in + bytesRead, length - bytesRead);
-        recv_buffer_offset = length - bytesRead;
+        // shift extra bytes down
+        memmove((unsigned char*)recv_buffer, recv_buffer + size, recv_buffer_offset - size);
+        recv_buffer_offset -= size;
+        
+        // copy any remaining input bytes
+        memcpy((unsigned char*)recv_buffer + recv_buffer_offset, in + bytesRead, length - bytesRead);
+        recv_buffer_offset += length - bytesRead;
     }
 }
 
@@ -226,8 +264,8 @@ void usbint_recv_block(void) {
         // command operations
         //PRINT_MSG("[ cmd]");
  
-        if (recv_buffer[0] == 'U' && recv_buffer[1] == 'S' && recv_buffer[2] == 'B' && recv_buffer[3] == 'A') {            
-            if (recv_buffer[4] == USBINT_SERVER_OPCODE_PUT) {
+        if (cmd_buffer[0] == 'U' && cmd_buffer[1] == 'S' && cmd_buffer[2] == 'B' && cmd_buffer[3] == 'A') {            
+            if (cmd_buffer[4] == USBINT_SERVER_OPCODE_PUT || cmd_buffer[4] == USBINT_SERVER_OPCODE_VPUT) {
                 // put operations require
                 cmdDat = 1;
             }
@@ -238,7 +276,7 @@ void usbint_recv_block(void) {
             server_state = USBINT_SERVER_STATE_HANDLE_CMD;
             //PRINT_STATE(server_state);
 
-            //PRINT_CMD(recv_buffer);
+            //PRINT_CMD(cmd_buffer);
             //PRINT_END();
         }
     }
@@ -250,23 +288,39 @@ void usbint_recv_block(void) {
             server_info.error |= f_lseek(&fh, count);
             do {
                 UINT bytesWritten = 0;
-                server_info.error |= f_write(&fh, recv_buffer + bytesRecv, USB_BLOCK_SIZE - bytesRecv, &bytesWritten);
+                server_info.error |= f_write(&fh, recv_buffer + bytesRecv, server_info.block_size - bytesRecv, &bytesWritten);
                 bytesRecv += bytesWritten;
                 //server_info.offset += bytesWritten;
                 count += bytesWritten;
-            } while (bytesRecv != USB_BLOCK_SIZE && count < server_info.size);
+            } while (bytesRecv != server_info.block_size && count < server_info.size);
         }
         else {
             // write SRAM
             UINT blockBytesWritten = 0;
+            //PRINT_MSG("[ dat]");
             do {
                 UINT bytesWritten = 0;
-                UINT remainingBytes = min(USB_BLOCK_SIZE - blockBytesWritten, server_info.size - count);
-                bytesWritten = sram_writeblock(recv_buffer, server_info.offset + count, remainingBytes);
+                UINT remainingBytes = min(server_info.block_size - blockBytesWritten, server_info.size - count);
+                bytesWritten = sram_writeblock(recv_buffer + blockBytesWritten, server_info.offset + count, remainingBytes);
                 blockBytesWritten += bytesWritten;
                 count += bytesWritten;
-            } while (blockBytesWritten != USB_BLOCK_SIZE && count < server_info.size);
-            
+                
+                // generate next offset and size
+                if (server_info.opcode == USBINT_SERVER_OPCODE_VPUT && count == server_info.size) {
+                    while (server_info.vector_count < 8) {
+                        server_info.vector_count++;
+                        //PRINT_MSG("[ next]");
+                    
+                        server_info.size = server_info.vector_size[server_info.vector_count];
+                        server_info.offset = server_info.vector_offset[server_info.vector_count];
+                        
+                        count = 0;
+                        
+                        // we found a valid vector
+                        if (server_info.size) break;
+                    }
+                }
+            } while (blockBytesWritten != server_info.block_size && count < server_info.size);
             // FIXME: figure out how to copy recv_buffer somewhere
             //count += USB_BLOCK_SIZE;
         }
@@ -276,8 +330,13 @@ void usbint_recv_block(void) {
                 f_close(&fh);
             }
             //PRINT_FUNCTION();
-            //PRINT_MSG("[ dat]");
+            //PRINT_MSG("[ datDone]");
 
+            server_info.cmd_size = USB_BLOCK_SIZE;
+            server_info.block_size = USB_BLOCK_SIZE;
+            cmdDat = 0;
+            count = 0;
+            
             // unlock any sram transfer lock
             //PRINT_STATE(server_state);
             if (server_state == USBINT_SERVER_STATE_HANDLE_LOCK) {
@@ -286,9 +345,6 @@ void usbint_recv_block(void) {
             //PRINT_STATE(server_state);
 
             //PRINT_DAT((int)count, (int)server_info.size);
-
-            cmdDat = 0;
-            count = 0;
             
             //PRINT_END();
         }
@@ -324,6 +380,10 @@ void usbint_check_connect(void) {
         if (!connected) {
             server_state = USBINT_SERVER_STATE_IDLE;
             cmdDat = 0;
+            //server_info.cmd_size = USB_BLOCK_SIZE;
+            //server_info.block_size = USB_BLOCK_SIZE;
+
+            //CDC_block_conf();
         }
         set_usb_status(connected ? USB_SNES_STATUS_SET_CONNECTED : USB_SNES_STATUS_CLR_CONNECTED);
         
@@ -354,21 +414,23 @@ int usbint_handler(void) {
 
 int usbint_handler_cmd(void) {
     int ret = 0;
-    uint8_t *fileName = recv_buffer + 256;
+    uint8_t *fileName = (uint8_t *)cmd_buffer + 256;
 
     PRINT_FUNCTION();
     PRINT_MSG("[hcmd]");
     
     // decode command
-    server_info.opcode = recv_buffer[4];
-    server_info.space = recv_buffer[5];
-    server_info.flags = recv_buffer[6];
+    server_info.opcode = cmd_buffer[4];
+    server_info.space = cmd_buffer[5];
+    server_info.flags = cmd_buffer[6];
 
-    server_info.size  = recv_buffer[252]; server_info.size <<= 8;
-    server_info.size |= recv_buffer[253]; server_info.size <<= 8;
-    server_info.size |= recv_buffer[254]; server_info.size <<= 8;
-    server_info.size |= recv_buffer[255]; server_info.size <<= 0;
+    server_info.size  = cmd_buffer[252]; server_info.size <<= 8;
+    server_info.size |= cmd_buffer[253]; server_info.size <<= 8;
+    server_info.size |= cmd_buffer[254]; server_info.size <<= 8;
+    server_info.size |= cmd_buffer[255]; server_info.size <<= 0;
 
+    server_info.total_size = server_info.size;
+    
     server_info.offset = 0;
     server_info.error = 0;
 
@@ -381,41 +443,59 @@ int usbint_handler_cmd(void) {
             fi.lfsize = MAX_STRING_LENGTH;
             server_info.error |= f_stat((TCHAR*)fileName, &fi);
             server_info.size = fi.fsize;
+            server_info.total_size = server_info.size;
             server_info.error |= f_open(&fh, (TCHAR*)fileName, FA_READ);
         }
         else {
-            server_info.offset  = recv_buffer[256]; server_info.offset <<= 8;
-            server_info.offset |= recv_buffer[257]; server_info.offset <<= 8;
-            server_info.offset |= recv_buffer[258]; server_info.offset <<= 8;
-            server_info.offset |= recv_buffer[259]; server_info.offset <<= 0;
+            server_info.offset  = cmd_buffer[256]; server_info.offset <<= 8;
+            server_info.offset |= cmd_buffer[257]; server_info.offset <<= 8;
+            server_info.offset |= cmd_buffer[258]; server_info.offset <<= 8;
+            server_info.offset |= cmd_buffer[259]; server_info.offset <<= 0;
         }
         break;
     }
-    case USBINT_SERVER_OPCODE_STREAM: {
-		// this is a special opcode that must point to the MSU space for streaming writes
-		server_info.error = server_info.space != USBINT_SERVER_SPACE_MSU;
-
-		if (!server_info.error) {
-			stream_state = USBINT_SERVER_STREAM_STATE_INIT;
-			
-	        server_info.offset  = recv_buffer[256]; server_info.offset <<= 8;
-			server_info.offset |= recv_buffer[257]; server_info.offset <<= 8;
-			server_info.offset |= recv_buffer[258]; server_info.offset <<= 8;
-			server_info.offset |= recv_buffer[259]; server_info.offset <<= 0;
-		}
-		break;
-	}
     case USBINT_SERVER_OPCODE_PUT: {
         if (server_info.space == USBINT_SERVER_SPACE_FILE) {
             // file
             server_info.error = f_open(&fh, (TCHAR*)fileName, FA_WRITE | FA_CREATE_ALWAYS);
         }
         else {
-            server_info.offset  = recv_buffer[256]; server_info.offset <<= 8;
-            server_info.offset |= recv_buffer[257]; server_info.offset <<= 8;
-            server_info.offset |= recv_buffer[258]; server_info.offset <<= 8;
-            server_info.offset |= recv_buffer[259]; server_info.offset <<= 0;
+            server_info.offset  = cmd_buffer[256]; server_info.offset <<= 8;
+            server_info.offset |= cmd_buffer[257]; server_info.offset <<= 8;
+            server_info.offset |= cmd_buffer[258]; server_info.offset <<= 8;
+            server_info.offset |= cmd_buffer[259]; server_info.offset <<= 0;
         }
+        break;
+    }
+    case USBINT_SERVER_OPCODE_VGET:
+    case USBINT_SERVER_OPCODE_VPUT: {
+        // don't support MSU for now
+        server_info.error = server_info.space != USBINT_SERVER_SPACE_SNES;
+
+        if (!server_info.error) {
+            // get total size
+            server_info.total_size = 0;
+            
+            for (unsigned i = 0; i < 8; i++) {
+                server_info.total_size += cmd_buffer[32 + i * 4];
+
+                // load first offset and size
+                server_info.vector_size[i] = cmd_buffer[32 + i * 4];
+
+                server_info.vector_offset[i]  = 0;
+                server_info.vector_offset[i] |= cmd_buffer[33 + i * 4]; server_info.vector_offset[i] <<= 8;
+                server_info.vector_offset[i] |= cmd_buffer[34 + i * 4]; server_info.vector_offset[i] <<= 8;
+                server_info.vector_offset[i] |= cmd_buffer[35 + i * 4]; server_info.vector_offset[i] <<= 0;
+                
+                printf("vector[%d]: %d %06x ", i, (int)server_info.vector_size[i], (int)server_info.vector_offset[i]);
+            }
+
+            server_info.vector_count = 0;
+        
+            server_info.size = server_info.vector_size[server_info.vector_count];
+            server_info.offset = server_info.vector_offset[server_info.vector_count];
+        }        
+        
         break;
     }
     case USBINT_SERVER_OPCODE_LS: {
@@ -424,6 +504,7 @@ int usbint_handler_cmd(void) {
         fi.lfsize = MAX_STRING_LENGTH;
         server_info.error |= f_opendir(&dh, (TCHAR *)fileName) != FR_OK;
         server_info.size = 1;
+        server_info.total_size = server_info.size;
         break;
     }
     case USBINT_SERVER_OPCODE_MKDIR: {
@@ -445,13 +526,13 @@ int usbint_handler_cmd(void) {
     case USBINT_SERVER_OPCODE_TIME: {
         struct tm time;
 
-        time.tm_sec = (uint8_t) recv_buffer[4];
-        time.tm_min = (uint8_t) recv_buffer[5];
-        time.tm_hour = (uint8_t) recv_buffer[6];
-        time.tm_mday = (uint8_t) recv_buffer[7];
-        time.tm_mon = (uint8_t) recv_buffer[8];
-        time.tm_year = (uint16_t) ((recv_buffer[9] << 8) + recv_buffer[10]);
-        time.tm_wday = (uint8_t) recv_buffer[11];
+        time.tm_sec = (uint8_t) cmd_buffer[4];
+        time.tm_min = (uint8_t) cmd_buffer[5];
+        time.tm_hour = (uint8_t) cmd_buffer[6];
+        time.tm_mday = (uint8_t) cmd_buffer[7];
+        time.tm_mon = (uint8_t) cmd_buffer[8];
+        time.tm_year = (uint16_t) ((cmd_buffer[9] << 8) + cmd_buffer[10]);
+        time.tm_wday = (uint8_t) cmd_buffer[11];
 					  
         set_rtc(&time);
     }
@@ -463,12 +544,25 @@ int usbint_handler_cmd(void) {
         if ((newFileName = strrchr(newFileName, '/'))) *(newFileName + 1) = '\0';
         newFileName = fbuf;
         // add the new basename
-        strncat((TCHAR *)newFileName, (TCHAR *)recv_buffer + 8, MAX_STRING_LENGTH - 8 - strlen(fbuf));
+        strncat((TCHAR *)newFileName, (TCHAR *)cmd_buffer + 8, MAX_STRING_LENGTH - 8 - strlen(fbuf));
         // perform move
         server_info.error |= f_rename((TCHAR *)fileName, (TCHAR *)newFileName) != FR_OK;
         break;
     }
-    case USBINT_SERVER_OPCODE_ATOMIC: // unsupported
+    case USBINT_SERVER_OPCODE_STREAM: {
+		// this is a special opcode that must point to the MSU space for streaming writes
+		server_info.error = server_info.space != USBINT_SERVER_SPACE_MSU;
+
+		if (!server_info.error) {
+			stream_state = USBINT_SERVER_STREAM_STATE_INIT;
+			
+	        server_info.offset  = cmd_buffer[256]; server_info.offset <<= 8;
+			server_info.offset |= cmd_buffer[257]; server_info.offset <<= 8;
+			server_info.offset |= cmd_buffer[258]; server_info.offset <<= 8;
+			server_info.offset |= cmd_buffer[259]; server_info.offset <<= 0;
+		}
+		break;
+	}
     default: // unrecognized
         server_info.error = 1;
     case USBINT_SERVER_OPCODE_BOOT:
@@ -514,15 +608,17 @@ int usbint_handler_cmd(void) {
     
     PRINT_STATE(server_state);
     // decide next state
-    if (server_info.opcode == USBINT_SERVER_OPCODE_GET || server_info.opcode == USBINT_SERVER_OPCODE_LS) {
+    if (server_info.opcode == USBINT_SERVER_OPCODE_GET || server_info.opcode == USBINT_SERVER_OPCODE_VGET || server_info.opcode == USBINT_SERVER_OPCODE_LS) {
         // we lock on data transfers so use interrupt for everything
         server_state = USBINT_SERVER_STATE_HANDLE_DAT;
     }
     else if (server_info.opcode == USBINT_SERVER_OPCODE_MENU_LOCK) {
         server_state = USBINT_SERVER_STATE_HANDLE_LOCK;
     }
-    else if (server_info.opcode == USBINT_SERVER_OPCODE_PUT/* && server_info.space == USBINT_SERVER_SPACE_SNES*/) {
+    else if (server_info.opcode == USBINT_SERVER_OPCODE_PUT || server_info.opcode == USBINT_SERVER_OPCODE_VPUT) {
         server_state = USBINT_SERVER_STATE_HANDLE_LOCK;
+        // allow the data to come in
+        NVIC_EnableIRQ(USB_IRQn); 
     }
 	else if (server_info.opcode == USBINT_SERVER_OPCODE_STREAM) {
 		server_state = USBINT_SERVER_STATE_HANDLE_STREAM;
@@ -532,7 +628,7 @@ int usbint_handler_cmd(void) {
     }
     PRINT_STATE(server_state);
     
-    PRINT_CMD(recv_buffer);
+    PRINT_CMD(cmd_buffer);
     
     if (server_info.opcode == USBINT_SERVER_OPCODE_BOOT) {
         printf("Boot name: %s ", (char *)file_lfn);        
@@ -550,13 +646,21 @@ int usbint_handler_cmd(void) {
     // error
     send_buffer[send_buffer_index][5] = server_info.error;
     // size
-    send_buffer[send_buffer_index][252] = (server_info.size >> 24) & 0xFF;
-    send_buffer[send_buffer_index][253] = (server_info.size >> 16) & 0xFF;
-    send_buffer[send_buffer_index][254] = (server_info.size >>  8) & 0xFF;
-    send_buffer[send_buffer_index][255] = (server_info.size >>  0) & 0xFF;
+    send_buffer[send_buffer_index][252] = (server_info.total_size >> 24) & 0xFF;
+    send_buffer[send_buffer_index][253] = (server_info.total_size >> 16) & 0xFF;
+    send_buffer[send_buffer_index][254] = (server_info.total_size >>  8) & 0xFF;
+    send_buffer[send_buffer_index][255] = (server_info.total_size >>  0) & 0xFF;
      
     // send response.  also triggers data interrupt.
-    usbint_send_block(USB_BLOCK_SIZE);
+    if (!(server_info.flags & USBINT_SERVER_FLAGS_NORESP)) {
+        usbint_send_block(USB_BLOCK_SIZE);
+    }
+    else if (server_state == USBINT_SERVER_STATE_HANDLE_DAT) {
+        // send the first data beat to trigger the interrupt
+        server_state = USBINT_SERVER_STATE_HANDLE_DATPUSH;
+        usbint_handler_dat();
+        server_state = USBINT_SERVER_STATE_HANDLE_DAT;
+    }
  
     // lock process.  this avoids a conflict with the rest of the menu accessing the file system or sram
 	// FIXME: streaming blocks saves
@@ -577,15 +681,16 @@ int usbint_handler_dat(void) {
     int bytesSent = 0;
     
     switch (server_info.opcode) {
+    case USBINT_SERVER_OPCODE_VGET:
     case USBINT_SERVER_OPCODE_GET: {
         if (server_info.space == USBINT_SERVER_SPACE_FILE) {
             server_info.error |= f_lseek(&fh, server_info.offset + count);
             do {
                 UINT bytesRead = 0;
-                server_info.error |= f_read(&fh, (unsigned char *)send_buffer[send_buffer_index] + bytesSent, USB_DATABLOCK_SIZE - bytesSent, &bytesRead);
+                server_info.error |= f_read(&fh, (unsigned char *)send_buffer[send_buffer_index] + bytesSent, server_info.block_size - bytesSent, &bytesRead);
                 bytesSent += bytesRead;
                 count += bytesRead;
-            } while (bytesSent != USB_DATABLOCK_SIZE && count < server_info.size);
+            } while (bytesSent != server_info.block_size && count < server_info.size);
 
             // close file
             if (count >= server_info.size) {
@@ -595,15 +700,32 @@ int usbint_handler_dat(void) {
         else {
             do {
                 UINT bytesRead = 0;
+                UINT remainingBytes = min(server_info.block_size - bytesSent, server_info.size - count);
+
 				if (server_info.space == USBINT_SERVER_SPACE_SNES) {
-					bytesRead = sram_readblock((uint8_t *)send_buffer[send_buffer_index] + bytesSent, SRAM_ROM_ADDR + server_info.offset + count, USB_DATABLOCK_SIZE - bytesSent);
+					bytesRead = sram_readblock((uint8_t *)send_buffer[send_buffer_index] + bytesSent, server_info.offset + count, remainingBytes);
 				}
 				else {
-					bytesRead = msu_readblock((uint8_t *)send_buffer[send_buffer_index] + bytesSent, server_info.offset + count, USB_DATABLOCK_SIZE - bytesSent);
+					bytesRead = msu_readblock((uint8_t *)send_buffer[send_buffer_index] + bytesSent, server_info.offset + count, remainingBytes);
 				}	
                 bytesSent += bytesRead;
                 count += bytesRead;
-            } while (bytesSent != USB_DATABLOCK_SIZE && count < server_info.size);
+                
+                // generate next offset and size
+                if (server_info.opcode == USBINT_SERVER_OPCODE_VGET && count == server_info.size) {
+                    while (server_info.vector_count < 8) {
+                        server_info.vector_count++;
+                    
+                        server_info.size = server_info.vector_size[server_info.vector_count];
+                        server_info.offset = server_info.vector_offset[server_info.vector_count];
+                        
+                        count = 0;
+                        
+                        // we found a valid vector
+                        if (server_info.size) break;
+                    }                    
+                }
+            } while (bytesSent != server_info.block_size && count < server_info.size);
         }
 
         break;
@@ -644,7 +766,7 @@ int usbint_handler_dat(void) {
             }
 
             // check for id(1) string(strlen + 1) is does not go past index
-            if (bytesSent + 1 + strlen((TCHAR*)name) + 1 <= USB_DATABLOCK_SIZE) {
+            if (bytesSent + 1 + strlen((TCHAR*)name) + 1 <= server_info.block_size) {
                 send_buffer[send_buffer_index][bytesSent++] = (fi.fattrib & AM_DIR) ? 0 : 1;
                 strcpy((TCHAR*)send_buffer[send_buffer_index] + bytesSent, (TCHAR*)name);
                 bytesSent += strlen((TCHAR*)name) + 1;
@@ -656,7 +778,7 @@ int usbint_handler_dat(void) {
                 fiCont = 1;
                 break;
             }
-        } while (bytesSent < USB_DATABLOCK_SIZE);
+        } while (bytesSent < server_info.block_size);
         break;
     }
     case USBINT_SERVER_OPCODE_STREAM: {
@@ -710,8 +832,8 @@ int usbint_handler_dat(void) {
 	}
     default: {
         // send back a single data beat with all 0xFF's
-        memset((unsigned char *)send_buffer[send_buffer_index], 0xFF, USB_DATABLOCK_SIZE);
-        bytesSent = USB_DATABLOCK_SIZE;
+        memset((unsigned char *)send_buffer[send_buffer_index], 0xFF, server_info.block_size);
+        bytesSent = server_info.block_size;
         break;
     }
     }
@@ -720,13 +842,13 @@ int usbint_handler_dat(void) {
         if (count >= server_info.size) {
             // clear out any remaining portion of the buffer
             // set to $FFs to enable stream NOP
-            memset((unsigned char *)send_buffer[send_buffer_index] + bytesSent, 0x00, USB_DATABLOCK_SIZE - bytesSent);
+            memset((unsigned char *)send_buffer[send_buffer_index] + bytesSent, 0x00, server_info.block_size - bytesSent);
         }
     }
 
     if (server_state == USBINT_SERVER_STATE_HANDLE_DATPUSH) {
 		// polling push
-        usbint_send_block(USB_DATABLOCK_SIZE);
+        usbint_send_block(server_info.block_size);
     }
     else if (server_state == USBINT_SERVER_STATE_HANDLE_STREAM) {
         CDC_block_init((unsigned char*)send_buffer[send_buffer_index], 64);
@@ -735,7 +857,7 @@ int usbint_handler_dat(void) {
     else {
 		// TODO: move buffer fill after this to speed up perf
 		// interrupt push
-        CDC_block_init((unsigned char*)send_buffer[send_buffer_index], USB_DATABLOCK_SIZE);
+        CDC_block_init((unsigned char*)send_buffer[send_buffer_index], server_info.block_size);
         send_buffer_index = (send_buffer_index + 1) & 0x1;
     }
 

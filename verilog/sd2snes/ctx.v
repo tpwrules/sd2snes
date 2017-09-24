@@ -29,7 +29,7 @@ module ctx(
   input SNES_PAWR_end,      // PAWR from SNES
   input [7:0] SNES_DATA_IN,
 
-  output OE_RD_ENABLE,
+  //output OE_RD_ENABLE,
   output OE_WR_ENABLE,
   output OE_PAWR_ENABLE,
   output OE_PARD_ENABLE,
@@ -42,10 +42,6 @@ module ctx(
   output [23:0] ROM_ADDR,   // Address to request from SRAM0
   output [15:0] ROM_DATA,    // Data to write to SRAM0
   output        ROM_WORD_ENABLE,
-
-  //output [23:0] ROM_SNESCAST_ADDR,
-  //output [15:0] ROM_SNESCAST_DATA,
-  //output        ROM_SNESCAST_ENABLE,
   
   output        DBG
 );
@@ -123,6 +119,8 @@ reg [15:0] APU_ADDR;
 initial APU_ADDR = 0;
 reg [2:0] APU_STATE;
 initial APU_STATE = 0;
+reg IS_APU_RAM_r;
+reg IS_APU_PORT_r;
 
 wire [7:0] APU_STATUS_COMPARE = (r214x[0] + 1) - SNES_DATA_IN;
 wire [7:0] APU_SNES_PA = ({SNES_PA[7:6],4'b0000,SNES_PA[1:0]});
@@ -137,11 +135,11 @@ parameter APU_STATE_DATA = 6;
 parameter APU_STATE_DONE = 7;
 
 assign IS_APU_RAM = ((APU_STATE == APU_STATE_DATA_INIT) && (SNES_PAWR_end && (APU_SNES_PA == 8'h40) && (SNES_DATA_IN == 0)))
-                  | ((APU_STATE == APU_STATE_DATA) && (SNES_PAWR_end && (APU_SNES_PA == 8'h40) && (APU_STATUS_COMPARE == 8'h00)));
+                  | ((APU_STATE == APU_STATE_DATA) && (SNES_PAWR_end && (APU_SNES_PA == 8'h40) && (APU_STATUS_COMPARE == 0)));
 // ignore writes when in done state
 // ignore $2140 writes since we don't need that state and it frees up a slot for RAM writes
 assign IS_APU_PORT = SNES_PAWR_end && ({SNES_PA[7:6],6'b000000} == 8'h40) && (|SNES_PA[1:0]) && (APU_STATE != APU_STATE_DONE);
-assign IS_APU = IS_APU_RAM | IS_APU_PORT;
+assign IS_APU = IS_APU_RAM_r | IS_APU_PORT_r;
 
 assign IS_APU_PORT_ADDR = {SNES_PA[7:6],6'b000000} == 8'h40;
 
@@ -156,11 +154,14 @@ always @(posedge clkin) begin
 	  r214x[3] <= 0;
   end
   else begin
+    IS_APU_RAM_r <= IS_APU_RAM;
+    IS_APU_PORT_r <= IS_APU_PORT;
+
     // update register state on register write
     if (SNES_PAWR_end && IS_APU_PORT_ADDR) r214x[SNES_PA[1:0]] <= SNES_DATA_IN;
 
     // increment addresses on ram write
-    if (IS_APU_RAM) APU_ADDR <= APU_ADDR + 1;
+    if (IS_APU_RAM_r) APU_ADDR <= APU_ADDR + 1;
 
     case (APU_STATE)
       APU_STATE_INIT: begin
@@ -305,7 +306,9 @@ always @(posedge clkin) begin
     if (IS_BG_DOUBLE) rBG <= SNES_DATA_IN;
     if (IS_M7_DOUBLE) rM7 <= SNES_DATA_IN;
 
-    PPUREG_WRITE_ADDR_r <= ((SNES_PA <= 8'h33) || (SNES_PA > 8'h80)) && (SNES_PA != 8'h04) && (SNES_PA != 8'h18) && (SNES_PA != 8'h19) && (SNES_PA != 8'h22);
+    // <= 33, ignore data registers or 81,82,83 (not 80)
+    PPUREG_WRITE_ADDR_r <= ((SNES_PA <= 8'h33) && (SNES_PA != 8'h04) && (SNES_PA != 8'h18) && (SNES_PA != 8'h19) && (SNES_PA != 8'h22)) || ((SNES_PA != 8'h80) && ({SNES_PA[7:2],2'b00} == 8'h80));
+    // 34-36, 3C-3F
     PPUREG_READ_ADDR_r <= ((SNES_PA > 8'h33) && (SNES_PA <= 8'h3F)) && (SNES_PA != 8'h37) && (SNES_PA != 8'h38) && (SNES_PA != 8'h39) && (SNES_PA != 8'h3A) && (SNES_PA != 8'h3B);
   end
 end
@@ -350,11 +353,14 @@ always @(posedge clkin) begin
     CPUREG_READ_ADDR_r <= 0;
   end
   else begin
-    CPUREG_WRITE_ADDR_r <= ({1'b0,SNES_ADDR[22],6'b000000, SNES_ADDR[15:4], 4'b0000} == 24'h04200) || ({1'b0,SNES_ADDR[22],6'b000000, SNES_ADDR[15:8], 8'b00000000} == 24'h04300);
-    CPUREG_READ_ADDR_r <= {1'b0,SNES_ADDR[22],6'b000000, SNES_ADDR[15:4], 4'b0000} == 24'h04210;
+    // $43x0-$43xA (x < 8)
+    CPUREG_WRITE_ADDR_r <= (({1'b0,SNES_ADDR[22],6'b000000, SNES_ADDR[15:4], 4'b0000} == 24'h04200) && (SNES_ADDR[3:0] <= 4'hD)) || (({1'b0,SNES_ADDR[22],6'b000000, SNES_ADDR[15:7], 7'b0000000} == 24'h04300)) && (SNES_ADDR[3:0] <= 4'hA);
+    // this isn't used for level shifter enable so ok to get larger regions.
+    CPUREG_READ_ADDR_r <= {1'b0,SNES_ADDR[22],6'b000000, SNES_ADDR[15:4], 4'b0000} == 24'h04218;
   end
 end
 
+// FIXME: This is broken because it's testing for reads and associated data to find ST to memory.  RDs from WRAM are not visible right now.
 always @(posedge clkin) begin
   if (reset || (~|CPUREG_COUNTER)) begin
     // don't zero out the non-counter state outside of reset
@@ -457,35 +463,6 @@ assign IS_GAMEPAD_WRITE = SNES_WR_end && IS_GAMEPAD_WRITE_ADDR;
 assign IS_MISC_ADDR = IS_GAMEPAD_WRITE_ADDR;
 assign IS_MISC = IS_GAMEPAD_WRITE;
 
-////-------------------
-//// handle SNESCAST accesses.
-////-------------------
-//// This is a queued region where PPU writes reflected to for an external reader to parse
-//reg [13:0] SNESCAST_ADDR;
-//
-//assign IS_SNESCAST_WRITE = IS_VRAM | IS_APU_PORT | IS_CGRAM | IS_OAM | IS_PPUREG_WRITE;
-//assign IS_SNESCAST_NMI_ADDR_START = (SNES_ADDR == 24'h00FFEA);
-//assign IS_SNESCAST_NMI_ADDR_END = (SNES_ADDR == 24'h00FFEB);
-//assign IS_SNESCAST_NMI_END = SNES_RD_end && IS_SNESCAST_NMI_ADDR_END;
-//assign IS_SNESCAST_NMI_START = SNES_RD_end && IS_SNESCAST_NMI_ADDR_START;
-//assign IS_SNESCAST_NMI = IS_SNESCAST_NMI_START | IS_SNESCAST_NMI_END;
-//assign IS_SNESCAST = IS_SNESCAST_WRITE | IS_SNESCAST_NMI;
-//
-//always @(posedge clkin) begin
-//  if (reset) begin
-//    SNESCAST_ADDR <= 0;
-//  end
-//  else begin
-//    if (IS_SNESCAST_WRITE | IS_SNESCAST_NMI_START) begin
-//      SNESCAST_ADDR <= SNESCAST_ADDR + 1;
-//    end
-//    else if (IS_SNESCAST_NMI_END) begin
-//      // advance to the next buffer for the frame
-//      SNESCAST_ADDR <= {SNESCAST_ADDR[13:8]+1,8'h00};
-//    end
-//  end
-//end
-
 //-------------------
 // generate address
 //-------------------
@@ -500,8 +477,8 @@ assign SRAM_SNES_ADDR[23:0] = IS_WRAM
                                             : (r2115[3:2] == 2'h2) ? ({VRAM_ADDR[14: 9],VRAM_ADDR[5:0],VRAM_ADDR[8:6],SNES_PA[0]})
                                             :                        ({VRAM_ADDR[14:10],VRAM_ADDR[6:0],VRAM_ADDR[9:7],SNES_PA[0]})))
                             : IS_APU
-									          ? (24'hF80000 + ( IS_APU_RAM ? (APU_ADDR[15:0])
-									                          :              (8'hF4 + SNES_PA[1:0])))
+									          ? (24'hF80000 + ( IS_APU_RAM_r ? (APU_ADDR[15:0])
+									                          :                (8'hF4 + SNES_PA[1:0])))
                             : IS_CGRAM
 									          ? (24'hF90000 + CGRAM_ADDR[8:0])
                             : IS_OAM
@@ -514,16 +491,10 @@ assign SRAM_SNES_ADDR[23:0] = IS_WRAM
 									          : IS_MISC
 									          ? (24'hF90420 + ( IS_GAMEPAD_WRITE ? ({7'h00,SNES_ADDR[0]})
 									                          :                    (8'hDF)))
-				                    //: IS_SNESCAST_NMI // SNESCAST temporary to not clobber other memory
-									          //? (24'hFA0000 + SNESCAST_ADDR)
 								            : 24'hF98000;
 
 assign IS_WRITE = IS_WRAM | IS_VRAM | IS_CGRAM | IS_OAM | IS_APU | IS_PPUREG | IS_CPUREG | IS_MISC; // | IS_SNESCAST_NMI; // NMI for SNESCAST
 assign IS_WORD = IS_PPUREG;
-
-//// SNESCAST
-//wire [23:0] SRAM_SNESCAST_ADDR;
-//assign SRAM_SNESCAST_ADDR[23:0] = 24'hFA0000 + SNESCAST_ADDR;
 
 // flop request
 reg REQ;
@@ -535,15 +506,8 @@ initial DATA = 16'h0000;
 reg WORD;
 initial WORD = 0;
 
-//reg [23:0] SC_ADDR;
-//initial SC_ADDR = 24'h0;
-//reg [15:0] SC_DATA;
-//initial SC_DATA = 16'h0000;
-//reg SC_ENABLE;
-//initial SC_ENABLE = 0;
-
 // doubles
-wire [7:0] DATA_SINGLE_IN = IS_CPUREG_READ ? r421x[SNES_ADDR[3:0]] : IS_APU_RAM ? r214x[1] : SNES_DATA_IN[7:0];
+wire [7:0] DATA_SINGLE_IN = IS_CPUREG_READ ? r421x[SNES_ADDR[3:0]] : IS_APU_RAM_r ? r214x[1] : SNES_DATA_IN[7:0];
 
 always @(posedge clkin) begin
   if (IS_WRITE) begin
@@ -555,11 +519,6 @@ always @(posedge clkin) begin
     // overlaps with BG so BG should have priority when assigning data
     DATA[15:0] <= { DATA_SINGLE_IN, (IS_BG_DOUBLE ? rBG : IS_M7_DOUBLE ? rM7 : DATA_SINGLE_IN) };
     WORD <= IS_WORD;
-    
-//    // SNESCAST
-//    SC_ADDR <= SRAM_SNESCAST_ADDR;
-//    SC_DATA <= IS_SNESCAST_NMI_START ? {8'hFF,8'h01} : IS_SNESCAST_NMI_END ? {8'hFF,8'h00} : {SNES_PA, SNES_DATA_IN};
-//    SC_ENABLE <= IS_SNESCAST;
   end
   else if (REQ && BUS_RDY) begin
     REQ <= 0;
@@ -571,15 +530,12 @@ assign BUS_WRQ = REQ && BUS_RDY;
 assign ROM_ADDR[23:0] = ADDR[23:0];
 assign ROM_DATA[15:0] = DATA[15:0];
 assign ROM_WORD_ENABLE = WORD;
-//assign ROM_SNESCAST_ADDR = SC_ADDR[23:0];
-//assign ROM_SNESCAST_DATA = SC_DATA[15:0];
-//assign ROM_SNESCAST_ENABLE = SC_ENABLE;
 
-// TODO: add assigns for these per group
-assign OE_RD_ENABLE = IS_CPUREG_READ_ADDR;
-assign OE_WR_ENABLE = IS_WRAM_SHADOW_ADDR || IS_WRAM_BANK_ADDR || IS_CPUREG_WRITE_ADDR || IS_MISC_ADDR;
-assign OE_PAWR_ENABLE = IS_WRAM_PA_ADDR || (SNES_PA == 8'h15) || ({SNES_PA[7:1],1'b0} == 8'h16) || ({SNES_PA[7:1],1'b0} == 8'h18) || (SNES_PA[7:0] == 8'h21) || (SNES_PA[7:0] == 8'h22) || (SNES_PA[7:0] == 8'h02) || (SNES_PA[7:0] == 8'h03) || (SNES_PA[7:0] == 8'h04) || IS_APU_PORT_ADDR || IS_PPUREG_WRITE_ADDR;
-assign OE_PARD_ENABLE = IS_APU_PORT_ADDR || IS_PPUREG_READ_ADDR;
+// TODO: figure out if we need WRAM and other non-PA reads
+//assign OE_RD_ENABLE = IS_CPUREG_READ_ADDR;
+assign OE_WR_ENABLE = (IS_WRAM_SHADOW_ADDR || IS_WRAM_BANK_ADDR || IS_CPUREG_WRITE_ADDR || IS_MISC_ADDR);
+assign OE_PAWR_ENABLE = (IS_WRAM_PA_ADDR || (SNES_PA <= 8'h33) || IS_APU_PORT_ADDR || IS_PPUREG_WRITE_ADDR);
+assign OE_PARD_ENABLE = (IS_APU_PORT_ADDR || IS_PPUREG_READ_ADDR);
 
 assign DBG = |CPUREG_STATE;
 

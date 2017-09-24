@@ -118,6 +118,7 @@ reg [3:0] subcount = 0;
 
 reg int_strobe = 0, comb_strobe = 0;
 
+/*
 always @(posedge clkin) begin
   int_strobe <= 0;
   comb_strobe <= 0;
@@ -163,7 +164,7 @@ always @(posedge clkin) begin
     else cicstate <= ST4_INT1;
   end else begin
     case(cicstate)
-/****** COMB STAGES ******/
+//------- COMB STAGES
       ST1_COMB1: begin
         cicstate <= ST2_COMB2;
         ci[0] <= bufi;
@@ -182,7 +183,7 @@ always @(posedge clkin) begin
         co[2][63:32] <= co[1][63:32] - ci[2][63:32];
         co[2][31:0] <= co[1][31:0] - ci[2][31:0];
       end
-/****** INTEGRATOR STAGES ******/
+//------- INTEGRATOR STAGES
       ST4_INT1: begin
         io[0][63:32] <= co[2][63:32] + io[0][63:32];
         io[0][31:0] <= co[2][31:0] + io[0][31:0];
@@ -271,5 +272,6 @@ always @(posedge clkin) begin
     end
   end
 end
+*/
 
 endmodule

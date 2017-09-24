@@ -29,7 +29,6 @@
 
 /* defines */
 #define USB_BLOCK_SIZE 512
-#define USB_DATABLOCK_SIZE 512
 
 #define USB_SNES_STATUS_SET_CONNECTED    (0x0001)
 
