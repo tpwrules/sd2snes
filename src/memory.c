@@ -258,6 +258,8 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   filesize = file_handle.fsize;
   smc_id(&romprops, flags);
   file_close();
+  // force original FPGA configuration if MSU
+  if (!romprops.fpga_conf && msu1_check(filename)) romprops.fpga_conf = FPGA_MSU;
   
   if(is_menu) {
     printf("Setting menu features...");
