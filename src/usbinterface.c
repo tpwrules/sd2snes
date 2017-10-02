@@ -128,8 +128,8 @@ enum usbint_server_stream_state_e { FOREACH_SERVER_STREAM_STATE(GENERATE_ENUM) }
                                                 \
   OP(USBINT_SERVER_OPCODE_RESET)                \
   OP(USBINT_SERVER_OPCODE_BOOT)                 \
-  OP(USBINT_SERVER_OPCODE_MENU_LOCK)            \
-  OP(USBINT_SERVER_OPCODE_MENU_UNLOCK)          \
+  OP(USBINT_SERVER_OPCODE_RSVD)                 \
+  OP(USBINT_SERVER_OPCODE_INFO)                 \
   OP(USBINT_SERVER_OPCODE_MENU_RESET)           \
   OP(USBINT_SERVER_OPCODE_STREAM)               \
   OP(USBINT_SERVER_OPCODE_TIME)                 \
@@ -564,9 +564,9 @@ int usbint_handler_cmd(void) {
 	}
     default: // unrecognized
         server_info.error = 1;
+    case USBINT_SERVER_OPCODE_INFO:
     case USBINT_SERVER_OPCODE_BOOT:
-    case USBINT_SERVER_OPCODE_MENU_LOCK:
-    case USBINT_SERVER_OPCODE_MENU_UNLOCK:
+    case USBINT_SERVER_OPCODE_RSVD:
         // nop
         break;
     }
@@ -611,9 +611,6 @@ int usbint_handler_cmd(void) {
         // we lock on data transfers so use interrupt for everything
         server_state = USBINT_SERVER_STATE_HANDLE_DAT;
     }
-    else if (server_info.opcode == USBINT_SERVER_OPCODE_MENU_LOCK) {
-        server_state = USBINT_SERVER_STATE_HANDLE_LOCK;
-    }
     else if (server_info.opcode == USBINT_SERVER_OPCODE_PUT || server_info.opcode == USBINT_SERVER_OPCODE_VPUT) {
         server_state = USBINT_SERVER_STATE_HANDLE_LOCK;
         // allow the data to come in
@@ -649,7 +646,15 @@ int usbint_handler_cmd(void) {
     send_buffer[send_buffer_index][253] = (server_info.total_size >> 16) & 0xFF;
     send_buffer[send_buffer_index][254] = (server_info.total_size >>  8) & 0xFF;
     send_buffer[send_buffer_index][255] = (server_info.total_size >>  0) & 0xFF;
-     
+
+    if (server_info.opcode == USBINT_SERVER_OPCODE_INFO) {
+        send_buffer[send_buffer_index][256] = (CONFIG_FWVER >> 24) & 0xFF;
+        send_buffer[send_buffer_index][257] = (CONFIG_FWVER >> 16) & 0xFF;
+        send_buffer[send_buffer_index][258] = (CONFIG_FWVER >>  8) & 0xFF;
+        send_buffer[send_buffer_index][259] = (CONFIG_FWVER >>  0) & 0xFF;
+        strncpy((char *)(send_buffer[send_buffer_index]) + 260, CONFIG_VERSION, MAX_STRING_LENGTH - 4);
+    }
+    
     // send response.  also triggers data interrupt.
     server_info.data_ready = (server_state == USBINT_SERVER_STATE_HANDLE_DAT);
     
