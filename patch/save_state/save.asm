@@ -343,7 +343,21 @@ start:
 	jmp .ss_exit
     
 .save_state
-	%a8()
+    ; check if this is SM
+    %a16()
+    lda.l $00FFDE
+    cmp #$F8DF
+    bne +
+    ; if SM, check return address and make sure it's not in the sound loading code $808159-$808110
+    lda 7,s
+    cmp #$8059
+    bcc +
+    cmp #$8111
+    bcs +
+    %a8()
+    bra .save_state_jump_exit
+    
++	%a8()
     
     lda.l .CS_STATE
     bne .save_state_jump_exit
@@ -483,7 +497,21 @@ start:
 .load_state
 	jsr .pre_load_state
 
-  	%a8()
+    ; check if this is SM
+    %a16()
+    lda.l $00FFDE
+    cmp #$F8DF
+    bne +
+    ; if SM, check return address and make sure it's not in the sound loading code $808159-$808110
+    lda 7,s
+    cmp #$8059
+    bcc +
+    cmp #$8111
+    bcs +
+    %a8()
+    bra .load_state_jump_exit
+
++  	%a8()
 
     lda.l .CS_STATE
     bne .load_state_jump_exit
