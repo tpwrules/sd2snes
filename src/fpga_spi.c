@@ -491,3 +491,13 @@ void set_usb_status(uint16_t status) {
   FPGA_TX_BYTE(0x00); /* latch reset */
   FPGA_DESELECT();
 }
+
+void fpga_write_reg(uint8_t group, uint8_t index, uint8_t value, uint8_t invmask) {
+  FPGA_SELECT();
+  FPGA_TX_BYTE(group);
+  FPGA_TX_BYTE(index);
+  FPGA_TX_BYTE(value);
+  FPGA_TX_BYTE(invmask);
+  FPGA_TX_BYTE(0x00); // flop reset
+  FPGA_DESELECT();
+}

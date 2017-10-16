@@ -50,6 +50,9 @@ module upd77c25(
   output [5:0] updFL_B
 );
 
+assign DO = 8'h0;
+
+/*
 parameter STATE_FETCH = 8'b00000001;
 parameter STATE_LOAD  = 8'b00000010;
 parameter STATE_ALU1  = 8'b00000100;
@@ -634,5 +637,5 @@ always @(posedge CLK) begin
     regs_n <= 16'b0;
   end
 end
-
+*/
 endmodule

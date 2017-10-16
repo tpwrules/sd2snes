@@ -61,7 +61,7 @@ module mcu_cmd(
   output reg [8:0] dac_ptr_out = 0,
 
   // MSU data
-  output [13:0] msu_addr_out,
+  output [14:0] msu_addr_out,
   input [7:0] MSU_STATUS,
   output [5:0] msu_status_reset_out,
   output [5:0] msu_status_set_out,
@@ -71,13 +71,20 @@ module mcu_cmd(
   input [7:0] msu_volumerq,
   input [7:0] msu_data,
   input [31:0] msu_scaddr,
-  output [13:0] msu_ptr_out,
+  output [14:0] msu_ptr_out,
   output msu_reset_out,
 
   // USB
   output [7:0] usb_status_reset_out,
   output [7:0] usb_status_set_out,
   output usb_status_reset_we,
+
+  // REG (generic)
+  output [7:0] reg_group_out,
+  output [7:0] reg_index_out,
+  output [7:0] reg_value_out,
+  output [7:0] reg_invmask_out,
+  output       reg_we_out,
 
   // BS-X
   output [7:0] bsx_regs_reset_out,
@@ -148,8 +155,8 @@ reg [2:0] MAPPER_BUF;
 reg [23:0] ADDR_OUT_BUF;
 reg [10:0] DAC_ADDR_OUT_BUF;
 reg [7:0] DAC_VOL_OUT_BUF;
-reg [13:0] MSU_ADDR_OUT_BUF;
-reg [13:0] MSU_PTR_OUT_BUF;
+reg [14:0] MSU_ADDR_OUT_BUF;
+reg [14:0] MSU_PTR_OUT_BUF;
 reg [5:0] msu_status_set_out_buf;
 reg [5:0] msu_status_reset_out_buf;
 reg msu_status_reset_we_buf = 0;
@@ -159,6 +166,13 @@ reg [23:0] msu_scaddr_r;
 reg [7:0] usb_status_set_out_buf;
 reg [7:0] usb_status_reset_out_buf;
 reg usb_status_reset_we_buf = 0;
+
+reg [7:0] group_out_buf = 8'hFF;
+reg [7:0] index_out_buf = 8'hFF;
+reg [7:0] value_out_buf = 8'hFF;
+reg [7:0] invmask_out_buf = 8'hFF;
+
+reg reg_we_buf = 0;
 
 reg [7:0] bsx_regs_set_out_buf;
 reg [7:0] bsx_regs_reset_out_buf;
@@ -339,7 +353,7 @@ always @(posedge clk) begin
       8'he4: // reset MSU read buffer pointer
         case (spi_byte_cnt)
           32'h2: begin
-            MSU_PTR_OUT_BUF[13:8] <= param_data[5:0];
+            MSU_PTR_OUT_BUF[14:8] <= param_data[6:0];
             MSU_PTR_OUT_BUF[7:0] <= 8'h0;
           end
           32'h3: begin
@@ -448,6 +462,27 @@ always @(posedge clk) begin
           32'h4:
             usb_status_reset_we_buf <= 1'b0;
         endcase
+      default: // handles all group, index, value, invmask writes.  unit is responsible for decoding group for match
+        case (spi_byte_cnt)
+          32'h2: begin
+            group_out_buf <= cmd_data;
+            index_out_buf <= param_data;
+          end
+          32'h3: begin
+            value_out_buf <= param_data;
+          end
+          32'h4: begin
+            invmask_out_buf <= param_data;
+            reg_we_buf <= 1;
+          end
+          32'h5: begin
+            reg_we_buf <= 0;
+            group_out_buf <= 8'hFF;
+            index_out_buf <= 8'hFF;
+            value_out_buf <= 8'hFF;
+            invmask_out_buf <= 8'hFF;
+          end
+        endcase
     endcase
   end
 end
@@ -468,7 +503,7 @@ always @(posedge clk) begin
       2'b10: begin
         case (spi_byte_cnt)
           32'h2: begin
-            MSU_ADDR_OUT_BUF[13:8] <= param_data[5:0];
+            MSU_ADDR_OUT_BUF[14:8] <= param_data[6:0];
             MSU_ADDR_OUT_BUF[7:0] <= 8'b0;
           end
           32'h3:
@@ -628,6 +663,12 @@ assign mcu_data_out = SD_DMA_STATUS ? SD_DMA_SRAM_DATA : MCU_DATA_OUT_BUF;
 assign mcu_mapper = MAPPER_BUF;
 assign rom_mask_out = ROM_MASK;
 assign saveram_mask_out = SAVERAM_MASK;
+
+assign reg_group_out = group_out_buf;
+assign reg_index_out = index_out_buf;
+assign reg_value_out = value_out_buf;
+assign reg_invmask_out = invmask_out_buf;
+assign reg_we_out = reg_we_buf;
 
 assign DBG_mcu_nextaddr = mcu_nextaddr;
 

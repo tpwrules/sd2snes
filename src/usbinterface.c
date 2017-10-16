@@ -346,6 +346,8 @@ void usbint_recv_block(void) {
             // unlock any sram transfer lock
             //PRINT_STATE(server_state);
             if (server_state == USBINT_SERVER_STATE_HANDLE_LOCK) {
+                // disable interrupts again to let the command loop finish
+                NVIC_DisableIRQ(USB_IRQn);
                 server_state = USBINT_SERVER_STATE_IDLE;
             }            
             //PRINT_STATE(server_state);
@@ -606,6 +608,7 @@ int usbint_handler_cmd(void) {
     }
     
     PRINT_STATE(server_state);
+    
     // decide next state
     if (server_info.opcode == USBINT_SERVER_OPCODE_GET || server_info.opcode == USBINT_SERVER_OPCODE_VGET || server_info.opcode == USBINT_SERVER_OPCODE_LS) {
         // we lock on data transfers so use interrupt for everything
@@ -613,8 +616,6 @@ int usbint_handler_cmd(void) {
     }
     else if (server_info.opcode == USBINT_SERVER_OPCODE_PUT || server_info.opcode == USBINT_SERVER_OPCODE_VPUT) {
         server_state = USBINT_SERVER_STATE_HANDLE_LOCK;
-        // allow the data to come in
-        NVIC_EnableIRQ(USB_IRQn); 
     }
 	else if (server_info.opcode == USBINT_SERVER_OPCODE_STREAM) {
 		server_state = USBINT_SERVER_STATE_HANDLE_STREAM;
@@ -667,7 +668,14 @@ int usbint_handler_cmd(void) {
         usbint_handler_dat();
         if (server_state == USBINT_SERVER_STATE_HANDLE_DATPUSH) server_state = USBINT_SERVER_STATE_HANDLE_DAT;
     }
- 
+
+    int dataWait = 0;
+    if (server_info.opcode == USBINT_SERVER_OPCODE_PUT || server_info.opcode == USBINT_SERVER_OPCODE_VPUT) {
+        // allow the data to come in
+        dataWait = 1;
+        NVIC_EnableIRQ(USB_IRQn); 
+    }
+    
     // lock process.  this avoids a conflict with the rest of the menu accessing the file system or sram
 	// FIXME: streaming blocks saves
     while(server_state == USBINT_SERVER_STATE_HANDLE_LOCK || server_state == USBINT_SERVER_STATE_HANDLE_DAT || server_state == USBINT_SERVER_STATE_HANDLE_STREAM) { usbint_check_connect(); };
@@ -676,6 +684,9 @@ int usbint_handler_cmd(void) {
 	if (server_info.flags & USBINT_SERVER_FLAGS_SETX) {
 		usbint_handler_exe();
 	}
+    
+    // allow next command to come after prior data
+    if (dataWait) NVIC_EnableIRQ(USB_IRQn);
     
     return ret;
 
@@ -832,11 +843,12 @@ int usbint_handler_dat(void) {
             //printf("head: %hu, tail: %hu\n", head_pointer, tail_pointer);
             
 			// fill buffer up to pointer
-            uint16_t bytesToRead = (tail_pointer - head_pointer) & 0x3FFF;
+            uint16_t offset = (head_pointer > tail_pointer) ? 0x800 : 0x0;
+            uint16_t bytesToRead = (tail_pointer - (head_pointer + offset)) & 0x3FFF;
 			bytesRead = msu_readblock((uint8_t *)send_buffer[send_buffer_index] + bytesSent, head_pointer, min(64, bytesToRead));
 
             bytesSent += bytesRead;
-			head_pointer = (head_pointer + bytesRead) & 0x3FFF;
+			head_pointer = ((head_pointer + offset) + bytesRead) & 0x3FFF;
 		}
 			
 		count++;

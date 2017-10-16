@@ -108,8 +108,8 @@ wire [31:0] msu_scaddr;
 wire [7:0] msu_status_out;
 wire [31:0] msu_addressrq_out;
 wire [15:0] msu_trackrq_out;
-wire [13:0] msu_write_addr;
-wire [13:0] msu_ptr_addr;
+wire [14:0] msu_write_addr;
+wire [14:0] msu_ptr_addr;
 wire [7:0] MSU_SNES_DATA_IN;
 wire [7:0] MSU_SNES_DATA_OUT;
 wire [5:0] msu_status_reset_bits;
@@ -161,7 +161,7 @@ wire [4:0] DBG_srtc_state;
 wire DBG_srtc_we_rising;
 wire [3:0] DBG_srtc_ptr;
 wire [5:0] DBG_srtc_we_sreg;
-wire [13:0] DBG_msu_address;
+wire [14:0] DBG_msu_address;
 wire DBG_msu_reg_oe_rising;
 wire DBG_msu_reg_oe_falling;
 wire DBG_msu_reg_we_rising;
@@ -171,6 +171,12 @@ wire [10:0] SD_DMA_DBG_cyclecnt;
 wire [8:0] snescmd_addr_mcu;
 wire [7:0] snescmd_data_out_mcu;
 wire [7:0] snescmd_data_in_mcu;
+
+wire [7:0] reg_group;
+wire [7:0] reg_index;
+wire [7:0] reg_value;
+wire [7:0] reg_invmask;
+wire       reg_we;
 
 reg [7:0] SNES_PARDr;
 reg [7:0] SNES_PAWRr;
@@ -220,7 +226,7 @@ wire SNES_PAWR_end   = SNES_PAWR_count == 5; // 5
 //wire SNES_PAWR_end = ((SNES_PAWRr[4:1] & SNES_PAWRr[5:2]) == 4'b0001);
 wire SNES_RD_start = ((SNES_READr[6:1] | SNES_READr[7:2]) == 6'b111100);
 wire SNES_RD_end = ((SNES_READr[6:1] & SNES_READr[7:2]) == 6'b000001);
-wire SNES_WR_start = ((SNES_WRITEr[6:1] & SNES_WRITEr[7:2]) == 6'b111000);
+wire SNES_WR_start = ((SNES_WRITEr[6:1] | SNES_WRITEr[7:2]) == 6'b111000);
 wire SNES_WR_end = ((SNES_WRITEr[6:1] & SNES_WRITEr[7:2]) == 6'b000001);
 wire SNES_SNOOPWR_end = SNES_SNOOPWR_count == 5; //5
 wire SNES_cycle_start = ((SNES_CPU_CLKr[7:2] & SNES_CPU_CLKr[6:1]) == 6'b000011);
@@ -446,9 +452,9 @@ msu snes_msu (
   .msu_address_ext(msu_ptr_addr),
   .msu_address_ext_write(msu_addr_reset),
   .feature_enable(feat_msu_enable),
-  .SNES_RD_start(SNES_RD_start),
   .SNES_RD_end(SNES_RD_end),
   .SNES_WR_end(SNES_WR_end),
+  .SNES_PARD_end(SNES_PARD_end),
   .SNES_PAWR_end(SNES_PAWR_end),
   .SNES_ADDR(MSU_SNES_ADDRr),
   .SNES_PA(SNES_PA),
@@ -461,6 +467,20 @@ msu snes_msu (
   .DBG_msu_reg_we_rising(DBG_msu_reg_we_rising),
   .DBG_msu_address(DBG_msu_address),
   .DBG_msu_address_ext_write_rising(DBG_msu_address_ext_write_rising),
+  .SNES_RD(SNES_READ),
+  .SNES_WR(SNES_WRITE),
+  .SNES_PARD(SNES_PARD),
+  .SNES_PAWR(SNES_PAWR),
+  .SNES_ROMSEL(SNES_ROMSEL_EARLY),
+  .SNES_RD_start(SNES_RD_start),
+  .SNES_WR_start(SNES_WR_start),
+  .SNES_PARD_start(SNES_PARD_start),
+  .SNES_PAWR_start(SNES_PAWR_start),
+  .reg_group_in(reg_group),
+  .reg_index_in(reg_index),
+  .reg_value_in(reg_value),
+  .reg_invmask_in(reg_invmask),
+  .reg_we_in(reg_we),
   .DBG(DBG_MSU)
 );
 
@@ -664,6 +684,11 @@ mcu_cmd snes_mcu_cmd(
   .usb_status_reset_out(usb_status_reset_bits),
   .usb_status_set_out(usb_status_set_bits),
   .usb_status_reset_we(usb_status_reset_we),
+  .reg_group_out(reg_group),
+  .reg_index_out(reg_index),
+  .reg_value_out(reg_value),
+  .reg_invmask_out(reg_invmask),
+  .reg_we_out(reg_we),
   .bsx_regs_set_out(bsx_regs_set_bits),
   .bsx_regs_reset_out(bsx_regs_reset_bits),
   .bsx_regs_reset_we(bsx_regs_reset_we),

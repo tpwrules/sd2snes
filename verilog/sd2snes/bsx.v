@@ -39,6 +39,15 @@ module bsx(
   output [8:0] bs_page_offset
 );
 
+assign reg_data_out = 0;
+assign regs_out = 0;
+assign data_ovr = 0;
+assign flash_writeable = 0;
+assign bs_page_out = 0;
+assign bs_page_enable = 0;
+assign bs_page_offset = 0;
+
+/*
 wire [3:0] reg_addr = snes_addr[19:16]; // 00-0f:5000-5fff
 wire [4:0] base_addr = snes_addr[4:0];  // 88-9f -> 08-1f
 wire [15:0] flash_addr = snes_addr[15:0];
@@ -284,5 +293,5 @@ always @(posedge clkin) begin
     endcase
   end
 end
-
+*/
 endmodule

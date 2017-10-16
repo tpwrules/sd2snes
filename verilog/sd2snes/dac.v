@@ -38,6 +38,13 @@ module dac(
   output DAC_STATUS
 );
 
+assign sdout = 0;
+assign mclk_out = 0;
+assign lrck_out = 0;
+assign sclk_out = 0;
+assign DAC_STATUS = 0;
+
+/*
 reg[8:0] dac_address_r;
 reg[8:0] dac_address_r_sync;
 wire[8:0] dac_address = dac_address_r_sync;
@@ -107,10 +114,8 @@ initial begin
   samples <= 2'b00;
 end
 
-/*
-  21477272.727272... /  37500 *  1232 = 44100 * 16
-  21281370           / 709379 * 23520 = 44100 * 16
-*/
+//  21477272.727272... /  37500 *  1232 = 44100 * 16
+//  21281370           / 709379 * 23520 = 44100 * 16
 reg [19:0] phaseacc = 0;
 wire [14:0] phasemul = (palmode ? 23520 : 1232);
 wire [19:0] phasediv = (palmode ? 709379 : 37500);
@@ -118,7 +123,6 @@ reg [3:0] subcount = 0;
 
 reg int_strobe = 0, comb_strobe = 0;
 
-/*
 always @(posedge clkin) begin
   int_strobe <= 0;
   comb_strobe <= 0;
