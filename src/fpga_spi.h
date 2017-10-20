@@ -102,7 +102,8 @@
 #define FPGA_CMD_MSUREAD         (0xf5)
 #define FPGA_CMD_MSUGETSCADDR    (0xf6)
 #define FPGA_CMD_USBSETBITS      (0xf8)
-#define FPGA_CMD_TRCSETREG       (0xf9)
+#define FPGA_CMD_CONFIG_READ     (0xf9)
+#define FPGA_CMD_CONFIG_WRITE    (0xfa)
 #define FPGA_CMD_GETSYSCLK       (0xfe)
 #define FPGA_CMD_ECHO            (0xff)
 
@@ -142,5 +143,6 @@ uint8_t fpga_read_snescmd(void);
 void fpga_write_cheat(uint8_t index, uint32_t code);
 void fpga_set_dspfeat(uint16_t feat);
 void set_usb_status(uint16_t status);
-void fpga_write_reg(uint8_t group, uint8_t index, uint8_t value, uint8_t invmask);
+uint8_t fpga_read_config(uint8_t group, uint8_t index);
+void fpga_write_config(uint8_t group, uint8_t index, uint8_t value, uint8_t invmask);
 #endif

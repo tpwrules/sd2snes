@@ -129,6 +129,9 @@ module mcu_cmd(
 
   // DSP core features
   output reg [15:0] dsp_feat_out = 16'h0000,
+
+  // general config
+  input [7:0] trc_config_data_in,
   
   output DBG
 );
@@ -462,16 +465,27 @@ always @(posedge clk) begin
           32'h4:
             usb_status_reset_we_buf <= 1'b0;
         endcase
-      default: // handles all group, index, value, invmask writes.  unit is responsible for decoding group for match
+      8'hf9: // handles all group, index, value, invmask writes.  unit is responsible for decoding group for match
         case (spi_byte_cnt)
           32'h2: begin
-            group_out_buf <= cmd_data;
-            index_out_buf <= param_data;
+            group_out_buf <= param_data;
           end
           32'h3: begin
-            value_out_buf <= param_data;
+            index_out_buf <= param_data;
+          end
+        endcase      
+      8'hfa: // handles all group, index, value, invmask writes.  unit is responsible for decoding group for match
+        case (spi_byte_cnt)
+          32'h2: begin
+            group_out_buf <= param_data;
+          end
+          32'h3: begin
+            index_out_buf <= param_data;
           end
           32'h4: begin
+            value_out_buf <= param_data;
+          end
+          32'h5: begin
             invmask_out_buf <= param_data;
             reg_we_buf <= 1;
           end
@@ -605,6 +619,16 @@ always @(posedge clk) begin
       MCU_DATA_IN_BUF <= param_data;
     else if (cmd_data[7:0] == 8'hD1)
       MCU_DATA_IN_BUF <= snescmd_data_in;
+    else if (cmd_data[7:0] == 8'hF9)
+      // TODO: decide if we need to actually check this count or if we should always drive it out.
+      if (spi_byte_cnt == 4) begin
+        case (group_out_buf)
+          8'h01:
+            MCU_DATA_IN_BUF <= trc_config_data_in;
+          default:
+            MCU_DATA_IN_BUF <= 0;
+        endcase
+      end
   end
 end
 

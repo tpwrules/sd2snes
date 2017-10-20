@@ -492,8 +492,20 @@ void set_usb_status(uint16_t status) {
   FPGA_DESELECT();
 }
 
-void fpga_write_reg(uint8_t group, uint8_t index, uint8_t value, uint8_t invmask) {
+uint8_t fpga_read_config(uint8_t group, uint8_t index) {
+  uint8_t data;
   FPGA_SELECT();
+  FPGA_TX_BYTE(FPGA_CMD_CONFIG_READ);
+  FPGA_TX_BYTE(group);
+  FPGA_TX_BYTE(index);
+  data = FPGA_RX_BYTE();
+  FPGA_DESELECT();
+  return data;
+}
+
+void fpga_write_config(uint8_t group, uint8_t index, uint8_t value, uint8_t invmask) {
+  FPGA_SELECT();
+  FPGA_TX_BYTE(FPGA_CMD_CONFIG_WRITE);
   FPGA_TX_BYTE(group);
   FPGA_TX_BYTE(index);
   FPGA_TX_BYTE(value);

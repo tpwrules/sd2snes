@@ -177,6 +177,8 @@ wire [7:0] reg_index;
 wire [7:0] reg_value;
 wire [7:0] reg_invmask;
 wire       reg_we;
+// unit level configuration output
+wire [7:0] trc_config_data;
 
 reg [7:0] SNES_PARDr;
 reg [7:0] SNES_PAWRr;
@@ -481,6 +483,7 @@ msu snes_msu (
   .reg_value_in(reg_value),
   .reg_invmask_in(reg_invmask),
   .reg_we_in(reg_we),
+  .trc_config_data_out(trc_config_data),
   .DBG(DBG_MSU)
 );
 
@@ -689,6 +692,7 @@ mcu_cmd snes_mcu_cmd(
   .reg_value_out(reg_value),
   .reg_invmask_out(reg_invmask),
   .reg_we_out(reg_we),
+  .trc_config_data_in(trc_config_data),
   .bsx_regs_set_out(bsx_regs_set_bits),
   .bsx_regs_reset_out(bsx_regs_reset_bits),
   .bsx_regs_reset_we(bsx_regs_reset_we),

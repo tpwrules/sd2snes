@@ -141,7 +141,8 @@ static const char *usbint_server_opcode_s[] = { FOREACH_SERVER_OPCODE(GENERATE_S
 #define FOREACH_SERVER_SPACE(OP)                \
   OP(USBINT_SERVER_SPACE_FILE)                  \
   OP(USBINT_SERVER_SPACE_SNES)					\
-  OP(USBINT_SERVER_SPACE_MSU)
+  OP(USBINT_SERVER_SPACE_MSU)                   \
+  OP(USBINT_SERVER_SPACE_CONFIG)
 enum usbint_server_space_e { FOREACH_SERVER_SPACE(GENERATE_ENUM) };
 static const char *usbint_server_space_s[] = { FOREACH_SERVER_SPACE(GENERATE_STRING) };
 
@@ -297,13 +298,24 @@ void usbint_recv_block(void) {
             } while (bytesRecv != server_info.block_size && count < server_info.size);
         }
         else {
-            // write SRAM
+            // write SRAM or CONFIG
             UINT blockBytesWritten = 0;
             //PRINT_MSG("[ dat]");
             do {
                 UINT bytesWritten = 0;
-                UINT remainingBytes = min(server_info.block_size - blockBytesWritten, server_info.size - count);
-                bytesWritten = sram_writeblock(recv_buffer + blockBytesWritten, server_info.offset + count, remainingBytes);
+                if (server_info.space == USBINT_SERVER_SPACE_SNES) {
+                    UINT remainingBytes = min(server_info.block_size - blockBytesWritten, server_info.size - count);
+                    bytesWritten = sram_writeblock(recv_buffer + blockBytesWritten, server_info.offset + count, remainingBytes);
+                }
+                else {
+                    uint8_t group = server_info.size & 0xFF;
+                    uint8_t index = server_info.offset & 0xFF;
+                    uint8_t data = (server_info.offset >> 8) & 0xFF;
+                    uint8_t invmask = (server_info.offset >> 16) & 0xFF;
+                    fpga_write_config(group, index, data, invmask);
+                    bytesWritten = 1;
+                    server_info.size = 1; // reset size/group-valid field
+                }
                 blockBytesWritten += bytesWritten;
                 count += bytesWritten;
                 
@@ -475,7 +487,8 @@ int usbint_handler_cmd(void) {
     case USBINT_SERVER_OPCODE_VGET:
     case USBINT_SERVER_OPCODE_VPUT: {
         // don't support MSU for now
-        server_info.error = server_info.space != USBINT_SERVER_SPACE_SNES;
+        server_info.error =  (server_info.space != USBINT_SERVER_SPACE_SNES)
+                          && (server_info.space != USBINT_SERVER_SPACE_CONFIG);
 
         if (!server_info.error) {
             // get total size
@@ -494,6 +507,13 @@ int usbint_handler_cmd(void) {
             server_info.offset |= cmd_buffer[33 + server_info.vector_count * 4]; server_info.offset <<= 8;
             server_info.offset |= cmd_buffer[34 + server_info.vector_count * 4]; server_info.offset <<= 8;
             server_info.offset |= cmd_buffer[35 + server_info.vector_count * 4]; server_info.offset <<= 0;
+
+            //uint8_t group = server_info.size & 0xFF;
+            //uint8_t index = server_info.offset & 0xFF;
+            //uint8_t data = (server_info.offset >> 8) & 0xFF;
+            //uint8_t invmask = (server_info.offset >> 16) & 0xFF;
+            //printf("[CONFIG] %2x %2x %2x %2x", group, index, data, invmask);
+
         }        
         
         break;
@@ -725,9 +745,17 @@ int usbint_handler_dat(void) {
 				if (server_info.space == USBINT_SERVER_SPACE_SNES) {
 					bytesRead = sram_readblock((uint8_t *)send_buffer[send_buffer_index] + bytesSent, server_info.offset + count, remainingBytes);
 				}
-				else {
+				else if (server_info.space == USBINT_SERVER_SPACE_MSU) {
 					bytesRead = msu_readblock((uint8_t *)send_buffer[send_buffer_index] + bytesSent, server_info.offset + count, remainingBytes);
 				}	
+                else {
+                    // config
+                    uint8_t group = server_info.size & 0xFF;
+                    uint8_t index = server_info.offset & 0xFF;
+                    *(uint8_t *)(send_buffer[send_buffer_index] + bytesSent) = fpga_read_config(group, index);
+                    bytesRead = 1;
+                    server_info.size = 1; // reset size/group-valid field
+                }
                 bytesSent += bytesRead;
                 count += bytesRead;
                 
