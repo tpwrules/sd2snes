@@ -61,6 +61,7 @@ reg [13:0] dow_year;
 reg [6:0] dow_year1;
 reg [6:0] dow_year100;
 reg [15:0] dow_tmp;
+reg [15:0] dow_year_tmp;
 
 parameter [21:0]
   STATE_SEC1     = 22'b0000000000000000000001,
@@ -367,14 +368,19 @@ always @(posedge clkin) begin
       end
       STATE_DOW2: begin
         dow_tmp <= (83 * dow_month);
+        dow_year_tmp <= dow_year
+                        + (dow_year >> 2)
+                        - (dow_year100)
+                        + (dow_year100 >> 2);
       end
       STATE_DOW3: begin
         dow_tmp <= (dow_tmp >> 5)
                    + dow_day
-                   + dow_year
-                   + (dow_year >> 2)
-                   - (dow_year100)
-                   + (dow_year100 >> 2);
+                   + dow_year_tmp;
+                   //+ dow_year
+                   //+ (dow_year >> 2)
+                   //- (dow_year100)
+                   //+ (dow_year100 >> 2);
       end
       STATE_DOW4: begin
         dow_tmp <= dow_tmp - 7;

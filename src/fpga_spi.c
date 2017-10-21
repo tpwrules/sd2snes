@@ -498,6 +498,7 @@ uint8_t fpga_read_config(uint8_t group, uint8_t index) {
   FPGA_TX_BYTE(FPGA_CMD_CONFIG_READ);
   FPGA_TX_BYTE(group);
   FPGA_TX_BYTE(index);
+  FPGA_RX_BYTE(); // null read to create delay
   data = FPGA_RX_BYTE();
   FPGA_DESELECT();
   return data;

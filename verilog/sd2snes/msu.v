@@ -79,10 +79,13 @@ module msu(
   input [7:0] reg_value_in,
   input [7:0] reg_invmask_in,
   input       reg_we_in,
+  input [7:0] reg_read_in,
   output[7:0] trc_config_data_out,
   
   output DBG
 );
+
+integer i;
 
 // flopped inputs
 reg [23:0] SNES_ADDR_r;
@@ -94,16 +97,16 @@ wire [7:0] buf_data;
 wire [14:0] buf_addr;
 
 // TRACE
-reg trace_we = 0;
-reg [7:0] trace_data = 0;
-reg [14:0] trace_addr = 0;
+reg trace_we;
+reg [7:0] trace_data;
+reg [14:0] trace_addr;
 
 // SNESCAST
-reg snescast_we = 0;
-reg [7:0] snescast_data = 0;
-reg [14:0] snescast_addr = 0;
+reg snescast_we;
+reg [7:0] snescast_data;
+reg [14:0] snescast_addr;
 // TODO implement DMA compression
-reg snescast_wr_multibyte = 1;
+reg snescast_wr_multibyte;
 
 reg [1:0] status_reset_we_r;
 always @(posedge clkin) status_reset_we_r = {status_reset_we_r[0], status_reset_we};
@@ -178,8 +181,6 @@ msu_databuf snes_msu_databuf (
   .doutb(msu_data)
 ); // Bus [7 : 0]
 
-assign databuf_last_byte = buf_addr == 15'h77FF;
-
 reg [7:0] data_out_r;
 assign reg_data_out = data_out_r;
 
@@ -251,10 +252,14 @@ end
 //---------------------------
 // TRACE
 //---------------------------
-parameter TRACE_RECORD_SIZE = 8;
+parameter TRACE_RECORD_SIZE = 6;
+
+parameter TRACE_STATE_IDLE   = 2'b00;
+parameter TRACE_STATE_ACTIVE = 2'b01;
+parameter TRACE_STATE_DONE   = 2'b10;
 
 // configuration state
-reg [7:0] trc_r[15:0];
+reg [7:0] trc_r[15:0]; initial for (i = 0; i < 16; i = i + 1) trc_r[i] = 0;
 
 // breakout registers
 // reg0
@@ -286,26 +291,26 @@ wire        trace_reg_match1_control_pard = trc_r[13][2];
 wire        trace_reg_match1_control_pawr = trc_r[13][3];
 wire        trace_reg_match1_control_data = trc_r[13][4];
 
-assign trace_start_now = |trc_r[1][3:0];
-assign trace_stop_never = |trc_r[1][7:4];
+wire trace_start_now = ~|(trc_r[1][3:0]);
 
-reg [1:0] trace_active = 0;
+reg [1:0] trace_active;
 reg [7:0] trace_record[TRACE_RECORD_SIZE:1];
 reg [3:0] trace_counter;
 reg [14:0] trace_write_addr;
 reg [3:0] trace_mask;
 reg [7:0] trace_control;
 
-reg trace_buffer_full_r = 1'b0;
-reg trace_start_hit_r = 0;
-reg trace_stop_hit_r = 0;
+assign trace_addr_last_byte = trace_write_addr == 15'h77FF;
 
-reg trace_match0_addr_hit_r = 0;
-reg trace_match0_pa_hit_r = 0;
-reg trace_match0_data_hit_r = 0;
-reg trace_match1_addr_hit_r = 0;
-reg trace_match1_pa_hit_r = 0;
-reg trace_match1_data_hit_r = 0;
+reg trace_buffer_full_r;
+reg trace_stop_hit_r;
+
+reg trace_match0_addr_hit_r;
+reg trace_match0_pa_hit_r;
+reg trace_match0_data_hit_r;
+reg trace_match1_addr_hit_r;
+reg trace_match1_pa_hit_r;
+reg trace_match1_data_hit_r;
 
 // trace trigger matches
 assign trace_match0_hit = (~(trace_reg_match0_control_rd | trace_reg_match0_control_wr) | trace_match0_addr_hit_r)
@@ -319,43 +324,31 @@ assign trace_match1_hit = (~(trace_reg_match1_control_rd | trace_reg_match1_cont
                         & (&({~trace_reg_match1_control_pawr,~trace_reg_match1_control_pard,~trace_reg_match1_control_wr,~trace_reg_match1_control_rd} | trace_mask))
                         ;
 assign trace_start_hit = trace_start_now
-                       || (  (trace_reg_trigger_start_match0 && trace_match0_hit)
-                          || (trace_reg_trigger_start_match1 && trace_match1_hit)
-                          )
-                       ;
-assign trace_stop_hit =  trace_stop_never
-                      && (  (trace_reg_trigger_stop_match0 && trace_match0_hit)
-                         || (trace_reg_trigger_stop_match1 && trace_match1_hit)
-                         || (trace_reg_trigger_stop_full && trace_buffer_full_r)
-                         )
-                      ;
+                       | ( (trace_reg_trigger_start_match0 & trace_match0_hit)
+                         | (trace_reg_trigger_start_match1 & trace_match1_hit)
+                         );
+assign trace_stop_hit = ( (trace_reg_trigger_stop_match0 & trace_match0_hit)
+                        | (trace_reg_trigger_stop_match1 & trace_match1_hit)
+                        | (trace_reg_trigger_stop_full & trace_buffer_full_r)
+                        );
 
 // temporary enable based on filling buffer
-assign trace_we_in = trace_reg_control_enable && (trace_active == 1) && (|trace_counter) && (!trace_reg_trigger_stop_full || !trace_buffer_full_r);
+assign trace_we_in = trace_reg_control_enable && (trace_active == TRACE_STATE_ACTIVE) && (|trace_counter) && (!trace_reg_trigger_stop_full || !trace_buffer_full_r);
 wire nmi_active;
 
 // buffer inputs
 always @(posedge clkin) begin
-  if (reset) begin
-    trace_we <= 0;
-  end
-  else begin
-    trace_we <= trace_we_in;
-    trace_data <= trace_record[trace_counter];
-    trace_addr <= trace_write_addr;
-  end
+  trace_we <= trace_we_in;
+  trace_data <= trace_record[trace_counter];
+  trace_addr <= trace_write_addr;
 end
 
 // register interface
-integer i;
 always @(posedge clkin) begin
-  // clear
-  if (reset) for (i = 0; i < 16; i = i + 1) trc_r[i] <= 0;
-  // assign
-  else if (reg_we_in && (reg_group_in == 8'h01)) trc_r[reg_index_in] <= (trc_r[reg_index_in] & reg_invmask_in) | (reg_value_in & ~reg_invmask_in);
+  if (reg_we_in && (reg_group_in == 8'h01)) trc_r[reg_index_in] <= (trc_r[reg_index_in] & reg_invmask_in) | (reg_value_in & ~reg_invmask_in);
 end
 
-assign trc_config_data_out = trc_r[reg_index_in];
+assign trc_config_data_out = reg_read_in == 0 ? {2'h0, trace_buffer_full_r, trace_start_hit, trace_stop_hit_r, trace_stop_hit, trace_active} : trc_r[reg_read_in];
 
 // level shifter enables.
 // FIXME: make sure we only record one transaction even if multiple signals are asserted.  Should just be a matter of covering a long enough window
@@ -367,16 +360,15 @@ assign trc_config_data_out = trc_r[reg_index_in];
 //assign trace_rd_addr = IS_WRAM_SHADOW_ADDR | IS_WRAM_BANK_ADDR | IS_DMA_ADDR;
 
 always @(posedge clkin) begin
-  if (reset | ~trace_reg_control_enable) begin
+  if (~trace_reg_control_enable) begin
     // temporarily always enable the trace
     trace_counter <= 0;
     trace_write_addr <= 0;
     trace_buffer_full_r <= 0;
     trace_mask <= 0;
     trace_control <= 0;
-    trace_active <= 0;
+    trace_active <= TRACE_STATE_IDLE;
     
-    trace_start_hit_r <= 0;
     trace_stop_hit_r <= 0;
 
     trace_match0_addr_hit_r <= 0;
@@ -398,7 +390,7 @@ always @(posedge clkin) begin
       end
       
       // advance trace buffer
-      if (databuf_last_byte) trace_write_addr <= 0;
+      if (trace_addr_last_byte) trace_write_addr <= 0;
       else trace_write_addr <= trace_write_addr + 1;
     end
     // Find first start.  Assume nothing no start occurs after end that isn't a new transaction
@@ -412,20 +404,23 @@ always @(posedge clkin) begin
       trace_record[2] <= SNES_DATA;
       {trace_record[5],trace_record[4],trace_record[3]} <= SNES_ADDR_r;
       trace_record[6] <= SNES_PA;
-      trace_record[7] <= 0;
-      trace_record[8] <= 0;
+      //trace_record[7] <= 0;
+      //trace_record[8] <= 0;
       
       trace_counter <= 1;
       trace_mask <= 0;
       trace_control <= 0;
       
       // go to active on a start trigger.  stop active on a stop trigger.
-      if ((trace_active == 0 || (trace_active == 2 && trace_reg_control_multishot)) && trace_start_hit) begin
-        trace_active <= 1;
-      end
-      else if (trace_active == 1 && trace_stop_hit_r) begin
-        trace_active <= 2;
+      if (((trace_active == TRACE_STATE_IDLE) || ((trace_active == TRACE_STATE_DONE) && trace_reg_control_multishot)) && trace_start_hit) begin
+        // reset state
+        trace_write_addr <= 0;
+        trace_buffer_full_r <= 0;
         trace_stop_hit_r <= 0;
+        trace_active <= TRACE_STATE_ACTIVE;
+      end
+      else if (trace_stop_hit_r && (trace_active == TRACE_STATE_ACTIVE)) begin
+        trace_active <= TRACE_STATE_DONE;
       end
       else if (trace_stop_hit) begin
         trace_stop_hit_r <= 1;
@@ -436,8 +431,7 @@ always @(posedge clkin) begin
       trace_control <= trace_control | {2'h0, nmi_active, ~SNES_ROMSEL, ~SNES_PAWR, ~SNES_PARD, ~SNES_WR, ~SNES_RD};
     end
     
-    trace_buffer_full_r <= trace_buffer_full_r | (databuf_last_byte & trace_we_in);
-    trace_start_hit_r <= trace_start_hit;
+    trace_buffer_full_r <= trace_buffer_full_r | (trace_addr_last_byte & trace_we_in);
 
     trace_match0_addr_hit_r <= trace_reg_match0_addr == SNES_ADDR_r;
     trace_match0_pa_hit_r <= trace_reg_match0_pa == SNES_PA;
@@ -451,13 +445,15 @@ end
 //---------------------------
 // SNESCAST
 //---------------------------
-reg [14:0] snescast_addr_r = 0;
-reg [14:0] snescast_addr_frame_r = 0;
-reg [14:0] snescast_addr_op_r = 0;
-reg snescast_wr_r = 0;
-reg [7:0] snescast_data_r = 0;
+reg [14:0] snescast_addr_r;
+reg [14:0] snescast_addr_frame_r;
+reg [14:0] snescast_addr_op_r;
+reg snescast_wr_r;
+reg [7:0] snescast_data_r;
 
-reg snescast_nmi = 0;
+assign snescast_addr_last_byte = snescast_addr_r == 15'h77FF;
+
+reg snescast_nmi;
 assign nmi_active = snescast_nmi;
 reg [7:0] snescast_ram[3:0];
 reg [23:0] snescast_ret;
@@ -465,8 +461,8 @@ reg [23:0] snescast_ret;
 // HDMA
 parameter HDMA_CHANNELS             = 8;
 
-reg [7:0] r43xx[HDMA_CHANNELS-1:0][15:0];
-reg [7:0] r43xx_ch[15:0];
+reg [7:0] r43xx[HDMA_CHANNELS-1:0][10:0];
+reg [7:0] r43xx_ch[10:0];
 reg [7:0] r420C;
 reg [2:0] snescast_hdma_state[HDMA_CHANNELS-1:0];
 reg [2:0] snescast_hdma_state_ch;
@@ -481,10 +477,11 @@ parameter HDMA_STATE_WRITE_DATA2    = 6;
 parameter HDMA_STATE_WRITE_DATA3    = 7;
 
 reg snescast_hdma_read_channel_found;
-reg [HDMA_CHANNELS-1:0] snescast_hdma_read_active = 0;
-reg [2:0] snescast_hdma_read_channel = 0;
-reg       snescast_hdma_read_update = 0;
-reg       snescast_hdma_read_wait = 0;
+reg [HDMA_CHANNELS-1:0] snescast_hdma_read_active;
+reg [2:0] snescast_hdma_read_channel;
+reg       snescast_hdma_read_update;
+reg       snescast_hdma_read_active2;
+reg       snescast_hdma_read_wait;
 
 //reg [7:0] snescast_hdma_table_read_addr; //= (SNES_ADDR_r == {r43xx[4][ch],r43xx[9][ch],r43xx[8][ch]});
 //reg [7:0] snescast_hdma_indirect_read_addr; //= (SNES_ADDR_r == {r43xx[7][ch],r43xx[6][ch],r43xx[5][ch]});
@@ -504,9 +501,9 @@ assign IS_PPUREG_WRITE = !(snescast_hdma_read_wait) && SNES_PAWR_end && IS_PPURE
 assign IS_PPUREG = IS_PPUREG_WRITE; // | IS_PPUREG_READ;
 
 assign IS_CPUREG_WRITE_ADDR = {1'b0,SNES_ADDR_r[22],6'b000000, SNES_ADDR_r[15:4], 4'b0000} == 24'h04200;
-reg IS_CPUREG_WRITE_ADDR_r = 0;
-always @(posedge clkin) IS_CPUREG_WRITE_ADDR_r <= IS_CPUREG_WRITE_ADDR;
-assign IS_CPUREG_WRITE = SNES_WR_end && IS_CPUREG_WRITE_ADDR_r;
+//reg IS_CPUREG_WRITE_ADDR_r;
+//always @(posedge clkin) IS_CPUREG_WRITE_ADDR_r <= IS_CPUREG_WRITE_ADDR;
+assign IS_CPUREG_WRITE = SNES_WR_end && IS_CPUREG_WRITE_ADDR;
 assign IS_CPUREG = IS_CPUREG_WRITE;
 
 assign IS_CPUDMA_WRITE_ADDR = {1'b0,SNES_ADDR_r[22],6'b000000, SNES_ADDR_r[15:7], 7'b0000000} == 24'h04300;
@@ -574,6 +571,8 @@ always @(posedge clkin) begin
     snescast_hdma_read_channel <= 0;
     snescast_hdma_read_wait <= 0;
     snescast_hdma_read_update <= 0;
+    
+    snescast_wr_multibyte <= 0;
   end
 
   else begin
@@ -581,13 +580,13 @@ always @(posedge clkin) begin
   
     // address calculations
     if (snescast_we_in) begin
-      if (databuf_last_byte) snescast_addr_r <= 0;
+      if (snescast_addr_last_byte) snescast_addr_r <= 0;
       else snescast_addr_r <= snescast_addr_r + 1;
       
       // TODO: make sure this works
       // if not multibyte then we always advance op pointer else only on second write
       if (!snescast_wr_multibyte || snescast_wr_r) begin
-        if (databuf_last_byte) snescast_addr_op_r <= 0;
+        if (snescast_addr_last_byte) snescast_addr_op_r <= 0;
         else snescast_addr_op_r <= snescast_addr_r + 1;
       end
     end
@@ -640,20 +639,32 @@ always @(posedge clkin) begin
 
     if (SNES_RD_start) begin
       for (i = 0; i < HDMA_CHANNELS; i = i + 1) begin
-        snescast_hdma_read_active[i] <= r420C[i] && ((!r43xx[i][8'h0][6] || !snescast_hdma_state[i][2]) ? (SNES_ADDR_r == {r43xx[i][4],r43xx[i][9],r43xx[i][8]}) : (SNES_ADDR_r == {r43xx[i][7],r43xx[i][6],r43xx[i][5]}));
+        //snescast_hdma_read_active[i] <= r420C[i] && ((!r43xx[i][8'h0][6] || !snescast_hdma_state[i][2]) ? (SNES_ADDR_r == {r43xx[i][4],r43xx[i][9],r43xx[i][8]}) : (SNES_ADDR_r == {r43xx[i][7],r43xx[i][6],r43xx[i][5]}));
       end
     end
     else if (|snescast_hdma_read_active) begin
-//      if      (snescast_hdma_read_active[0]) begin snescast_hdma_read_channel <= 0; snescast_hdma_state_ch <= snescast_hdma_state[0]; for (i = 0; i < 16; i = i + 1) r43xx_ch[i] <= r43xx[0][i]; end
-//      else if (snescast_hdma_read_active[1]) begin snescast_hdma_read_channel <= 1; snescast_hdma_state_ch <= snescast_hdma_state[1]; for (i = 0; i < 16; i = i + 1) r43xx_ch[i] <= r43xx[1][i]; end
-//      else if (snescast_hdma_read_active[2]) begin snescast_hdma_read_channel <= 2; snescast_hdma_state_ch <= snescast_hdma_state[2]; for (i = 0; i < 16; i = i + 1) r43xx_ch[i] <= r43xx[2][i]; end
-//      else if (snescast_hdma_read_active[3]) begin snescast_hdma_read_channel <= 3; snescast_hdma_state_ch <= snescast_hdma_state[3]; for (i = 0; i < 16; i = i + 1) r43xx_ch[i] <= r43xx[3][i]; end
-//      else if (snescast_hdma_read_active[4]) begin snescast_hdma_read_channel <= 4; snescast_hdma_state_ch <= snescast_hdma_state[4]; for (i = 0; i < 16; i = i + 1) r43xx_ch[i] <= r43xx[4][i]; end
-//      else if (snescast_hdma_read_active[5]) begin snescast_hdma_read_channel <= 5; snescast_hdma_state_ch <= snescast_hdma_state[5]; for (i = 0; i < 16; i = i + 1) r43xx_ch[i] <= r43xx[5][i]; end
-//      else if (snescast_hdma_read_active[6]) begin snescast_hdma_read_channel <= 6; snescast_hdma_state_ch <= snescast_hdma_state[6]; for (i = 0; i < 16; i = i + 1) r43xx_ch[i] <= r43xx[6][i]; end
-//      else if (snescast_hdma_read_active[7]) begin snescast_hdma_read_channel <= 7; snescast_hdma_state_ch <= snescast_hdma_state[7]; for (i = 0; i < 16; i = i + 1) r43xx_ch[i] <= r43xx[7][i]; end
-//      
+      if      (snescast_hdma_read_active[0]) snescast_hdma_read_channel <= 0;
+      else if (snescast_hdma_read_active[1]) snescast_hdma_read_channel <= 1;
+      else if (snescast_hdma_read_active[2]) snescast_hdma_read_channel <= 2;
+      else if (snescast_hdma_read_active[3]) snescast_hdma_read_channel <= 3;
+      else if (snescast_hdma_read_active[4]) snescast_hdma_read_channel <= 4;
+      else if (snescast_hdma_read_active[5]) snescast_hdma_read_channel <= 5;
+      else if (snescast_hdma_read_active[6]) snescast_hdma_read_channel <= 6;
+      else if (snescast_hdma_read_active[7]) snescast_hdma_read_channel <= 7;
+      
       snescast_hdma_read_active <= 0;
+      snescast_hdma_read_active2 <= 1;
+    end
+    else if (snescast_hdma_read_active2) begin
+      snescast_hdma_state_ch <= snescast_hdma_state[snescast_hdma_read_channel]; //for (i = 0; i < 16; i = i + 1) r43xx_ch[i] <= r43xx[snescast_hdma_read_channel][i];
+      //r43xx_ch[8'h0] <= r43xx[snescast_hdma_read_channel][8'h0];
+      //r43xx_ch[8'h5] <= r43xx[snescast_hdma_read_channel][8'h5];
+      //r43xx_ch[8'h6] <= r43xx[snescast_hdma_read_channel][8'h6];
+      //r43xx_ch[8'h8] <= r43xx[snescast_hdma_read_channel][8'h8];
+      //r43xx_ch[8'h9] <= r43xx[snescast_hdma_read_channel][8'h9];
+      //r43xx_ch[8'hA] <= r43xx[snescast_hdma_read_channel][8'hA];
+      
+      snescast_hdma_read_active2 <= 0;
       snescast_hdma_read_wait <= 1;
     end
     else if (snescast_hdma_read_wait) begin
@@ -775,7 +786,11 @@ always @(posedge clkin) begin
     else if (snescast_hdma_read_update) begin
       // write new data
       snescast_hdma_state[snescast_hdma_read_channel] <= snescast_hdma_state_ch;
-      for (i = 0; i < 16; i = i + 1) r43xx[snescast_hdma_read_channel][i] <= r43xx_ch[i];
+      //r43xx[snescast_hdma_read_channel][8'h5] <= r43xx_ch[8'h5];
+      //r43xx[snescast_hdma_read_channel][8'h6] <= r43xx_ch[8'h6];
+      //r43xx[snescast_hdma_read_channel][8'h8] <= r43xx_ch[8'h8];
+      //r43xx[snescast_hdma_read_channel][8'h9] <= r43xx_ch[8'h9];
+      //r43xx[snescast_hdma_read_channel][8'hA] <= r43xx_ch[8'hA];
       
       snescast_hdma_read_update <= 0;        
     end

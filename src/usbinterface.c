@@ -512,7 +512,7 @@ int usbint_handler_cmd(void) {
             //uint8_t index = server_info.offset & 0xFF;
             //uint8_t data = (server_info.offset >> 8) & 0xFF;
             //uint8_t invmask = (server_info.offset >> 16) & 0xFF;
-            //printf("[CONFIG] %2x %2x %2x %2x", group, index, data, invmask);
+            //printf(" [CONFIG] %2x %2x %2x %2x ", group, index, data, invmask);
 
         }        
         
@@ -752,7 +752,9 @@ int usbint_handler_dat(void) {
                     // config
                     uint8_t group = server_info.size & 0xFF;
                     uint8_t index = server_info.offset & 0xFF;
-                    *(uint8_t *)(send_buffer[send_buffer_index] + bytesSent) = fpga_read_config(group, index);
+                    uint8_t data  = fpga_read_config(group, index);
+                    //printf(" [CONFIG_RD] %2x %2x %2x ", group, index, data);
+                    *(uint8_t *)(send_buffer[send_buffer_index] + bytesSent) = data;
                     bytesRead = 1;
                     server_info.size = 1; // reset size/group-valid field
                 }

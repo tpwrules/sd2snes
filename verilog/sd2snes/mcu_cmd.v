@@ -85,6 +85,7 @@ module mcu_cmd(
   output [7:0] reg_value_out,
   output [7:0] reg_invmask_out,
   output       reg_we_out,
+  output [7:0] reg_read_out,
 
   // BS-X
   output [7:0] bsx_regs_reset_out,
@@ -174,6 +175,9 @@ reg [7:0] group_out_buf = 8'hFF;
 reg [7:0] index_out_buf = 8'hFF;
 reg [7:0] value_out_buf = 8'hFF;
 reg [7:0] invmask_out_buf = 8'hFF;
+reg [7:0] group_read_buf = 8'hFF;
+reg [7:0] index_read_buf = 8'hFF;
+reg [7:0] temp_read_buf = 8'hFF;
 
 reg reg_we_buf = 0;
 
@@ -465,15 +469,6 @@ always @(posedge clk) begin
           32'h4:
             usb_status_reset_we_buf <= 1'b0;
         endcase
-      8'hf9: // handles all group, index, value, invmask writes.  unit is responsible for decoding group for match
-        case (spi_byte_cnt)
-          32'h2: begin
-            group_out_buf <= param_data;
-          end
-          32'h3: begin
-            index_out_buf <= param_data;
-          end
-        endcase      
       8'hfa: // handles all group, index, value, invmask writes.  unit is responsible for decoding group for match
         case (spi_byte_cnt)
           32'h2: begin
@@ -489,7 +484,7 @@ always @(posedge clk) begin
             invmask_out_buf <= param_data;
             reg_we_buf <= 1;
           end
-          32'h5: begin
+          32'h6: begin
             reg_we_buf <= 0;
             group_out_buf <= 8'hFF;
             index_out_buf <= 8'hFF;
@@ -557,7 +552,7 @@ always @(posedge clk) begin
   else if (cmd_ready | param_ready /* bit_cnt == 7 */) begin
     if (cmd_data[7:4] == 4'hA)
       MCU_DATA_IN_BUF <= snescmd_data_in;
-    if (cmd_data[7:0] == 8'hF0)
+    else if (cmd_data[7:0] == 8'hF0)
       MCU_DATA_IN_BUF <= 8'hA5;
     else if (cmd_data[7:0] == 8'hF1)
       case (spi_byte_cnt[0])
@@ -620,15 +615,18 @@ always @(posedge clk) begin
     else if (cmd_data[7:0] == 8'hD1)
       MCU_DATA_IN_BUF <= snescmd_data_in;
     else if (cmd_data[7:0] == 8'hF9)
-      // TODO: decide if we need to actually check this count or if we should always drive it out.
-      if (spi_byte_cnt == 4) begin
-        case (group_out_buf)
-          8'h01:
-            MCU_DATA_IN_BUF <= trc_config_data_in;
-          default:
-            MCU_DATA_IN_BUF <= 0;
-        endcase
-      end
+      case (spi_byte_cnt)
+        32'h2: begin
+          group_read_buf <= param_data;
+        end
+        32'h3: begin
+          index_read_buf <= param_data;
+        end
+        32'h4: begin
+          if (group_read_buf == 8'h01) MCU_DATA_IN_BUF <= trc_config_data_in;
+          else                         MCU_DATA_IN_BUF <= 0;
+        end
+      endcase      
   end
 end
 
@@ -693,6 +691,7 @@ assign reg_index_out = index_out_buf;
 assign reg_value_out = value_out_buf;
 assign reg_invmask_out = invmask_out_buf;
 assign reg_we_out = reg_we_buf;
+assign reg_read_out = index_read_buf;
 
 assign DBG_mcu_nextaddr = mcu_nextaddr;
 

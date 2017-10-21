@@ -21,7 +21,7 @@
 module main(
   /* input clock */
   input CLKIN,
-
+  
   /* SNES signals */
   input [23:0] SNES_ADDR_IN,
   input SNES_READ_IN,
@@ -177,6 +177,7 @@ wire [7:0] reg_index;
 wire [7:0] reg_value;
 wire [7:0] reg_invmask;
 wire       reg_we;
+wire [7:0] reg_read;
 // unit level configuration output
 wire [7:0] trc_config_data;
 
@@ -190,10 +191,10 @@ reg [23:0] SNES_ADDRr [6:0];
 reg [7:0] SNES_PAr [6:0];
 reg [7:0] SNES_DATAr [4:0];
 
-reg SNES_DEADr = 1;
-reg SNES_reset_strobe = 0;
+reg SNES_DEADr; initial SNES_DEADr = 1;
+reg SNES_reset_strobe; initial SNES_reset_strobe = 0;
 
-reg free_strobe = 0;
+reg free_strobe; initial free_strobe = 0;
 reg loop_enable;
 initial loop_enable = 0;
 reg [7:0] loop_data;
@@ -221,16 +222,14 @@ reg [23:0] BSX_SNES_ADDRr;
 reg [23:0] SRTC_SNES_ADDRr;
 
 wire SNES_PARD_start = ((SNES_PARDr[6:1] | SNES_PARDr[7:2]) == 6'b111110);
-wire SNES_PARD_end = SNES_PARD_count == 5; // 5
-//wire SNES_PARD_end = ((SNES_PARDr[4:1] & SNES_PARDr[5:2]) == 4'b0001);
+//wire SNES_PARD_end = SNES_PARD_count == 5; // 5
 wire SNES_PAWR_start = ((SNES_PAWRr[4:1] | SNES_PAWRr[5:2]) == 4'b1110);
-wire SNES_PAWR_end   = SNES_PAWR_count == 5; // 5
-//wire SNES_PAWR_end = ((SNES_PAWRr[4:1] & SNES_PAWRr[5:2]) == 4'b0001);
+//wire SNES_PAWR_end   = SNES_PAWR_count == 5; // 5
 wire SNES_RD_start = ((SNES_READr[6:1] | SNES_READr[7:2]) == 6'b111100);
 wire SNES_RD_end = ((SNES_READr[6:1] & SNES_READr[7:2]) == 6'b000001);
 wire SNES_WR_start = ((SNES_WRITEr[6:1] | SNES_WRITEr[7:2]) == 6'b111000);
 wire SNES_WR_end = ((SNES_WRITEr[6:1] & SNES_WRITEr[7:2]) == 6'b000001);
-wire SNES_SNOOPWR_end = SNES_SNOOPWR_count == 5; //5
+//wire SNES_SNOOPWR_end = SNES_SNOOPWR_count == 5; //5
 wire SNES_cycle_start = ((SNES_CPU_CLKr[7:2] & SNES_CPU_CLKr[6:1]) == 6'b000011);
 wire SNES_cycle_end = ((SNES_CPU_CLKr[7:2] | SNES_CPU_CLKr[6:1]) == 6'b111000);
 wire SNES_WRITE = SNES_WRITEr[2] & SNES_WRITEr[1];
@@ -239,6 +238,23 @@ wire SNES_CPU_CLK = SNES_CPU_CLKr[2] & SNES_CPU_CLKr[1];
 wire SNES_PARD = SNES_PARDr[2] & SNES_PARDr[1];
 wire SNES_PAWR = SNES_PAWRr[2] & SNES_PAWRr[1];
 wire SNES_ROMSEL_EARLY = (SNES_ROMSELr[2] & SNES_ROMSELr[1]);
+
+reg SNES_PAWR_end;
+reg SNES_PARD_end;
+reg SNES_SNOOPWR_end;
+
+always @(posedge CLK2) begin
+  if (SNES_reset_strobe) begin
+    SNES_PARD_end <= 0;
+    SNES_PAWR_end <= 0;
+    SNES_SNOOPWR_end <= 0;
+  end
+  else begin
+    SNES_PARD_end <= SNES_PARD_count == 4;
+    SNES_PAWR_end <= SNES_PAWR_count == 4;
+    SNES_SNOOPWR_end <= SNES_SNOOPWR_count == 4;
+  end
+end
 
 wire SNES_ROMSEL = (SNES_ROMSELr[5] & SNES_ROMSELr[4]);
 wire [23:0] SNES_ADDR = (SNES_ADDRr[6] & SNES_ADDRr[5]);
@@ -483,6 +499,7 @@ msu snes_msu (
   .reg_value_in(reg_value),
   .reg_invmask_in(reg_invmask),
   .reg_we_in(reg_we),
+  .reg_read_in(reg_read),
   .trc_config_data_out(trc_config_data),
   .DBG(DBG_MSU)
 );
@@ -692,6 +709,7 @@ mcu_cmd snes_mcu_cmd(
   .reg_value_out(reg_value),
   .reg_invmask_out(reg_invmask),
   .reg_we_out(reg_we),
+  .reg_read_out(reg_read),
   .trc_config_data_in(trc_config_data),
   .bsx_regs_set_out(bsx_regs_set_bits),
   .bsx_regs_reset_out(bsx_regs_reset_bits),
@@ -774,8 +792,8 @@ address snes_addr(
   .branch2_enable(branch2_enable)
 );
 
-reg pad_latch = 0;
-reg [4:0] pad_cnt = 0;
+reg pad_latch; initial pad_latch = 0;
+reg [4:0] pad_cnt; initial pad_cnt = 0;
 
 reg snes_ajr = 0;
 
@@ -862,8 +880,8 @@ assign SNES_DATA = (r213f_enable & ~SNES_PARD & ~r213f_forceread) ? r213fr
                                   ) : 8'bZ;
 
 reg [3:0] ST_MEM_DELAYr;
-reg MCU_RD_PENDr = 0;
-reg MCU_WR_PENDr = 0;
+reg MCU_RD_PENDr; initial MCU_RD_PENDr = 0;
+reg MCU_WR_PENDr; initial MCU_WR_PENDr = 0;
 reg [23:0] ROM_ADDRr;
 // CTX
 reg CTX_WR_PENDr;
