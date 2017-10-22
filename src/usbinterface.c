@@ -49,8 +49,11 @@
 #include "usb1.h"
 #include "cheat.h"
 
+static inline void __DMB2(void) { asm volatile ("dmb" ::: "memory"); }
+
 #define MAX_STRING_LENGTH 255
 
+#if CONFIG_FWVER == 0x44534E53
 #define PRINT_FUNCTION() printf("%-20s ", __FUNCTION__);
 #define PRINT_CMD(buf) printf("header=%c%c%c%c op=%s space=%s flags=%d cmd_size=%d block_size=%d size=%d"         \
                                                                         , buf[0], buf[1], buf[2], buf[3]          \
@@ -65,6 +68,14 @@
 #define PRINT_MSG(msg) printf("%-5s ", msg);
 #define PRINT_END() uart_putc('\n');
 #define PRINT_STATE(state) printf("state=%-32s ", usbint_server_state_s[state]);
+#else
+#define PRINT_FUNCTION() {}
+#define PRINT_CMD(buf) {}
+#define PRINT_DAT(num, total) {}
+#define PRINT_MSG(msg) {}
+#define PRINT_END() {}
+#define PRINT_STATE(state) {}
+#endif
  
 // Operations are composed of a request->response packet interface.
 // Each packet it composed of Nx512B flits where N is 1 or more.
@@ -96,7 +107,9 @@
                                             \
   OP(USBINT_SERVER_STATE_HANDLE_LOCK)       
 enum usbint_server_state_e { FOREACH_SERVER_STATE(GENERATE_ENUM) };
+#if CONFIG_FWVER == 0x44534E53
 static const char *usbint_server_state_s[] = { FOREACH_SERVER_STATE(GENERATE_STRING) };
+#endif
 
 // CLIENT mode unnecessary (replaced by a server operation)
 #define FOREACH_CLIENT_STATE(OP)                \
@@ -136,7 +149,9 @@ enum usbint_server_stream_state_e { FOREACH_SERVER_STREAM_STATE(GENERATE_ENUM) }
                                                 \
   OP(USBINT_SERVER_OPCODE_RESPONSE)                  
 enum usbint_server_opcode_e { FOREACH_SERVER_OPCODE(GENERATE_ENUM) };
+#if CONFIG_FWVER == 0x44534E53
 static const char *usbint_server_opcode_s[] = { FOREACH_SERVER_OPCODE(GENERATE_STRING) };
+#endif
 
 #define FOREACH_SERVER_SPACE(OP)                \
   OP(USBINT_SERVER_SPACE_FILE)                  \
@@ -144,7 +159,9 @@ static const char *usbint_server_opcode_s[] = { FOREACH_SERVER_OPCODE(GENERATE_S
   OP(USBINT_SERVER_SPACE_MSU)                   \
   OP(USBINT_SERVER_SPACE_CONFIG)
 enum usbint_server_space_e { FOREACH_SERVER_SPACE(GENERATE_ENUM) };
+#if CONFIG_FWVER == 0x44534E53
 static const char *usbint_server_space_s[] = { FOREACH_SERVER_SPACE(GENERATE_STRING) };
+#endif
 
 #define FOREACH_SERVER_FLAGS(OP)               \
   OP(USBINT_SERVER_FLAGS_NONE=0)               \
@@ -240,6 +257,7 @@ void usbint_recv_flit(const unsigned char *in, int length) {
             server_info.block_size = (recv_buffer[6] & USBINT_SERVER_FLAGS_64BDATA) ? 64 : USB_BLOCK_SIZE;
             // copy the command to its buffer
             memcpy((unsigned char*)cmd_buffer, recv_buffer, size);
+            //__DMB2();
         }
         //printf(" cmdDat: %d cmd_size: %d block_size: %d", cmdDat, (int)server_info.cmd_size, (int)server_info.block_size);
         usbint_recv_block();
@@ -508,6 +526,15 @@ int usbint_handler_cmd(void) {
             server_info.offset |= cmd_buffer[34 + server_info.vector_count * 4]; server_info.offset <<= 8;
             server_info.offset |= cmd_buffer[35 + server_info.vector_count * 4]; server_info.offset <<= 0;
 
+            //for (unsigned i = 0; i < 8; i++) {
+            //    unsigned offset = 0;
+            //    offset |= cmd_buffer[33 + i * 4]; offset <<= 8;
+            //    offset |= cmd_buffer[34 + i * 4]; offset <<= 8;
+            //    offset |= cmd_buffer[35 + i * 4]; offset <<= 0;
+            //    unsigned size = cmd_buffer[32 + i * 4];
+            //    printf("(%i: %06x, %02x) ", i, offset, size);
+            //}
+            
             //uint8_t group = server_info.size & 0xFF;
             //uint8_t index = server_info.offset & 0xFF;
             //uint8_t data = (server_info.offset >> 8) & 0xFF;
@@ -677,11 +704,13 @@ int usbint_handler_cmd(void) {
     }
     
     // send response.  also triggers data interrupt.
-    server_info.data_ready = (server_state == USBINT_SERVER_STATE_HANDLE_DAT);
+    server_info.data_ready = (server_state == USBINT_SERVER_STATE_HANDLE_DAT) || (server_state == USBINT_SERVER_STATE_HANDLE_STREAM);
+    //__DMB2();
     
     if (!(server_info.flags & USBINT_SERVER_FLAGS_NORESP)) {
         usbint_send_block(USB_BLOCK_SIZE);
     }
+    // NOTE: STREAM should accept the response to avoid the hack below
     else if (server_state == USBINT_SERVER_STATE_HANDLE_DAT) {
         // send the first data beat to trigger the interrupt
         server_state = USBINT_SERVER_STATE_HANDLE_DATPUSH;
@@ -874,11 +903,12 @@ int usbint_handler_dat(void) {
             
 			// fill buffer up to pointer
             uint16_t offset = (head_pointer > tail_pointer) ? 0x800 : 0x0;
-            uint16_t bytesToRead = (tail_pointer - (head_pointer + offset)) & 0x3FFF;
+            uint16_t bytesToRead = (tail_pointer - (head_pointer + offset)) & 0x7FFF;
 			bytesRead = msu_readblock((uint8_t *)send_buffer[send_buffer_index] + bytesSent, head_pointer, min(64, bytesToRead));
 
             bytesSent += bytesRead;
-			head_pointer = ((head_pointer + offset) + bytesRead) & 0x3FFF;
+            head_pointer = head_pointer + bytesRead;
+            if (head_pointer >= 0x7800) head_pointer = (head_pointer + 0x800) & 0x7FFF;
 		}
 			
 		count++;
@@ -886,6 +916,7 @@ int usbint_handler_dat(void) {
 		// Fill remaining part of the buffer with NOPs.
 		// FIXME: if we do DMA compression we need to handled odd counts (probably add byte padding)
         memset((unsigned char *)send_buffer[send_buffer_index] + bytesSent, 0xFF, 64 - bytesSent);
+        bytesSent = server_info.block_size;
 
 		break;
 	}
@@ -932,10 +963,6 @@ int usbint_handler_dat(void) {
             //PRINT_MSG("[push]")
             usbint_send_block(server_info.block_size);
             //PRINT_MSG("[push_done]")
-        }
-        else if (old_server_state == USBINT_SERVER_STATE_HANDLE_STREAM) {
-            CDC_block_init((unsigned char*)send_buffer[send_buffer_index], 64);
-            send_buffer_index = (send_buffer_index + 1) & 0x1;
         }
         else {
             // TODO: move buffer fill after this to speed up perf

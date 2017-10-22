@@ -572,7 +572,7 @@ always @(posedge clkin) begin
     snescast_hdma_read_wait <= 0;
     snescast_hdma_read_update <= 0;
     
-    snescast_wr_multibyte <= 0;
+    snescast_wr_multibyte <= 1;
   end
 
   else begin
@@ -583,7 +583,7 @@ always @(posedge clkin) begin
       if (snescast_addr_last_byte) snescast_addr_r <= 0;
       else snescast_addr_r <= snescast_addr_r + 1;
       
-      // TODO: make sure this works
+      // FIXME this will break when not a multiple of 2
       // if not multibyte then we always advance op pointer else only on second write
       if (!snescast_wr_multibyte || snescast_wr_r) begin
         if (snescast_addr_last_byte) snescast_addr_op_r <= 0;
@@ -803,7 +803,7 @@ assign buf_data = trace_reg_control_enable ? trace_data : snescast_data;
 assign buf_addr = trace_reg_control_enable ? trace_addr : snescast_addr;
 
 assign msu_data_out = msu_data;
-assign msu_scaddr_out = {2'b0,snescast_addr_frame_r,2'b0,snescast_addr_op_r};
+assign msu_scaddr_out = {1'b0,snescast_addr_frame_r,1'b0,snescast_addr_op_r};
 assign OE_RD_ENABLE = |snescast_hdma_read_active;
 
 assign DBG = |snescast_hdma_read_active;

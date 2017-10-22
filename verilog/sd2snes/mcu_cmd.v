@@ -532,10 +532,12 @@ always @(posedge clk) begin
         endcase
     endcase
   end else if ((cmd_ready | param_ready) && cmd_data == 8'hF5 && ~featurebits_out[3]) begin
-    MSU_ADDR_OUT_BUF <= MSU_ADDR_OUT_BUF + 1;
-  end else if (SD_DMA_NEXTADDR | (mcu_nextaddr & (cmd_data[7:5] == 3'h4)
-                               && (cmd_data[3])
-                               && (spi_byte_cnt >= (32'h1+cmd_data[4])))
+    if (MSU_ADDR_OUT_BUF == 15'h77FF) MSU_ADDR_OUT_BUF <= 0;
+    else MSU_ADDR_OUT_BUF <= MSU_ADDR_OUT_BUF + 1;
+  end
+  else if (SD_DMA_NEXTADDR | (mcu_nextaddr & (cmd_data[7:5] == 3'h4)
+                             && (cmd_data[3])
+                             && (spi_byte_cnt >= (32'h1+cmd_data[4])))
   ) begin
     case (SD_DMA_TGTr)
       2'b00: ADDR_OUT_BUF <= ADDR_OUT_BUF + 1;
