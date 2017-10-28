@@ -93,17 +93,30 @@ reg [7:0] branch2_offset = 8'h00;
 
 reg [15:0] pad_data = 0;
 
-wire [5:0] cheat_match_bits ={(cheat_enable_mask[5] & (SNES_ADDR == cheat_addr[5])),
-                              (cheat_enable_mask[4] & (SNES_ADDR == cheat_addr[4])),
-                              (cheat_enable_mask[3] & (SNES_ADDR == cheat_addr[3])),
-                              (cheat_enable_mask[2] & (SNES_ADDR == cheat_addr[2])),
-                              (cheat_enable_mask[1] & (SNES_ADDR == cheat_addr[1])),
-                              (cheat_enable_mask[0] & (SNES_ADDR == cheat_addr[0]))};
+reg [5:0] cheat_match_bits;
+always @(posedge clk) begin
+  cheat_match_bits <= {(cheat_enable_mask[5] & (SNES_ADDR == cheat_addr[5])),
+                       (cheat_enable_mask[4] & (SNES_ADDR == cheat_addr[4])),
+                       (cheat_enable_mask[3] & (SNES_ADDR == cheat_addr[3])),
+                       (cheat_enable_mask[2] & (SNES_ADDR == cheat_addr[2])),
+                       (cheat_enable_mask[1] & (SNES_ADDR == cheat_addr[1])),
+                       (cheat_enable_mask[0] & (SNES_ADDR == cheat_addr[0]))};
+end
 wire cheat_addr_match = |cheat_match_bits;
 
-wire [1:0] nmi_match_bits = {SNES_ADDR == 24'h00FFEA, SNES_ADDR == 24'h00FFEB};
-wire [1:0] irq_match_bits = {SNES_ADDR == 24'h00FFEE, SNES_ADDR == 24'h00FFEF};
-wire [1:0] rst_match_bits = {SNES_ADDR == 24'h00FFFC, SNES_ADDR == 24'h00FFFD};
+//wire [1:0] nmi_match_bits = {SNES_ADDR == 24'h00FFEA, SNES_ADDR == 24'h00FFEB};
+//wire [1:0] irq_match_bits = {SNES_ADDR == 24'h00FFEE, SNES_ADDR == 24'h00FFEF};
+//wire [1:0] rst_match_bits = {SNES_ADDR == 24'h00FFFC, SNES_ADDR == 24'h00FFFD};
+
+reg [1:0] nmi_match_bits;
+reg [1:0] irq_match_bits;
+reg [1:0] rst_match_bits;
+
+always @(posedge clk) begin
+  nmi_match_bits <= {SNES_ADDR == 24'h00FFEA, SNES_ADDR == 24'h00FFEB};
+  irq_match_bits <= {SNES_ADDR == 24'h00FFEE, SNES_ADDR == 24'h00FFEF};
+  rst_match_bits <= {SNES_ADDR == 24'h00FFFC, SNES_ADDR == 24'h00FFFD};
+end
 
 wire nmi_addr_match = |nmi_match_bits;
 wire irq_addr_match = |irq_match_bits;

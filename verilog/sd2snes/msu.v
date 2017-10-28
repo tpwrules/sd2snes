@@ -59,6 +59,7 @@ module msu(
   output [14:0] DBG_msu_address,
   output DBG_msu_address_ext_write_rising,
 
+  input SNES_SNOOPRD_end,
   output OE_RD_ENABLE,
 
   // trace
@@ -90,6 +91,8 @@ integer i;
 // flopped inputs
 reg [23:0] SNES_ADDR_r;
 always @(posedge clkin) SNES_ADDR_r <= SNES_ADDR;
+reg [7:0] SNES_DATA_r;
+always @(posedge clkin) SNES_DATA_r <= SNES_DATA;
 
 // Buffer writes
 wire buf_we;
@@ -323,12 +326,20 @@ assign trace_match1_hit = (~(trace_reg_match1_control_rd | trace_reg_match1_cont
                         & (~(trace_reg_match1_control_data) | trace_match1_data_hit_r)
                         & (&({~trace_reg_match1_control_pawr,~trace_reg_match1_control_pard,~trace_reg_match1_control_wr,~trace_reg_match1_control_rd} | trace_mask))
                         ;
+reg trace_match0_hit_r;
+reg trace_match1_hit_r;
+
+always @(posedge clkin) begin
+  trace_match0_hit_r <= trace_match0_hit;
+  trace_match1_hit_r <= trace_match1_hit;
+end
+                        
 assign trace_start_hit = trace_start_now
-                       | ( (trace_reg_trigger_start_match0 & trace_match0_hit)
-                         | (trace_reg_trigger_start_match1 & trace_match1_hit)
+                       | ( (trace_reg_trigger_start_match0 & trace_match0_hit_r)
+                         | (trace_reg_trigger_start_match1 & trace_match1_hit_r)
                          );
-assign trace_stop_hit = ( (trace_reg_trigger_stop_match0 & trace_match0_hit)
-                        | (trace_reg_trigger_stop_match1 & trace_match1_hit)
+assign trace_stop_hit = ( (trace_reg_trigger_stop_match0 & trace_match0_hit_r)
+                        | (trace_reg_trigger_stop_match1 & trace_match1_hit_r)
                         | (trace_reg_trigger_stop_full & trace_buffer_full_r)
                         );
 
@@ -361,7 +372,6 @@ assign trc_config_data_out = reg_read_in == 0 ? {2'h0, trace_buffer_full_r, trac
 
 always @(posedge clkin) begin
   if (~trace_reg_control_enable) begin
-    // temporarily always enable the trace
     trace_counter <= 0;
     trace_write_addr <= 0;
     trace_buffer_full_r <= 0;
@@ -458,6 +468,10 @@ assign nmi_active = snescast_nmi;
 reg [7:0] snescast_ram[3:0];
 reg [23:0] snescast_ret;
 
+reg snescast_irq;
+assign irq_active = snescast_irq;
+reg [23:0] snescast_irq_ret;
+
 // HDMA
 parameter HDMA_CHANNELS             = 8;
 
@@ -466,6 +480,9 @@ reg [7:0] r43xx_ch[10:0];
 reg [7:0] r420C;
 reg [2:0] snescast_hdma_state[HDMA_CHANNELS-1:0];
 reg [2:0] snescast_hdma_state_ch;
+reg [2:0] snescast_hdma_mode_ch;
+reg       snescast_hdma_repeat_ch;
+reg       snescast_hdma_indirect_ch;
 
 parameter HDMA_STATE_IDLE           = 0;
 parameter HDMA_STATE_READ_LC        = 1;
@@ -478,7 +495,12 @@ parameter HDMA_STATE_WRITE_DATA3    = 7;
 
 reg snescast_hdma_read_channel_found;
 reg [HDMA_CHANNELS-1:0] snescast_hdma_read_active;
+reg [HDMA_CHANNELS-1:0] snescast_hdma_direct_addr_match;
+reg [HDMA_CHANNELS-1:0] snescast_hdma_indirect_addr_match;
+reg [HDMA_CHANNELS-1:0] snescast_hdma_indirect;
 reg [2:0] snescast_hdma_read_channel;
+reg       snescast_hdma_read_init;
+reg       snescast_hdma_write;
 reg       snescast_hdma_read_update;
 reg       snescast_hdma_read_active2;
 reg       snescast_hdma_read_wait;
@@ -501,13 +523,15 @@ assign IS_PPUREG_WRITE = !(snescast_hdma_read_wait) && SNES_PAWR_end && IS_PPURE
 assign IS_PPUREG = IS_PPUREG_WRITE; // | IS_PPUREG_READ;
 
 assign IS_CPUREG_WRITE_ADDR = {1'b0,SNES_ADDR_r[22],6'b000000, SNES_ADDR_r[15:4], 4'b0000} == 24'h04200;
-//reg IS_CPUREG_WRITE_ADDR_r;
-//always @(posedge clkin) IS_CPUREG_WRITE_ADDR_r <= IS_CPUREG_WRITE_ADDR;
-assign IS_CPUREG_WRITE = SNES_WR_end && IS_CPUREG_WRITE_ADDR;
+reg IS_CPUREG_WRITE_ADDR_r;
+always @(posedge clkin) IS_CPUREG_WRITE_ADDR_r <= IS_CPUREG_WRITE_ADDR;
+assign IS_CPUREG_WRITE = SNES_WR_end && IS_CPUREG_WRITE_ADDR_r;
 assign IS_CPUREG = IS_CPUREG_WRITE;
 
 assign IS_CPUDMA_WRITE_ADDR = {1'b0,SNES_ADDR_r[22],6'b000000, SNES_ADDR_r[15:7], 7'b0000000} == 24'h04300;
-assign IS_CPUDMA_WRITE = SNES_WR_end && IS_CPUDMA_WRITE_ADDR;
+reg IS_CPUDMA_WRITE_ADDR_r;
+always @(posedge clkin) IS_CPUDMA_WRITE_ADDR_r <= IS_CPUDMA_WRITE_ADDR;
+assign IS_CPUDMA_WRITE = SNES_WR_end && IS_CPUDMA_WRITE_ADDR_r;
 assign IS_CPUDMA = IS_CPUDMA_WRITE;
 
 assign IS_APU_WRITE_ADDR = {SNES_PA[7:6],6'b000000} == 8'h40;
@@ -515,16 +539,27 @@ assign IS_APU_WRITE = SNES_PAWR_end && IS_APU_WRITE_ADDR;
 assign IS_APU = IS_APU_WRITE;
 
 assign IS_NMI_START_ADDR = SNES_ADDR_r == 24'h00FFEA;
-assign IS_NMI_START = !snescast_nmi && SNES_RD_end && IS_NMI_START_ADDR;
+reg IS_NMI_START_ADDR_r; initial IS_NMI_START_ADDR_r = 0;
+always @(posedge clkin) IS_NMI_START_ADDR_r <= IS_NMI_START_ADDR;
+assign IS_NMI_START = !snescast_nmi && SNES_RD_end && IS_NMI_START_ADDR_r;
 assign IS_NMI_END_ADDR = SNES_ADDR_r == snescast_ret;
 assign IS_NMI_END = snescast_nmi && SNES_RD_end && IS_NMI_END_ADDR;
 assign IS_NMI = IS_NMI_START | IS_NMI_END;
-assign IS_SPECIAL = IS_NMI;
+
+assign IS_IRQ_START_ADDR = SNES_ADDR_r == 24'h00FFEE;
+reg IS_IRQ_START_ADDR_r; initial IS_IRQ_START_ADDR_r = 0;
+always @(posedge clkin) IS_IRQ_START_ADDR_r <= IS_IRQ_START_ADDR;
+assign IS_IRQ_START = !snescast_irq && SNES_RD_end && IS_IRQ_START_ADDR_r;
+assign IS_IRQ_END_ADDR = SNES_ADDR_r == snescast_irq_ret;
+assign IS_IRQ_END = snescast_irq && SNES_RD_end && IS_IRQ_END_ADDR;
+assign IS_IRQ = IS_IRQ_START | IS_IRQ_END;
+
+assign IS_SPECIAL = IS_NMI | IS_IRQ;
 
 assign IS_HDMA_READ_ADDR = (snescast_hdma_read_wait) && (~snescast_hdma_state_ch[2]);
 assign IS_HDMA_WRITE_ADDR = (snescast_hdma_read_wait) && (snescast_hdma_state_ch[2]);
-assign IS_HDMA_READ = SNES_RD_end && IS_HDMA_READ_ADDR;
-assign IS_HDMA_WRITE = SNES_RD_end && IS_HDMA_WRITE_ADDR;
+assign IS_HDMA_READ = SNES_SNOOPRD_end && IS_HDMA_READ_ADDR;
+assign IS_HDMA_WRITE = SNES_SNOOPRD_end && IS_HDMA_WRITE_ADDR;
 assign IS_HDMA = IS_HDMA_READ | IS_HDMA_WRITE;
 
 assign snescast_wr = IS_PPUREG | IS_CPUREG | IS_CPUDMA | IS_APU | IS_SPECIAL | IS_HDMA;
@@ -565,12 +600,16 @@ always @(posedge clkin) begin
     snescast_nmi <= 0;
     snescast_ret <= 0;
     
+    snescast_irq <= 0;
+    snescast_irq_ret <= 0;
+    
     r420C <= 0;
     for (i = 0; i < HDMA_CHANNELS; i = i + 1) snescast_hdma_state[i] <= HDMA_STATE_IDLE;
     snescast_hdma_read_active <= 0;
     snescast_hdma_read_channel <= 0;
     snescast_hdma_read_wait <= 0;
     snescast_hdma_read_update <= 0;
+    snescast_hdma_write <= 0;
     
     snescast_wr_multibyte <= 1;
   end
@@ -600,11 +639,21 @@ always @(posedge clkin) begin
     else if (IS_NMI_END) begin
       snescast_nmi <= 0;
     end
+
+    if (IS_IRQ_START) begin
+      snescast_irq <= 1;
+      snescast_irq_ret <= {snescast_ram[3],snescast_ram[2],snescast_ram[1]};
+    end
+    else if (IS_IRQ_END) begin
+      snescast_irq <= 0;
+    end
     
     // data
     if (snescast_wr) begin
       snescast_data_r <= IS_NMI_START ? 8'h00
                        : IS_NMI_END   ? 8'h01
+                       : IS_IRQ_START ? 8'h02
+                       : IS_IRQ_END   ? 8'h03
                        :                SNES_DATA;
     end
     
@@ -636,10 +685,19 @@ always @(posedge clkin) begin
 //      snescast_hdma_scan_active <= 1;
 //    end
 
+    for (i = 0; i < HDMA_CHANNELS; i = i + 1) begin
+      snescast_hdma_direct_addr_match[i] <= SNES_ADDR_r == {r43xx[i][4],r43xx[i][9],r43xx[i][8]};
+      snescast_hdma_indirect_addr_match[i] <= SNES_ADDR_r == {r43xx[i][7],r43xx[i][6],r43xx[i][5]};
+      snescast_hdma_indirect[i] <= r43xx[i][8'h0][6];
+    end
+
+    snescast_hdma_mode_ch <= r43xx_ch[8'h0][2:0];
+    snescast_hdma_repeat_ch <= r43xx_ch[8'hA][7] & (|r43xx_ch[8'hA][6:1]);
+    snescast_hdma_indirect_ch <= r43xx_ch[8'h0][6];
 
     if (SNES_RD_start) begin
       for (i = 0; i < HDMA_CHANNELS; i = i + 1) begin
-        //snescast_hdma_read_active[i] <= r420C[i] && ((!r43xx[i][8'h0][6] || !snescast_hdma_state[i][2]) ? (SNES_ADDR_r == {r43xx[i][4],r43xx[i][9],r43xx[i][8]}) : (SNES_ADDR_r == {r43xx[i][7],r43xx[i][6],r43xx[i][5]}));
+        snescast_hdma_read_active[i] <= r420C[i] && ((!snescast_hdma_indirect[i] || !snescast_hdma_state[i][2]) ? snescast_hdma_direct_addr_match[i] : snescast_hdma_indirect_addr_match[i]); //(SNES_ADDR_r == {r43xx[i][4],r43xx[i][9],r43xx[i][8]}) : (SNES_ADDR_r == {r43xx[i][7],r43xx[i][6],r43xx[i][5]}));
       end
     end
     else if (|snescast_hdma_read_active) begin
@@ -657,24 +715,24 @@ always @(posedge clkin) begin
     end
     else if (snescast_hdma_read_active2) begin
       snescast_hdma_state_ch <= snescast_hdma_state[snescast_hdma_read_channel]; //for (i = 0; i < 16; i = i + 1) r43xx_ch[i] <= r43xx[snescast_hdma_read_channel][i];
-      //r43xx_ch[8'h0] <= r43xx[snescast_hdma_read_channel][8'h0];
-      //r43xx_ch[8'h5] <= r43xx[snescast_hdma_read_channel][8'h5];
-      //r43xx_ch[8'h6] <= r43xx[snescast_hdma_read_channel][8'h6];
-      //r43xx_ch[8'h8] <= r43xx[snescast_hdma_read_channel][8'h8];
-      //r43xx_ch[8'h9] <= r43xx[snescast_hdma_read_channel][8'h9];
-      //r43xx_ch[8'hA] <= r43xx[snescast_hdma_read_channel][8'hA];
+      r43xx_ch[8'h0] <= r43xx[snescast_hdma_read_channel][8'h0];
+      r43xx_ch[8'h5] <= r43xx[snescast_hdma_read_channel][8'h5];
+      r43xx_ch[8'h6] <= r43xx[snescast_hdma_read_channel][8'h6];
+      r43xx_ch[8'h8] <= r43xx[snescast_hdma_read_channel][8'h8];
+      r43xx_ch[8'h9] <= r43xx[snescast_hdma_read_channel][8'h9];
+      r43xx_ch[8'hA] <= r43xx[snescast_hdma_read_channel][8'hA];
       
       snescast_hdma_read_active2 <= 0;
       snescast_hdma_read_wait <= 1;
     end
     else if (snescast_hdma_read_wait) begin
-      if (SNES_RD_end) begin
+      if (SNES_SNOOPRD_end) begin
         snescast_hdma_read_wait <= 0;
         
         //if (snescast_hdma_state[ch] == HDMA_STATE_IDLE) begin
         //  {r43xx_ch[8'h9],r43xx_ch[8'h8]} <= {r43xx_ch[8'h3],r43xx_ch[8'h2]};
         //end
-        if (r43xx_ch[8'h0][6] && snescast_hdma_state_ch[2]) begin
+        if (snescast_hdma_indirect_ch && snescast_hdma_state_ch[2]) begin
           {r43xx_ch[8'h6],r43xx_ch[8'h5]} <= {r43xx_ch[8'h6],r43xx_ch[8'h5]} + 1;
         end
         else begin
@@ -692,11 +750,11 @@ always @(posedge clkin) begin
 
             // state transition
             // $00 terminates immediately
-            if (~|SNES_DATA)                  snescast_hdma_state_ch <= HDMA_STATE_IDLE;
+            if (~|SNES_DATA)                     snescast_hdma_state_ch <= HDMA_STATE_IDLE;
             // direct mode
-            else if (~r43xx_ch[8'h0][6])      snescast_hdma_state_ch <= HDMA_STATE_WRITE_DATA0;
+            else if (~snescast_hdma_indirect_ch) snescast_hdma_state_ch <= HDMA_STATE_WRITE_DATA0;
             // indirect mode
-            else                              snescast_hdma_state_ch <= HDMA_STATE_READ_INDIRECT0;
+            else                                 snescast_hdma_state_ch <= HDMA_STATE_READ_INDIRECT0;
           end
           HDMA_STATE_READ_INDIRECT0: begin
             // record IA0
@@ -713,52 +771,61 @@ always @(posedge clkin) begin
           HDMA_STATE_WRITE_DATA0: begin
             // state transition
             // 1-7
-            if (|r43xx_ch[8'h0][2:0])                             snescast_hdma_state_ch <= HDMA_STATE_WRITE_DATA1;
-            else if (r43xx_ch[8'hA][7] & (|r43xx_ch[8'hA][6:0])) begin r43xx_ch[8'hA] <= r43xx_ch[8'hA] - 1; snescast_hdma_state_ch <= HDMA_STATE_WRITE_DATA0; end
-            else                                                   snescast_hdma_state_ch <= HDMA_STATE_READ_LC;
+            if (|snescast_hdma_mode_ch)             snescast_hdma_state_ch <= HDMA_STATE_WRITE_DATA1;
+            else if (snescast_hdma_repeat_ch) begin r43xx_ch[8'hA] <= r43xx_ch[8'hA] - 1; snescast_hdma_state_ch <= HDMA_STATE_WRITE_DATA0; end
+            else                                    snescast_hdma_state_ch <= HDMA_STATE_READ_LC;
           end
           HDMA_STATE_WRITE_DATA1: begin
-            if (r43xx_ch[8'h9][2] | ~(r43xx_ch[8'h9][2] ^ r43xx_ch[8'h9][0]))    snescast_hdma_state_ch <= HDMA_STATE_WRITE_DATA2;
-            else if (r43xx_ch[8'hA][7] & (|r43xx_ch[8'hA][6:0]))                 begin r43xx_ch[8'hA]    <= r43xx_ch[8'hA] - 1; snescast_hdma_state_ch <= HDMA_STATE_WRITE_DATA0; end
-            else                                                                 snescast_hdma_state_ch <= HDMA_STATE_READ_LC;
+            if ((snescast_hdma_mode_ch[2] & ~snescast_hdma_mode_ch[1]) | (snescast_hdma_mode_ch[1] & snescast_hdma_mode_ch[0]))    snescast_hdma_state_ch <= HDMA_STATE_WRITE_DATA2;
+            else if (snescast_hdma_repeat_ch)                 begin r43xx_ch[8'hA]    <= r43xx_ch[8'hA] - 1; snescast_hdma_state_ch <= HDMA_STATE_WRITE_DATA0; end
+            else                                                    snescast_hdma_state_ch <= HDMA_STATE_READ_LC;
           end
           HDMA_STATE_WRITE_DATA2: begin
             snescast_hdma_state_ch <= HDMA_STATE_WRITE_DATA3;
           end
           HDMA_STATE_WRITE_DATA3: begin
-            if (r43xx_ch[8'hA][7] & (|r43xx_ch[8'hA][6:0])) begin r43xx_ch[8'hA] <= r43xx_ch[8'hA] - 1; snescast_hdma_state_ch <= HDMA_STATE_WRITE_DATA0; end
-            else                                              snescast_hdma_state_ch <= HDMA_STATE_READ_LC;
+            if (snescast_hdma_repeat_ch) begin r43xx_ch[8'hA] <= r43xx_ch[8'hA] - 1; snescast_hdma_state_ch <= HDMA_STATE_WRITE_DATA0; end
+            else                               snescast_hdma_state_ch <= HDMA_STATE_READ_LC;
           end
         endcase
-
-//          HDMA_STATE_WRITE_DATA2: begin
-//            // 3(1),4(2),5(0),7(1)
-//            if (snescast_read_match[i] && SNES_PAWR_end && (SNES_PA == r43xx[i][8'h1] + {~r43xx[i][8'h0][0],r43xx[i][8'h0][1]})) begin
-//              // increment table counter
-//              if (~r43xx[i][8'h0][6]) {r43xx[i][8'h9],r43xx[i][8'h8]} <= {r43xx[i][8'h9],r43xx[i][8'h8]} + 1;
-//              else                    {r43xx[i][8'h6],r43xx[i][8'h5]} <= {r43xx[i][8'h6],r43xx[i][8'h5]} + 1;
-//
-//              // state transition
-//              snescast_hdma_state[i] <= HDMA_STATE_WRITE_DATA3;
-//            end
-//          end
-//          HDMA_STATE_WRITE_DATA3: begin
-//            // 3(1),4(3),5(1),7(1)
-//            if (snescast_read_match[i] && SNES_PAWR_end && (SNES_PA == r43xx[i][8'h1] + (r43xx[i][8'h0][0] ? 1 : 3))) begin
-//              // increment table counter
-//              if (~r43xx[i][8'h0][6]) {r43xx[i][8'h9],r43xx[i][8'h8]} <= {r43xx[i][8'h9],r43xx[i][8'h8]} + 1;
-//              else                    {r43xx[i][8'h6],r43xx[i][8'h5]} <= {r43xx[i][8'h6],r43xx[i][8'h5]} + 1;
-//
-//              // state transition
-//              if (r43xx[i][8'hA][7] & (|r43xx[i][8'hA][6:0])) begin r43xx[i][8'hA] <= r43xx[i][8'hA] - 1; snescast_hdma_state[i] <= HDMA_STATE_WRITE_DATA0; end
-//              else                                                              snescast_hdma_state[i] <= HDMA_STATE_READ_LC;
-//            end
-//          end
       end
     end
- 
+
     if (IS_CPUDMA_WRITE) begin
-      r43xx[SNES_ADDR_r[6:4]][SNES_ADDR_r[3:0]] <= SNES_DATA;
+      snescast_hdma_write <= 1;
+    end
+    else if (IS_CPUREG_WRITE && SNES_ADDR_r[3:0] == 8'hC) begin
+      r420C <= SNES_DATA;
+      snescast_hdma_read_init <= 1;
+    end
+ 
+    if (snescast_hdma_read_update) begin
+      // write new data
+      snescast_hdma_state[snescast_hdma_read_channel] <= snescast_hdma_state_ch;
+      r43xx[snescast_hdma_read_channel][8'h5] <= r43xx_ch[8'h5];
+      r43xx[snescast_hdma_read_channel][8'h6] <= r43xx_ch[8'h6];
+      r43xx[snescast_hdma_read_channel][8'h8] <= r43xx_ch[8'h8];
+      r43xx[snescast_hdma_read_channel][8'h9] <= r43xx_ch[8'h9];
+      r43xx[snescast_hdma_read_channel][8'hA] <= r43xx_ch[8'hA];
+      
+      snescast_hdma_read_update <= 0;        
+    end
+    else if (snescast_hdma_write) begin
+      r43xx[SNES_ADDR_r[6:4]][SNES_ADDR_r[3:0]] <= SNES_DATA_r;
+
+      snescast_hdma_write <= 0;
+    end
+    else if (snescast_hdma_read_init) begin
+      for (i = 0; i < HDMA_CHANNELS; i = i + 1) begin
+        if (r420C[i]) begin
+          {r43xx[i][8'h9],r43xx[i][8'h8]} <= {r43xx[i][8'h3],r43xx[i][8'h2]};
+          snescast_hdma_state[i] <= HDMA_STATE_READ_LC;
+        end
+      end
+      snescast_hdma_read_init <= 0;
+    end
+    else if (snescast_hdma_read_wait) begin
+      if (SNES_SNOOPRD_end) snescast_hdma_read_update <= 1;
     end
     else if (IS_NMI_START) begin
       for (i = 0; i < HDMA_CHANNELS; i = i + 1) begin
@@ -767,32 +834,7 @@ always @(posedge clkin) begin
       end
       // FIXME: disable HDMA.  Technically, I don't think these are cleared but it looks like some games will set them up again
       // May be better to not clear and instead ignore accesses.  But the problem then becomes when do we stop ignoring.  The end of the NMI may be too late.
-      r420C <= 0;
-    end
-    else if (IS_CPUREG_WRITE && SNES_ADDR_r[3:0] == 8'hC) begin
-      r420C <= SNES_DATA;
-      
-      for (i = 0; i < HDMA_CHANNELS; i = i + 1) begin
-        if (SNES_DATA[i]) begin
-          {r43xx[i][8'h9],r43xx[i][8'h8]} <= {r43xx[i][8'h3],r43xx[i][8'h2]};
-          
-          snescast_hdma_state[i] <= HDMA_STATE_READ_LC;
-        end
-      end
-    end
-    else if (snescast_hdma_read_wait) begin
-      if (SNES_RD_end) snescast_hdma_read_update <= 1;
-    end
-    else if (snescast_hdma_read_update) begin
-      // write new data
-      snescast_hdma_state[snescast_hdma_read_channel] <= snescast_hdma_state_ch;
-      //r43xx[snescast_hdma_read_channel][8'h5] <= r43xx_ch[8'h5];
-      //r43xx[snescast_hdma_read_channel][8'h6] <= r43xx_ch[8'h6];
-      //r43xx[snescast_hdma_read_channel][8'h8] <= r43xx_ch[8'h8];
-      //r43xx[snescast_hdma_read_channel][8'h9] <= r43xx_ch[8'h9];
-      //r43xx[snescast_hdma_read_channel][8'hA] <= r43xx_ch[8'hA];
-      
-      snescast_hdma_read_update <= 0;        
+      //r420C <= 0;
     end
   end
 end
@@ -804,7 +846,7 @@ assign buf_addr = trace_reg_control_enable ? trace_addr : snescast_addr;
 
 assign msu_data_out = msu_data;
 assign msu_scaddr_out = {1'b0,snescast_addr_frame_r,1'b0,snescast_addr_op_r};
-assign OE_RD_ENABLE = |snescast_hdma_read_active;
+assign OE_RD_ENABLE = (|snescast_hdma_read_active) | snescast_hdma_read_active2 | snescast_hdma_read_wait;
 
 assign DBG = |snescast_hdma_read_active;
 

@@ -163,7 +163,7 @@ reg [14:0] MSU_ADDR_OUT_BUF;
 reg [14:0] MSU_PTR_OUT_BUF;
 reg [5:0] msu_status_set_out_buf;
 reg [5:0] msu_status_reset_out_buf;
-reg msu_status_reset_we_buf = 0;
+reg msu_status_reset_we_buf; initial msu_status_reset_we_buf = 0;
 reg MSU_RESET_OUT_BUF;
 reg [23:0] msu_scaddr_r;
 
@@ -171,15 +171,18 @@ reg [7:0] usb_status_set_out_buf;
 reg [7:0] usb_status_reset_out_buf;
 reg usb_status_reset_we_buf = 0;
 
-reg [7:0] group_out_buf = 8'hFF;
-reg [7:0] index_out_buf = 8'hFF;
-reg [7:0] value_out_buf = 8'hFF;
-reg [7:0] invmask_out_buf = 8'hFF;
-reg [7:0] group_read_buf = 8'hFF;
-reg [7:0] index_read_buf = 8'hFF;
-reg [7:0] temp_read_buf = 8'hFF;
+reg [7:0] group_out_buf; initial group_out_buf = 8'hFF;
+reg [7:0] index_out_buf; initial index_out_buf = 8'hFF;
+reg [7:0] value_out_buf; initial value_out_buf = 8'hFF;
+reg [7:0] invmask_out_buf; initial invmask_out_buf = 8'hFF;
+reg [7:0] group_read_buf; initial group_read_buf = 8'hFF;
+reg [7:0] index_read_buf; initial index_read_buf = 8'hFF;
+reg [7:0] temp_read_buf; initial temp_read_buf = 8'hFF;
 
-reg reg_we_buf = 0;
+reg [7:0] featurebits_out_buf; initial featurebits_out_buf = 0;
+always @(posedge clk) featurebits_out <= featurebits_out_buf;
+
+reg reg_we_buf; initial reg_we_buf = 0;
 
 reg [7:0] bsx_regs_set_out_buf;
 reg [7:0] bsx_regs_reset_out_buf;
@@ -447,7 +450,7 @@ always @(posedge clk) begin
           dac_palmode_out <= param_data[7];
         end
       8'hed:
-        featurebits_out <= param_data;
+        featurebits_out_buf <= param_data;
       8'hee:
         region_out <= param_data[0];
       8'hef:
@@ -531,7 +534,7 @@ always @(posedge clk) begin
             ADDR_OUT_BUF[7:0] <= param_data;
         endcase
     endcase
-  end else if ((cmd_ready | param_ready) && cmd_data == 8'hF5 && ~featurebits_out[3]) begin
+  end else if ((cmd_ready | param_ready) && cmd_data == 8'hF5 && ~featurebits_out_buf[3]) begin
     if (MSU_ADDR_OUT_BUF == 15'h77FF) MSU_ADDR_OUT_BUF <= 0;
     else MSU_ADDR_OUT_BUF <= MSU_ADDR_OUT_BUF + 1;
   end
@@ -554,8 +557,6 @@ always @(posedge clk) begin
   else if (cmd_ready | param_ready /* bit_cnt == 7 */) begin
     if (cmd_data[7:4] == 4'hA)
       MCU_DATA_IN_BUF <= snescmd_data_in;
-    else if (cmd_data[7:0] == 8'hF0)
-      MCU_DATA_IN_BUF <= 8'hA5;
     else if (cmd_data[7:0] == 8'hF1)
       case (spi_byte_cnt[0])
         1'b1: // buffer status (1st byte)
@@ -629,6 +630,8 @@ always @(posedge clk) begin
           else                         MCU_DATA_IN_BUF <= 0;
         end
       endcase      
+    else if (cmd_data[7:0] == 8'hF0)
+      MCU_DATA_IN_BUF <= 8'hA5;
   end
 end
 
@@ -697,6 +700,6 @@ assign reg_read_out = index_read_buf;
 
 assign DBG_mcu_nextaddr = mcu_nextaddr;
 
-assign DBG = (cmd_ready | param_ready) && cmd_data == 8'hF5 && ~featurebits_out[3];
+assign DBG = (cmd_ready | param_ready) && cmd_data == 8'hF5 && ~featurebits_out_buf[3];
 
 endmodule

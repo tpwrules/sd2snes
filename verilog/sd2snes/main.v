@@ -206,10 +206,12 @@ initial loop_data = 8'h80; // BRA
 //assign bsx_data_ovr = 0;
 //assign IS_FLASHWR = 0;
 
-wire SNES_SNOOPWR_DATA_OE;
-wire SNES_PAWR_DATA_OE;
-wire SNES_PARD_DATA_OE;
+reg SNES_SNOOPRD_DATA_OE;
+reg SNES_SNOOPWR_DATA_OE;
+reg SNES_PAWR_DATA_OE;
+reg SNES_PARD_DATA_OE;
 
+reg [3:0] SNES_SNOOPRD_count;
 reg [3:0] SNES_SNOOPWR_count;
 reg [3:0] SNES_PAWR_count;
 reg [3:0] SNES_PARD_count;
@@ -225,33 +227,67 @@ wire SNES_PARD_start = ((SNES_PARDr[6:1] | SNES_PARDr[7:2]) == 6'b111110);
 //wire SNES_PARD_end = SNES_PARD_count == 5; // 5
 wire SNES_PAWR_start = ((SNES_PAWRr[4:1] | SNES_PAWRr[5:2]) == 4'b1110);
 //wire SNES_PAWR_end   = SNES_PAWR_count == 5; // 5
-wire SNES_RD_start = ((SNES_READr[6:1] | SNES_READr[7:2]) == 6'b111100);
-wire SNES_RD_end = ((SNES_READr[6:1] & SNES_READr[7:2]) == 6'b000001);
-wire SNES_WR_start = ((SNES_WRITEr[6:1] | SNES_WRITEr[7:2]) == 6'b111000);
-wire SNES_WR_end = ((SNES_WRITEr[6:1] & SNES_WRITEr[7:2]) == 6'b000001);
 //wire SNES_SNOOPWR_end = SNES_SNOOPWR_count == 5; //5
-wire SNES_cycle_start = ((SNES_CPU_CLKr[7:2] & SNES_CPU_CLKr[6:1]) == 6'b000011);
-wire SNES_cycle_end = ((SNES_CPU_CLKr[7:2] | SNES_CPU_CLKr[6:1]) == 6'b111000);
-wire SNES_WRITE = SNES_WRITEr[2] & SNES_WRITEr[1];
-wire SNES_READ = SNES_READr[2] & SNES_READr[1];
-wire SNES_CPU_CLK = SNES_CPU_CLKr[2] & SNES_CPU_CLKr[1];
-wire SNES_PARD = SNES_PARDr[2] & SNES_PARDr[1];
-wire SNES_PAWR = SNES_PAWRr[2] & SNES_PAWRr[1];
-wire SNES_ROMSEL_EARLY = (SNES_ROMSELr[2] & SNES_ROMSELr[1]);
+
+//wire SNES_RD_start = ((SNES_READr[6:1] | SNES_READr[7:2]) == 6'b111100);
+//wire SNES_RD_end = ((SNES_READr[6:1] & SNES_READr[7:2]) == 6'b000001);
+//wire SNES_WR_start = ((SNES_WRITEr[6:1] | SNES_WRITEr[7:2]) == 6'b111000);
+//wire SNES_WR_end = ((SNES_WRITEr[6:1] & SNES_WRITEr[7:2]) == 6'b000001);
+//wire SNES_cycle_start = ((SNES_CPU_CLKr[7:2] & SNES_CPU_CLKr[6:1]) == 6'b000011);
+//wire SNES_cycle_end = ((SNES_CPU_CLKr[7:2] | SNES_CPU_CLKr[6:1]) == 6'b111000);
+//wire SNES_WRITE = SNES_WRITEr[2] & SNES_WRITEr[1];
+//wire SNES_READ = SNES_READr[2] & SNES_READr[1];
+//wire SNES_CPU_CLK = SNES_CPU_CLKr[2] & SNES_CPU_CLKr[1];
+//wire SNES_PARD = SNES_PARDr[2] & SNES_PARDr[1];
+//wire SNES_PAWR = SNES_PAWRr[2] & SNES_PAWRr[1];
+//wire SNES_ROMSEL_EARLY = (SNES_ROMSELr[2] & SNES_ROMSELr[1]);
+
+reg SNES_RD_start; initial SNES_RD_start = 0;
+reg SNES_RD_end; initial SNES_RD_end = 0;
+reg SNES_WR_start; initial SNES_WR_start = 0;
+reg SNES_WR_end; initial SNES_WR_end = 0;
+
+reg SNES_cycle_start; initial SNES_cycle_start = 0;
+reg SNES_cycle_end; initial SNES_cycle_end = 0;
+reg SNES_WRITE; initial SNES_WRITE = 0;
+reg SNES_READ; initial SNES_READ = 0;
+reg SNES_CPU_CLK; initial SNES_CPU_CLK = 0;
+reg SNES_PARD; initial SNES_PARD = 0;
+reg SNES_PAWR; initial SNES_PAWR = 0;
+reg SNES_ROMSEL_EARLY; initial SNES_ROMSEL_EARLY = 0;
+
+always @(posedge CLK2) begin
+  SNES_RD_start <= ((SNES_READr[5:0] | SNES_READr[6:1]) == 6'b111100);
+  SNES_RD_end <= ((SNES_READr[5:0] & SNES_READr[6:1]) == 6'b000001);
+  SNES_WR_start <= ((SNES_WRITEr[5:0] | SNES_WRITEr[6:1]) == 6'b111000);
+  SNES_WR_end <= ((SNES_WRITEr[5:0] & SNES_WRITEr[6:1]) == 6'b000001);
+
+  SNES_cycle_start <= ((SNES_CPU_CLKr[6:1] & SNES_CPU_CLKr[5:0]) == 6'b000011);
+  SNES_cycle_end <= ((SNES_CPU_CLKr[6:1] | SNES_CPU_CLKr[5:0]) == 6'b111000);
+  SNES_WRITE <= SNES_WRITEr[1] & SNES_WRITEr[0];
+  SNES_READ <= SNES_READr[1] & SNES_READr[0];
+  SNES_CPU_CLK <= SNES_CPU_CLKr[1] & SNES_CPU_CLKr[0];
+  SNES_PARD <= SNES_PARDr[1] & SNES_PARDr[0];
+  SNES_PAWR <= SNES_PAWRr[1] & SNES_PAWRr[0];
+  SNES_ROMSEL_EARLY <= (SNES_ROMSELr[1] & SNES_ROMSELr[0]);
+end
 
 reg SNES_PAWR_end;
 reg SNES_PARD_end;
+reg SNES_SNOOPRD_end;
 reg SNES_SNOOPWR_end;
 
 always @(posedge CLK2) begin
   if (SNES_reset_strobe) begin
     SNES_PARD_end <= 0;
     SNES_PAWR_end <= 0;
+    SNES_SNOOPRD_end <= 0;
     SNES_SNOOPWR_end <= 0;
   end
   else begin
     SNES_PARD_end <= SNES_PARD_count == 4;
     SNES_PAWR_end <= SNES_PAWR_count == 4;
+    SNES_SNOOPRD_end <= SNES_SNOOPRD_count == 4;
     SNES_SNOOPWR_end <= SNES_SNOOPWR_count == 4;
   end
 end
@@ -317,9 +353,11 @@ always @(posedge CLK2) begin
   // count of write low
   if (SNES_reset_strobe | SNES_PAWR_end) begin
     SNES_PAWR_count <= 0;
+    SNES_PAWR_DATA_OE <= 0;
   end
   else if (SNES_PAWR_start) begin 
     SNES_PAWR_count <= 1;
+    SNES_PAWR_DATA_OE <= 1;
   end
   else if (|SNES_PAWR_count) begin
     SNES_PAWR_count <= SNES_PAWR_count + 1;
@@ -328,9 +366,11 @@ always @(posedge CLK2) begin
   // count of write low
   if (SNES_reset_strobe | SNES_PARD_end) begin
     SNES_PARD_count <= 0;
+    SNES_PARD_DATA_OE <= 0;
   end
   else if (SNES_PARD_start) begin 
     SNES_PARD_count <= 1;
+    SNES_PARD_DATA_OE <= 1;
   end
   else if (|SNES_PARD_count) begin
     SNES_PARD_count <= SNES_PARD_count + 1;
@@ -339,13 +379,29 @@ always @(posedge CLK2) begin
   // count of write low
   if (SNES_reset_strobe | SNES_SNOOPWR_end) begin
     SNES_SNOOPWR_count <= 0;
+    SNES_SNOOPWR_DATA_OE <= 0;
   end
   else if (SNES_WR_start) begin 
     SNES_SNOOPWR_count <= 1;
+    SNES_SNOOPWR_DATA_OE <= 1;
   end
   else if (|SNES_SNOOPWR_count) begin
     SNES_SNOOPWR_count <= SNES_SNOOPWR_count + 1;
   end
+
+  // count of write low
+  if (SNES_reset_strobe | SNES_SNOOPRD_end) begin
+    SNES_SNOOPRD_count <= 0;
+    SNES_SNOOPRD_DATA_OE <= 0;
+  end
+  else if (SNES_RD_start) begin 
+    SNES_SNOOPRD_count <= 1;
+    SNES_SNOOPRD_DATA_OE <= 1;
+  end
+  else if (|SNES_SNOOPRD_count) begin
+    SNES_SNOOPRD_count <= SNES_SNOOPRD_count + 1;
+  end
+
 
 end
 
@@ -479,6 +535,7 @@ msu snes_msu (
   .SNES_DATA(CTX_SNES_DATA_IN),
   .msu_data_out(msu_data),
   .msu_scaddr_out(msu_scaddr),
+  .SNES_SNOOPRD_end(SNES_SNOOPRD_end),
   .OE_RD_ENABLE(msu_rd_enable),
   .DBG_msu_reg_oe_rising(DBG_msu_reg_oe_rising),
   .DBG_msu_reg_oe_falling(DBG_msu_reg_oe_falling),
@@ -528,7 +585,8 @@ ctx snes_ctx (
   .SNES_ADDR(CTX_SNES_ADDRr),
   .SNES_PA(SNES_PA),
   .SNES_RD_end(SNES_RD_end),
-  .SNES_WR_end(SNES_WR_end), // NOTE: leave this as the normal write timing in case the data comes from ROM.
+  .SNES_WR_end(SNES_SNOOPWR_end),
+  //.SNES_WR_end(SNES_WR_end), // NOTE: leave this as the normal write timing in case the data comes from ROM.
   .SNES_PARD_end(SNES_PARD_end),
   .SNES_PAWR_end(SNES_PAWR_end),
   .SNES_DATA_IN(CTX_SNES_DATA_IN), // needs to handle PA accesses, too
@@ -857,13 +915,14 @@ end
 
 //wire SNES_PAWR_DATA_OE = ~SNES_PAWR;
 //wire SNES_PARD_DATA_OE = ~SNES_PARD;
-assign SNES_SNOOPWR_DATA_OE = |SNES_SNOOPWR_count;
-assign SNES_PAWR_DATA_OE = |SNES_PAWR_count;
-assign SNES_PARD_DATA_OE = |SNES_PARD_count;
+//assign SNES_SNOOPRD_DATA_OE = |SNES_SNOOPRD_count;
+//assign SNES_SNOOPWR_DATA_OE = |SNES_SNOOPWR_count;
+//assign SNES_PAWR_DATA_OE = |SNES_PAWR_count;
+//assign SNES_PARD_DATA_OE = |SNES_PARD_count;
 
 // FIXME: Cleanup read equation.  Currently this matches DIR in order to snoop.  Just looking at ~SNES_READ corrupts SNES_DATA when we are trying to snoop data from the bus.
 assign SNES_DATA = (r213f_enable & ~SNES_PARD & ~r213f_forceread) ? r213fr
-                   :((~SNES_READ & ((~SNES_PAWR_DATA_OE & ~SNES_PARD_DATA_OE /*& ~ctx_rd_enable & ~msu_rd_enable*/) | ~SNES_ROMSEL_EARLY)) ^ (r213f_forceread & r213f_enable & ~SNES_PARD))
+                   :((~SNES_READ & ((~SNES_PAWR_DATA_OE & ~SNES_PARD_DATA_OE & ~(SNES_SNOOPRD_DATA_OE & msu_rd_enable)/*& ~ctx_rd_enable & ~msu_rd_enable*/) | ~SNES_ROMSEL_EARLY)) ^ (r213f_forceread & r213f_enable & ~SNES_PARD))
                                 ? (srtc_enable ? SRTC_SNES_DATA_OUT
                                   :dspx_enable ? DSPX_SNES_DATA_OUT
                                   :dspx_dp_enable ? DSPX_SNES_DATA_OUT
@@ -1179,24 +1238,21 @@ assign SNES_DATABUS_OE = (dspx_enable | dspx_dp_enable) ? 1'b0 :
                          bs_page_enable ? (SNES_READ) :
                          r213f_enable & !SNES_PARD ? 1'b0 :
                          snoop_4200_enable ? SNES_WRITE :
-                         //(cpureg_enable & ~SNES_READ) ? 1'b0 :
-                         //(ctx_rd_enable & ~SNES_READ) ? 1'b0 :
-                         //(ctx_wr_enable & ~SNES_WRITE) ? 1'b0 :
                          (ctx_wr_enable & SNES_SNOOPWR_DATA_OE) ? 1'b0 :
                          (ctx_pawr_enable & SNES_PAWR_DATA_OE)? 1'b0 :
                          (ctx_pard_enable & SNES_PARD_DATA_OE)? 1'b0 :
-                         //(msu_rd_enable & ~SNES_READ) ? 1'b0 :
+                         (msu_rd_enable & SNES_SNOOPRD_DATA_OE) ? 1'b0 :
                          cart_read_oe;
 
 // snoop WR isn't necessary here because you can't assert RD and WR at the same time
-assign SNES_DATABUS_DIR = ((~SNES_READ & ((~SNES_PAWR_DATA_OE & ~SNES_PARD_DATA_OE /*& ~ctx_rd_enable & ~msu_rd_enable*/) | ~SNES_ROMSEL_EARLY)) | (~SNES_PARD & (r213f_enable)))
+assign SNES_DATABUS_DIR = ((~SNES_READ & ((~SNES_PAWR_DATA_OE & ~SNES_PARD_DATA_OE & ~(SNES_SNOOPRD_DATA_OE & msu_rd_enable)/*& ~ctx_rd_enable & ~msu_rd_enable*/) | ~SNES_ROMSEL_EARLY)) | (~SNES_PARD & (r213f_enable)))
                            ? 1'b1 ^ (r213f_forceread & r213f_enable & ~SNES_PARD)
                            : 1'b0;
 
 assign SNES_IRQ = 1'b0;
 
 //assign p113_out = 1'b0;
-assign p113_out = DBG_MSU;
+assign p113_out = CTX_DBG;
 
 snescmd_buf snescmd (
   .clka(CLK2), // input clka

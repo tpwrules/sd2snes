@@ -52,22 +52,33 @@ module ctx(
 reg [23:0] WRAM_ADDR;
 
 // bank $00-$3F,$80-$BF
+reg IS_WRAM_SHADOW_ADDR_r; initial IS_WRAM_SHADOW_ADDR_r = 0;
+reg IS_WRAM_BANK_ADDR_r; initial IS_WRAM_BANK_ADDR_r = 0;
+reg IS_WRAM_PA_ADDR_r; initial IS_WRAM_PA_ADDR_r = 0;
 assign IS_WRAM_SHADOW_ADDR = !SNES_ADDR[22] && (SNES_ADDR[15:13] == 3'h0);
-assign IS_WRAM_SHADOW = SNES_WR_end && IS_WRAM_SHADOW_ADDR;
+assign IS_WRAM_SHADOW = SNES_WR_end && IS_WRAM_SHADOW_ADDR_r;
 assign IS_WRAM_BANK_ADDR = ({SNES_ADDR[23:17],1'b0} == 8'h7E);
-assign IS_WRAM_BANK = SNES_WR_end && IS_WRAM_BANK_ADDR;
+assign IS_WRAM_BANK = SNES_WR_end && IS_WRAM_BANK_ADDR_r;
 assign IS_WRAM_PA_ADDR = (SNES_PA == 8'h80);
-assign IS_WRAM_PA = SNES_PAWR_end && IS_WRAM_PA_ADDR;
+assign IS_WRAM_PA = SNES_PAWR_end && IS_WRAM_PA_ADDR_r;
 
-assign IS_WRAM_ADDR = IS_WRAM_SHADOW_ADDR | IS_WRAM_BANK_ADDR | IS_WRAM_PA_ADDR;
+assign IS_WRAM_ADDR = IS_WRAM_SHADOW_ADDR_r | IS_WRAM_BANK_ADDR_r | IS_WRAM_PA_ADDR_r;
 assign IS_WRAM = IS_WRAM_SHADOW | IS_WRAM_BANK | IS_WRAM_PA;
 
 // flop register state
 always @(posedge clkin) begin
   if (reset) begin
     WRAM_ADDR <= 0;
+    
+    IS_WRAM_SHADOW_ADDR_r <= 0;
+    IS_WRAM_BANK_ADDR_r <= 0;
+    IS_WRAM_PA_ADDR_r <= 0;
   end
   else begin
+    IS_WRAM_SHADOW_ADDR_r <= IS_WRAM_SHADOW_ADDR;
+    IS_WRAM_BANK_ADDR_r <= IS_WRAM_BANK_ADDR;
+    IS_WRAM_PA_ADDR_r <= IS_WRAM_PA_ADDR;
+  
     if (SNES_PAWR_end | SNES_PARD_end) begin
       if      (SNES_PA == 8'h80) WRAM_ADDR[16: 0] <= WRAM_ADDR[16:0] + 1'b1;
     end
@@ -224,11 +235,14 @@ end
 // FIXME: need to model the internal flop to handle mid-word address changes
 reg [8:0] CGRAM_ADDR;
 
+reg IS_CGRAM_ADDR_r; initial IS_CGRAM_ADDR_r = 0;
 assign IS_CGRAM_ADDR = (SNES_PA == 8'h22);
-assign IS_CGRAM = SNES_PAWR_end && IS_CGRAM_ADDR;
+assign IS_CGRAM = SNES_PAWR_end && IS_CGRAM_ADDR_r;
 
 // flop register state
 always @(posedge clkin) begin
+  IS_CGRAM_ADDR_r <= IS_CGRAM_ADDR;
+
   if (SNES_PARD_end) begin
     if      (SNES_PA == 8'h3B) CGRAM_ADDR[8:0] <= CGRAM_ADDR[8:0] + 1'b1;
   end
@@ -244,11 +258,14 @@ end
 // FIXME: need to model the internal flop to handle mid-word address changes
 reg [9:0] OAM_ADDR;
 
+reg IS_OAM_ADDR_r; initial IS_OAM_ADDR_r = 0;
 assign IS_OAM_ADDR = (SNES_PA == 8'h04);
-assign IS_OAM = SNES_PAWR_end && IS_OAM_ADDR;
+assign IS_OAM = SNES_PAWR_end && IS_OAM_ADDR_r;
 
 // flop register state
 always @(posedge clkin) begin
+  IS_OAM_ADDR_r <= IS_OAM_ADDR;
+
   if (SNES_PARD_end) begin
 	 if      (SNES_PA == 8'h38) OAM_ADDR[9:0] <= OAM_ADDR[9:0] + 1'b1;
   end
@@ -329,7 +346,7 @@ reg [2:0] CPUREG_STATE;
 reg [3:0] CPUREG_ADDR;
 reg       CPUREG_DOUBLE;
 reg [7:0] CPUREG_INST[3:0];
-reg [29:0] CPUREG_COUNTER;
+reg [27:0] CPUREG_COUNTER;
 
 integer i;
 initial for (i = 0; i < 16; i = i + 1) r421x[i] = 0;
@@ -356,21 +373,25 @@ always @(posedge clkin) begin
     // $43x0-$43xA (x < 8)
     CPUREG_WRITE_ADDR_r <= (({1'b0,SNES_ADDR[22],6'b000000, SNES_ADDR[15:4], 4'b0000} == 24'h04200) && (SNES_ADDR[3:0] <= 4'hD)) || (({1'b0,SNES_ADDR[22],6'b000000, SNES_ADDR[15:7], 7'b0000000} == 24'h04300)) && (SNES_ADDR[3:0] <= 4'hA);
     // this isn't used for level shifter enable so ok to get larger regions.
-    CPUREG_READ_ADDR_r <= {1'b0,SNES_ADDR[22],6'b000000, SNES_ADDR[15:4], 4'b0000} == 24'h04218;
+    CPUREG_READ_ADDR_r <= {1'b0,SNES_ADDR[22],6'b000000, SNES_ADDR[15:4], 4'b0000} == 24'h04210;
   end
 end
 
 // FIXME: This is broken because it's testing for reads and associated data to find ST to memory.  RDs from WRAM are not visible right now.
 always @(posedge clkin) begin
-  if (reset || (~|CPUREG_COUNTER)) begin
+  if (reset || (~CPUREG_COUNTER[25])) begin
     // don't zero out the non-counter state outside of reset
     if (reset) for (i = 0; i < 8; i = i + 1) r421x[i] <= 0;
     for (i = 8; i < 16; i = i + 1) r421x[i] <= 0;
     CPUREG_STATE <= 0;
-    CPUREG_COUNTER <= 30'd24000000;
+    CPUREG_COUNTER <= 28'h3000000;
   end
   else begin
-    if (|CPUREG_COUNTER) begin
+    // reset counter for zeroing out stale writes.  Only allow controller writes to do this.
+    if (CPUREG_ADDR[3] && CPUREG_STATE == 3 && SNES_WR_end) begin
+      CPUREG_COUNTER <= 28'h3000000;
+    end
+    else if (CPUREG_COUNTER[25]) begin
       CPUREG_COUNTER <= CPUREG_COUNTER - 1;
     end
 
@@ -427,8 +448,6 @@ always @(posedge clkin) begin
           // capture data
           r421x[CPUREG_ADDR] <= SNES_DATA_IN;
           CPUREG_STATE <= CPUREG_DOUBLE ? 4 : 0;
-          // reset counter for zeroing out stale writes.  Only allow controller writes to do this.
-          if (CPUREG_ADDR[3]) CPUREG_COUNTER <= 30'd24000000;
         end
         else if (SNES_RD_end | SNES_WR_end | SNES_PARD_end | SNES_PAWR_end) begin
           // reset
@@ -457,11 +476,14 @@ end
 // This space has $E0 bytes for random crap
 
 // gamepad is a hack.  the read happens at the start of the NMI which is likely to get invalid data.  it needs to be filtered.
+reg IS_GAMEPAD_WRITE_ADDR_r; initial IS_GAMEPAD_WRITE_ADDR_r = 0;
 assign IS_GAMEPAD_WRITE_ADDR = ({SNES_ADDR[23:1],1'b0} == 24'h002BF0);
-assign IS_GAMEPAD_WRITE = SNES_WR_end && IS_GAMEPAD_WRITE_ADDR;
+assign IS_GAMEPAD_WRITE = SNES_WR_end && IS_GAMEPAD_WRITE_ADDR_r;
 
 assign IS_MISC_ADDR = IS_GAMEPAD_WRITE_ADDR;
 assign IS_MISC = IS_GAMEPAD_WRITE;
+
+always @(posedge clkin) IS_GAMEPAD_WRITE_ADDR_r <= IS_GAMEPAD_WRITE_ADDR;
 
 //-------------------
 // generate address

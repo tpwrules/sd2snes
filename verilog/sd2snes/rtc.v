@@ -104,6 +104,7 @@ initial begin
   month = 0;
   rtc_data_r = 60'h220110301000000;
   tick_cnt = 0;
+  dow_year_tmp = 0;
 end
 
 wire is_leapyear_feb = (month == 1) && (year[1:0] == 2'b00);
