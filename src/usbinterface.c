@@ -343,17 +343,17 @@ void usbint_recv_block(void) {
                         server_info.vector_count++;
                         //PRINT_MSG("[ next]");
                     
-                        server_info.size = cmd_buffer[32 + server_info.vector_count * 4];
+                        if (cmd_buffer[32 + server_info.vector_count * 4]) {
+                            server_info.size = cmd_buffer[32 + server_info.vector_count * 4];
 
-                        server_info.offset  = 0;
-                        server_info.offset |= cmd_buffer[33 + server_info.vector_count * 4]; server_info.offset <<= 8;
-                        server_info.offset |= cmd_buffer[34 + server_info.vector_count * 4]; server_info.offset <<= 8;
-                        server_info.offset |= cmd_buffer[35 + server_info.vector_count * 4]; server_info.offset <<= 0;
+                            server_info.offset  = 0;
+                            server_info.offset |= cmd_buffer[33 + server_info.vector_count * 4]; server_info.offset <<= 8;
+                            server_info.offset |= cmd_buffer[34 + server_info.vector_count * 4]; server_info.offset <<= 8;
+                            server_info.offset |= cmd_buffer[35 + server_info.vector_count * 4]; server_info.offset <<= 0;
                         
-                        count = 0;
-                        
-                        // we found a valid vector
-                        if (server_info.size) break;
+                            count = 0;
+                            break;
+                        }
                     }
                 }
             } while (blockBytesWritten != server_info.block_size && count < server_info.size);
@@ -795,19 +795,15 @@ int usbint_handler_dat(void) {
                     while (server_info.vector_count < 8) {
                         server_info.vector_count++;
                     
-                        server_info.size = cmd_buffer[32 + server_info.vector_count * 4];
+                        if (cmd_buffer[32 + server_info.vector_count * 4]) {
+                            server_info.size = cmd_buffer[32 + server_info.vector_count * 4];
     
-                        server_info.offset  = 0;
-                        server_info.offset |= cmd_buffer[33 + server_info.vector_count * 4]; server_info.offset <<= 8;
-                        server_info.offset |= cmd_buffer[34 + server_info.vector_count * 4]; server_info.offset <<= 8;
-                        server_info.offset |= cmd_buffer[35 + server_info.vector_count * 4]; server_info.offset <<= 0;
+                            server_info.offset  = 0;
+                            server_info.offset |= cmd_buffer[33 + server_info.vector_count * 4]; server_info.offset <<= 8;
+                            server_info.offset |= cmd_buffer[34 + server_info.vector_count * 4]; server_info.offset <<= 8;
+                            server_info.offset |= cmd_buffer[35 + server_info.vector_count * 4]; server_info.offset <<= 0;
                         
-                        count = 0;
-                        
-                        // we found a valid vector
-                        if (server_info.size) {
-                            //PRINT_MSG("[ndat]")
-                            //printf("s:%d", (int)server_info.size);
+                            count = 0;
                             break;
                         }
                     }                    
