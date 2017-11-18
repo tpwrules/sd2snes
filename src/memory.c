@@ -248,6 +248,10 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   tick_t ticksstart, ticks_total=0;
   ticksstart=getticks();
 
+  // save bram
+  uint8_t snescmd_buf[0x70];
+  snescmd_readblock(snescmd_buf, 0x2A90, 0x70);
+  
   printf("%s\n", filename);
   file_open(filename, FA_READ);
   if(file_res) {
@@ -411,13 +415,16 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
 
   set_mapper(romprops.mapper_id);
 
+  // restore bram - must be done before reset
+  snescmd_writeblock(snescmd_buf, 0x2A90, 0x70);
+
 //printf("%04lx\n", romprops.header_address + ((void*)&romprops.header.vect_irq16 - (void*)&romprops.header));
   if(flags & (LOADROM_WITH_RESET|LOADROM_WAIT_SNES)) {
     assert_reset();
     init(filename);
     deassert_reset();
   }
-
+  
   return (uint32_t)filesize;
 }
 

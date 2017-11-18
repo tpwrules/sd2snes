@@ -6,7 +6,8 @@
 ; temporary state machine variable
 ;!CS_STATE = $002AD4
 
-!SS_CODE = $FF0000
+!SS_CODE = $FC0000
+!SS_DATA = $FC2000
 
 ;=======
 ; LOROM
@@ -14,8 +15,8 @@
 ;lorom
 
 ; Savestate code variables
-!SS_BANK = $FF00 ;$8200
-!SS_FULL = $FF0000
+!SS_BANK = $FC00 ;$8200
+!SS_FULL = $FC0000
 
 ;!SRAM_WRAM_7E0000 = $710000
 ;!SRAM_WRAM_7E8000 = $720000

@@ -130,6 +130,7 @@ void snescmd_writeblock(void *buf, uint16_t addr, uint16_t size);
 uint16_t snescmd_readshort(uint16_t addr);
 uint8_t snescmd_readbyte(uint16_t addr);
 uint32_t snescmd_readlong(uint16_t addr);
+void snescmd_readblock(void *buf, uint16_t addr, uint16_t size);
 uint64_t snescmd_gettime(void);
 void snescmd_prepare_nmihook(void);
 void snes_get_filepath(uint8_t *buffer, uint16_t length);

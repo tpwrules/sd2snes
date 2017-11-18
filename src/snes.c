@@ -404,13 +404,21 @@ uint32_t snescmd_readlong(uint16_t addr) {
 void snes_get_filepath(uint8_t *buffer, uint16_t length) {
   uint32_t path_address = snescmd_readlong(SNESCMD_MCU_PARAM);
   sram_readstrn(buffer, path_address, length-1);
-printf("%s\n", buffer);
+  printf("%s\n", buffer);
 }
 
 void snescmd_writeblock(void *buf, uint16_t addr, uint16_t size) {
   fpga_set_snescmd_addr(addr);
   while(size--) {
     fpga_write_snescmd(*(uint8_t*)buf++);
+  }
+}
+
+void snescmd_readblock(void *buf, uint16_t addr, uint16_t size) {
+  fpga_set_snescmd_addr(addr);
+  uint16_t i = 0;
+  while(size--) {
+    ((uint8_t*)buf)[i++] = fpga_read_snescmd();
   }
 }
 
@@ -428,7 +436,26 @@ void snescmd_prepare_nmihook() {
   uint8_t bram[224];
   sram_readblock(bram, SRAM_MENU_ADDR + bram_src, 224);
 //  snescmd_writeblock(bram, SNESCMD_HOOKS, 40);
-  snescmd_writeblock(bram, 0x4, 224);
+  // only parse up to the end token for bram so we don't overwrite the cheat region
+  
+  // dumb O(n^2) byte match... but array is small
+  unsigned count = 0;
+  unsigned match_index = 0;
+  for (unsigned i = 0; i < sizeof(bram); i++) {
+      if (bram[i] == "bram_end"[match_index]) {
+          match_index++;
+          if (match_index == strlen("bram_end")) {
+              count = i - strlen("bram_end") + 1;
+              break;
+          }
+      }
+      else {
+          match_index = 0;
+      }
+  }
+  
+  printf("bram count: %d\n", count);
+  snescmd_writeblock(bram, 0x4, count ? count : sizeof(bram));
 }
 
 void status_load_to_menu() {

@@ -320,13 +320,13 @@ start:
 	;lda !SRAM_CS_INPUT_CUR
 .save_state_compare_input
 	bit !SS_INPUT_COMPARE
-	beq .save_state_jump_exit
+	beq +
 
 	eor.l .CS_INPUT_PREV ; changed buttons
     and.l .CS_INPUT_CUR  ; changed buttons that are newly pressed
 .save_state_saveload_input_1
     bit !SS_INPUT_SAVE|!SS_INPUT_LOAD ; only look at select + L/R
-	beq .save_state_jump_exit
+	beq +
     
     lda.l .CS_INPUT_CUR
 .save_state_saveload_input_2
@@ -337,8 +337,21 @@ start:
 	
 .save_state_load_input
 	cmp !SS_INPUT_LOAD
-	bne .save_state_jump_exit
+	bne +
 	jmp .load_state
+
+    ; check programmable trigger
++   lda.l .CS_SAVE_REQ ; loads both
+    beq .save_state_jump_exit
+    ; the assembler doesn't realize anything but a STA is long to this label
+    tax
+    lda #$0000
+    sta.l .CS_SAVE_REQ
+    txa
+    and #$00FF
+    bne .save_state
+    jmp .load_state
+
 .save_state_jump_exit
 	jmp .ss_exit
     
@@ -753,10 +766,16 @@ start:
     tyx
 	jmp ($0002,x)
 
+print "Savestate Bank Ending at: ", pc
+
 ; DATA
+org !SS_DATA
+print "Savestate Data Bank Starting at: ", pc
 .data
+.CS_SAVE_REQ   db $00
+.CS_LOAD_REQ   db $00
 .CS_INPUT_CUR  dw $0000
 .CS_INPUT_PREV dw $0000
 .CS_STATE      dw $0000
-	
-print "Savestate Bank Ending at: ", pc
+
+print "Savestate Data Bank Ending at: ", pc

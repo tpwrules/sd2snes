@@ -106,7 +106,7 @@ int main(void) {
   
   printf("\n\nsd2snes mk.2\n============\nfw ver.: " CONFIG_VERSION "\ncpu clock: %d Hz\n", CONFIG_CPU_FREQUENCY);
 printf("PCONP=%lx\n", LPC_SC->PCONP);
-
+  
   file_init();
   cic_init(0);
 /* setup timer (fpga clk) */
@@ -179,7 +179,10 @@ printf("PCONP=%lx\n", LPC_SC->PCONP);
     uart_putcrlf();
 
     sram_writebyte(0, SRAM_CMD_ADDR);
-
+    // make sure menu is loaded first to unlock snescmd
+    // init cheat RAM once at startup
+    if (firstboot) snescmd_writebyte(ASM_RTS, SNESCMD_WRAM_CHEATS);
+    
     if((rtc_state = rtc_isvalid()) != RTC_OK) {
       printf("RTC invalid!\n");
       ST.rtc_valid = 0xff;

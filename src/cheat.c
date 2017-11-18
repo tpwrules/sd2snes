@@ -27,7 +27,7 @@ void cheat_init(void) {
   rom_index = 0;
   wram_index = 0;
   enable_mask = 0;
-  snescmd_writebyte(ASM_RTS, SNESCMD_WRAM_CHEATS);
+  //snescmd_writebyte(ASM_RTS, SNESCMD_WRAM_CHEATS);
 }
 
 void cheat_program() {

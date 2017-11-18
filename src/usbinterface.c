@@ -141,7 +141,7 @@ enum usbint_server_stream_state_e { FOREACH_SERVER_STREAM_STATE(GENERATE_ENUM) }
                                                 \
   OP(USBINT_SERVER_OPCODE_RESET)                \
   OP(USBINT_SERVER_OPCODE_BOOT)                 \
-  OP(USBINT_SERVER_OPCODE_RSVD)                 \
+  OP(USBINT_SERVER_OPCODE_POWER_CYCLE)          \
   OP(USBINT_SERVER_OPCODE_INFO)                 \
   OP(USBINT_SERVER_OPCODE_MENU_RESET)           \
   OP(USBINT_SERVER_OPCODE_STREAM)               \
@@ -309,7 +309,9 @@ void usbint_recv_block(void) {
             server_info.error |= f_lseek(&fh, count);
             do {
                 UINT bytesWritten = 0;
-                server_info.error |= f_write(&fh, recv_buffer + bytesRecv, server_info.block_size - bytesRecv, &bytesWritten);
+                UINT remainingBytes = min(server_info.block_size - bytesRecv, server_info.size - count);
+                //UINT remainingBytes = server_info.block_size - bytesRecv;
+                server_info.error |= f_write(&fh, recv_buffer + bytesRecv, remainingBytes, &bytesWritten);
                 bytesRecv += bytesWritten;
                 //server_info.offset += bytesWritten;
                 count += bytesWritten;
@@ -615,7 +617,7 @@ int usbint_handler_cmd(void) {
         server_info.error = 1;
     case USBINT_SERVER_OPCODE_INFO:
     case USBINT_SERVER_OPCODE_BOOT:
-    case USBINT_SERVER_OPCODE_RSVD:
+    case USBINT_SERVER_OPCODE_POWER_CYCLE:
         // nop
         break;
     }
@@ -736,6 +738,15 @@ int usbint_handler_cmd(void) {
     
     // allow next command to come after prior data
     if (dataWait) NVIC_EnableIRQ(USB_IRQn);
+    
+    if (server_info.opcode == USBINT_SERVER_OPCODE_POWER_CYCLE) {
+        /* force watchdog reset */
+        LPC_WDT->WDTC = 256; // minimal timeout
+        LPC_WDT->WDCLKSEL = BV(31); // internal RC, lock register
+        LPC_WDT->WDMOD = BV(0) | BV(1); // enable watchdog and reset-by-watchdog
+        LPC_WDT->WDFEED = 0xaa;
+        LPC_WDT->WDFEED = 0x55; // initial feed to really enable WDT
+    }
     
     return ret;
 
