@@ -243,34 +243,22 @@ start:
 	lda.l !SS_FULL, x
 	beq +
     cmp.l $00FFDE
-    beq +
+    beq ++
     inx #6
     bra -
     
-+   inx #2
+++  inx #2
 
-    ; set save
-	lda.l !SS_FULL, x
-    sta.l .save_state_save_input+1
-    tay
-    inx #2
+    lda.l !SS_FULL, x : inx #2
+    sta.l .CS_SAVE_INPUT
 
-    ; set load
-	lda.l !SS_FULL, x
-    sta.l .save_state_load_input+1
+    lda.l !SS_FULL, x : inx #2
+    sta.l .CS_LOAD_INPUT
+
+    lda #$0000
+    sta.l .CS_SAVE_REQ
     
-    ; set both
-    tya
-    ora.l !SS_FULL, x
-    sta.l .save_state_saveload_input_1+1
-    sta.l .save_state_saveload_input_2+1
-    
-    ; set same
-    tya
-    and.l !SS_FULL, x
-    sta.l .save_state_compare_input+1
-    
-    %ai16()
++   %ai16()
     %load_registers()
         
 .ss_start
@@ -314,32 +302,18 @@ start:
     ;beq .save_state_code ; temp workaround for reading no input
     sta.l .CS_INPUT_CUR
     
-; Savestate code starts here -- no more customization should be needed below here
-.save_state_code
-    ; byetUDLR axlr0000
-	;lda !SRAM_CS_INPUT_CUR
-.save_state_compare_input
-	bit !SS_INPUT_COMPARE
-	beq +
-
-	eor.l .CS_INPUT_PREV ; changed buttons
-    and.l .CS_INPUT_CUR  ; changed buttons that are newly pressed
-.save_state_saveload_input_1
-    bit !SS_INPUT_SAVE|!SS_INPUT_LOAD ; only look at select + L/R
-	beq +
-    
-    lda.l .CS_INPUT_CUR
-.save_state_saveload_input_2
-    and !SS_INPUT_SAVE|!SS_INPUT_LOAD
-.save_state_save_input
-    cmp !SS_INPUT_SAVE	
+    and.l .CS_SAVE_INPUT
+    cmp.l .CS_SAVE_INPUT
 	beq .save_state
-	
-.save_state_load_input
-	cmp !SS_INPUT_LOAD
+
+    lda.l .CS_INPUT_CUR
+    ;eor.l .CS_INPUT_PREV ; changed buttons
+    ;and.l .CS_INPUT_CUR  ; changed buttons that are newly pressed
+    and.l .CS_LOAD_INPUT
+	cmp.l .CS_LOAD_INPUT
 	bne +
 	jmp .load_state
-
+    
     ; check programmable trigger
 +   lda.l .CS_SAVE_REQ ; loads both
     beq .save_state_jump_exit
@@ -697,6 +671,7 @@ start:
     dw $614A, $000A,$00, $2142; mickey's magical quest (US)
     dw $24DD, $0176,$7E, $2140; nosferatu (US) ; Something w/ interrupts going on in this game.
 
+    ; FIXME add a common fix location that can be checked
     dw $0000, $0000,$00, $0000
     
 .load_dma_regs_start
@@ -772,8 +747,12 @@ print "Savestate Bank Ending at: ", pc
 org !SS_DATA
 print "Savestate Data Bank Starting at: ", pc
 .data
-.CS_SAVE_REQ   db $00
-.CS_LOAD_REQ   db $00
+; default to nonzero so we get through init
+.CS_SAVE_REQ   db $01   ; $FC2000
+.CS_LOAD_REQ   db $01   ; $FC2001
+.CS_SAVE_INPUT dw $2010 ; $FC2002
+.CS_LOAD_INPUT dw $2020 ; $FC2004
+
 .CS_INPUT_CUR  dw $0000
 .CS_INPUT_PREV dw $0000
 .CS_STATE      dw $0000

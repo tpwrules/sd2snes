@@ -168,7 +168,7 @@ wire DBG_msu_reg_we_rising;
 wire [2:0] SD_DMA_DBG_clkcnt;
 wire [10:0] SD_DMA_DBG_cyclecnt;
 
-wire [8:0] snescmd_addr_mcu;
+wire [10:0] snescmd_addr_mcu;
 wire [7:0] snescmd_data_out_mcu;
 wire [7:0] snescmd_data_in_mcu;
 
@@ -199,6 +199,9 @@ reg loop_enable;
 initial loop_enable = 0;
 reg [7:0] loop_data;
 initial loop_data = 8'h80; // BRA
+
+// exe region
+reg exe_present; initial exe_present = 0;
 
 //wire cpureg_enable;
 //wire [7:0] cpureg_data;
@@ -292,10 +295,13 @@ always @(posedge CLK2) begin
   end
 end
 
-wire SNES_ROMSEL = (SNES_ROMSELr[5] & SNES_ROMSELr[4]);
+//wire SNES_ROMSEL = (SNES_ROMSELr[5] & SNES_ROMSELr[4]);
+reg SNES_ROMSEL;
 wire [23:0] SNES_ADDR = (SNES_ADDRr[6] & SNES_ADDRr[5]);
 wire [7:0] SNES_PA = (SNES_PAr[6] & SNES_PAr[5]);
 wire [7:0] SNES_DATA_IN = (SNES_DATAr[3] & SNES_DATAr[2]);
+
+always @(posedge CLK2) SNES_ROMSEL <= (SNES_ROMSELr[4] & SNES_ROMSELr[3]);
 
 reg [7:0] BUS_DATA;
 reg [7:0] CTX_BUS_DATA;
@@ -847,7 +853,8 @@ address snes_addr(
   .nmicmd_enable(nmicmd_enable),
   .return_vector_enable(return_vector_enable),
   .branch1_enable(branch1_enable),
-  .branch2_enable(branch2_enable)
+  .branch2_enable(branch2_enable),
+  .exe_enable(exe_enable)
 );
 
 reg pad_latch; initial pad_latch = 0;
@@ -869,6 +876,7 @@ cheat snes_cheat(
   .return_vector_enable(return_vector_enable),
   .branch1_enable(branch1_enable),
   .branch2_enable(branch2_enable),
+  .exe_present(exe_present),
   .pad_latch(pad_latch),
   .snes_ajr(snes_ajr),
   .pgm_idx(cheat_pgm_idx),
@@ -1257,15 +1265,22 @@ assign p113_out = CTX_DBG;
 snescmd_buf snescmd (
   .clka(CLK2), // input clka
   .wea(SNES_WR_end & ((snescmd_unlock | feat_cmd_unlock) & snescmd_enable)), // input [0 : 0] wea
-  .addra(SNES_ADDR[8:0]), // input [8 : 0] addra
+  // don't swizzle the address.  the first $200 bytes will not be used
+  //.addra({SNES_ADDR[10:0]}), // input [10 : 0] addra
+  .addra({SNES_ADDR[10:0]}), // input [10 : 0] addra
   .dina(SNES_DATA), // input [7 : 0] dina
   .douta(snescmd_dout), // output [7 : 0] douta
   .clkb(CLK2), // input clkb
   .web(snescmd_we_mcu), // input [0 : 0] web
-  .addrb(snescmd_addr_mcu), // input [8 : 0] addrb
+  .addrb(snescmd_addr_mcu[10:0]), // input [10 : 0] addrb
   .dinb(snescmd_data_out_mcu), // input [7 : 0] dinb
   .doutb(snescmd_data_in_mcu) // output [7 : 0] doutb
 );
+
+always @(posedge CLK2) begin 
+  if (SNES_WR_end & (snescmd_unlock | feat_cmd_unlock) & exe_enable) exe_present <= (SNES_DATA != 0) ? 1 : 0;
+  else if (snescmd_we_mcu & (snescmd_addr_mcu == 11'h400))           exe_present <= (snescmd_data_out_mcu != 0) ? 1 : 0;
+end
 
 // spin loop state machine
 // This is used to put the SNES into a spin loop.  It replaces the current instruction fetch with a branch

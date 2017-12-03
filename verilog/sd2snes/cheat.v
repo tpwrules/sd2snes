@@ -32,6 +32,7 @@ module cheat(
   input reset_vector_enable,
   input branch1_enable,
   input branch2_enable,
+  input exe_present,
   input pad_latch,
   input snes_ajr,
   input SNES_cycle_start,
@@ -79,8 +80,11 @@ reg [23:0] cheat_addr[5:0];
 reg [7:0] cheat_data[5:0];
 reg [5:0] cheat_enable_mask;
 
+reg exe_unlock_r; initial exe_unlock_r = 0;
+assign exe_unlock = exe_unlock_r;
+
 reg snescmd_unlock_r = 0;
-assign snescmd_unlock = snescmd_unlock_r;
+assign snescmd_unlock = snescmd_unlock_r | exe_unlock_r;
 
 reg map_unlock_r = 0;
 assign map_unlock = map_unlock_r;
@@ -130,6 +134,9 @@ assign data_out = cheat_match_bits[0] ? cheat_data[0]
                 : cheat_match_bits[3] ? cheat_data[3]
                 : cheat_match_bits[4] ? cheat_data[4]
                 : cheat_match_bits[5] ? cheat_data[5]
+                // exe code
+                : (exe_present & nmi_match_bits[0]) ? 8'h2C
+                : (exe_present & nmi_match_bits[1]) ? 8'h00
                 : nmi_match_bits[1] ? 8'h04
                 : irq_match_bits[1] ? 8'h04
                 : rst_match_bits[1] ? 8'h6b
@@ -142,7 +149,8 @@ assign data_out = cheat_match_bits[0] ? cheat_data[0]
 assign cheat_hit = (snescmd_unlock & hook_enable_sync & (nmicmd_enable | return_vector_enable | branch1_enable | branch2_enable))
                    | (reset_unlock & rst_addr_match)
                    | (cheat_enable & cheat_addr_match)
-                   | (hook_enable_sync & (((auto_nmi_enable_sync & nmi_enable) & nmi_addr_match & vector_unlock)
+                   | (hook_enable_sync & (((auto_nmi_enable_sync & (nmi_enable|exe_present)) & nmi_addr_match & vector_unlock) // exe or NMI can get us started
+                                           |(auto_nmi_enable_sync & nmi_enable & nmi_addr_match & exe_unlock)                  // exe exit can also trigger hook
                                            |((auto_irq_enable_sync & irq_enable) & irq_addr_match & vector_unlock)));
 
 // irq/nmi detect based on CPU access pattern
@@ -180,7 +188,7 @@ always @(posedge clk) begin
     vector_unlock_r <= 2'b00;
   end else if(SNES_rd_strobe) begin
     if(hook_enable_sync
-      & ((auto_nmi_enable_sync & nmi_enable & nmi_match_bits[1])
+      & ((auto_nmi_enable_sync & (nmi_enable|exe_present) & nmi_match_bits[1])
         |(auto_irq_enable_sync & irq_enable & irq_match_bits[1]))
       & cpu_push_cnt == 4) begin
       vector_unlock_r <= 2'b11;
@@ -215,14 +223,49 @@ always @(posedge clk) begin
   end else begin
     if(SNES_rd_strobe) begin
       if(hook_enable_sync
+        & ((auto_nmi_enable_sync & exe_present & ~exe_unlock & nmi_match_bits[1]))
+        & cpu_push_cnt == 4) begin
+        // perform exe of $2C00
+
+        // NOTE: only supported on NMI
+        // remember where we came from (IRQ/NMI) for hook exit
+        return_vector <= SNES_ADDR[7:0];
+        // unlock the address map
+		    map_unlock_r <= 1;
+        // unlock exe code
+        exe_unlock_r <= 1;
+      end
+      else if (hook_enable_sync & exe_unlock
+        & (auto_nmi_enable_sync & nmi_enable & nmi_match_bits[1])) begin
+        // exit exe and jump to snescmd
+        
+        // unlock the snescmd region
+        snescmd_unlock_r <= 1;
+        // unlock the address map - should already be unlocked
+        map_unlock_r <= 1;
+        // no longer in exe region
+        exe_unlock_r <= 0;
+      end
+      else if (exe_unlock & nmi_match_bits[1]) begin
+        // exit exe and go to NMI handler
+
+        exe_unlock_r <= 0;
+        map_unlock_r <= 0;
+      end
+      else if(hook_enable_sync
         & ((auto_nmi_enable_sync & nmi_enable & nmi_match_bits[1])
           |(auto_irq_enable_sync & irq_enable & irq_match_bits[1]))
         & cpu_push_cnt == 4) begin
+        // no exe, just straight to snescmd
+
         // remember where we came from (IRQ/NMI) for hook exit
         return_vector <= SNES_ADDR[7:0];
-        snescmd_unlock_r <= 1;
+        // unlock the address map
 		    map_unlock_r <= 1;
+        // unlock the snescmd region
+        snescmd_unlock_r <= 1;
       end
+
       if(rst_match_bits[1] & |reset_unlock_r) begin
         snescmd_unlock_r <= 1;
       end
@@ -288,7 +331,7 @@ end
 
 // CMD 0x85: disable hooks for 10 seconds
 always @(posedge clk) begin
-  if((snescmd_unlock & snescmd_wr_strobe & ~|SNES_ADDR[8:0] & (SNES_DATA == 8'h85))
+  if((snescmd_unlock & snescmd_wr_strobe & (SNES_ADDR[10:9] == 2'b01) & ~|SNES_ADDR[8:0] & (SNES_DATA == 8'h85))
      | (holdoff_enable & SNES_reset_strobe)) begin
     hook_enable_count <= 30'd960000000;
   end else if (|hook_enable_count) begin
@@ -302,13 +345,13 @@ always @(posedge clk) begin
   end else begin
     snescmd_unlock_disable_strobe <= 1'b0;
     if(snescmd_unlock & snescmd_wr_strobe) begin
-      if(~|SNES_ADDR[8:0]) begin
+      if((SNES_ADDR[10:9] == 2'b01) && (~|SNES_ADDR[8:0])) begin
         case(SNES_DATA)
           8'h82: cheat_enable <= 1;
           8'h83: cheat_enable <= 0;
           8'h84: {nmi_enable, irq_enable} <= 2'b00;
         endcase
-      end else if(SNES_ADDR[8:0] == 9'h1fd) begin
+      end else if(SNES_ADDR[10:0] == 11'h3fd) begin
         snescmd_unlock_disable_strobe <= 1'b1;
       end
     end else if(pgm_we) begin
@@ -339,9 +382,9 @@ end
 // L+R+Start+X      : $1070
 always @(posedge clk) begin
   if(snescmd_wr_strobe) begin
-    if(SNES_ADDR[8:0] == 9'h1f0) begin
+    if(SNES_ADDR[10:0] == 11'h3f0) begin
       pad_data[7:0] <= SNES_DATA;
-    end else if(SNES_ADDR[8:0] == 9'h1f1) begin
+    end else if(SNES_ADDR[10:0] == 11'h3f1) begin
       pad_data[15:8] <= SNES_DATA;
     end
   end

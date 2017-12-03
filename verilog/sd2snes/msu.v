@@ -91,6 +91,8 @@ integer i;
 // flopped inputs
 reg [23:0] SNES_ADDR_r;
 always @(posedge clkin) SNES_ADDR_r <= SNES_ADDR;
+reg [7:0] SNES_PA_r;
+always @(posedge clkin) SNES_PA_r <= SNES_PA;
 reg [7:0] SNES_DATA_r;
 always @(posedge clkin) SNES_DATA_r <= SNES_DATA;
 
@@ -479,6 +481,8 @@ reg [7:0] r43xx[HDMA_CHANNELS-1:0][10:0];
 reg [7:0] r43xx_ch[10:0];
 reg [7:0] r420C;
 reg [2:0] snescast_hdma_state[HDMA_CHANNELS-1:0];
+reg [7:0] snescast_hdma_pa[HDMA_CHANNELS-1:0];
+reg [2:0] snescast_hdma_mode[HDMA_CHANNELS-1:0];
 reg [2:0] snescast_hdma_state_ch;
 reg [2:0] snescast_hdma_mode_ch;
 reg       snescast_hdma_repeat_ch;
@@ -495,6 +499,7 @@ parameter HDMA_STATE_WRITE_DATA3    = 7;
 
 reg snescast_hdma_read_channel_found;
 reg [HDMA_CHANNELS-1:0] snescast_hdma_read_active;
+reg [HDMA_CHANNELS-1:0] snescast_hdma_pa_match;
 reg [HDMA_CHANNELS-1:0] snescast_hdma_direct_addr_match;
 reg [HDMA_CHANNELS-1:0] snescast_hdma_indirect_addr_match;
 reg [HDMA_CHANNELS-1:0] snescast_hdma_indirect;
@@ -685,7 +690,12 @@ always @(posedge clkin) begin
 //      snescast_hdma_scan_active <= 1;
 //    end
 
-    for (i = 0; i < HDMA_CHANNELS; i = i + 1) begin
+// FIXME: uncomment this.
+/*    for (i = 0; i < HDMA_CHANNELS; i = i + 1) begin
+      // check both SNES_ADDR and SNES_PA for a match.  Note that if two HDMAs use the same source and destination field this will still fail to order things properly.
+      snescast_hdma_mode[i] <= r43xx[i][8'h0][2:0];
+      snescast_hdma_pa[i] <= r43xx[i][1] + ((snescast_hdma_mode[i][2:0] == 4) ? snescast_hdma_state[i][1:0] : (snescast_hdma_mode[i][1:0] == 2'b01) ? snescast_hdma_state[i][0] : (snescast_hdma_mode[i][1:0] == 2'b11) ? snescast_hdma_state[i][1] : 0);
+      snescast_hdma_pa_match[i] <= SNES_PA_r == snescast_hdma_pa[i];
       snescast_hdma_direct_addr_match[i] <= SNES_ADDR_r == {r43xx[i][4],r43xx[i][9],r43xx[i][8]};
       snescast_hdma_indirect_addr_match[i] <= SNES_ADDR_r == {r43xx[i][7],r43xx[i][6],r43xx[i][5]};
       snescast_hdma_indirect[i] <= r43xx[i][8'h0][6];
@@ -697,7 +707,8 @@ always @(posedge clkin) begin
 
     if (SNES_RD_start) begin
       for (i = 0; i < HDMA_CHANNELS; i = i + 1) begin
-        snescast_hdma_read_active[i] <= r420C[i] && ((!snescast_hdma_indirect[i] || !snescast_hdma_state[i][2]) ? snescast_hdma_direct_addr_match[i] : snescast_hdma_indirect_addr_match[i]); //(SNES_ADDR_r == {r43xx[i][4],r43xx[i][9],r43xx[i][8]}) : (SNES_ADDR_r == {r43xx[i][7],r43xx[i][6],r43xx[i][5]}));
+        //snescast_hdma_read_active[i] <= r420C[i] && ((!snescast_hdma_indirect[i] || !snescast_hdma_state[i][2]) ? snescast_hdma_direct_addr_match[i] : snescast_hdma_indirect_addr_match[i]);
+        snescast_hdma_read_active[i] <= r420C[i] & ((~snescast_hdma_state[i][2] & snescast_hdma_direct_addr_match[i]) | (snescast_hdma_state[i][2] & ~snescast_hdma_indirect[i] & snescast_hdma_pa_match[i] & snescast_hdma_direct_addr_match[i]) | (snescast_hdma_state[i][2] & snescast_hdma_indirect[i] & snescast_hdma_pa_match[i] & snescast_hdma_indirect_addr_match[i]));
       end
     end
     else if (|snescast_hdma_read_active) begin
@@ -746,7 +757,7 @@ always @(posedge clkin) begin
           end
           HDMA_STATE_READ_LC: begin
             // record LC
-            r43xx_ch[8'hA] <= SNES_DATA - 1;
+            r43xx_ch[8'hA] <= SNES_DATA;
 
             // state transition
             // $00 terminates immediately
@@ -835,7 +846,7 @@ always @(posedge clkin) begin
       // FIXME: disable HDMA.  Technically, I don't think these are cleared but it looks like some games will set them up again
       // May be better to not clear and instead ignore accesses.  But the problem then becomes when do we stop ignoring.  The end of the NMI may be too late.
       //r420C <= 0;
-    end
+    end*/
   end
 end
 

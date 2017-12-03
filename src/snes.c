@@ -296,7 +296,7 @@ void get_selected_name(uint8_t* fn) {
   uint32_t fdaddr;
   char *dot;
   cwdaddr = snes_get_mcu_param();
-  fdaddr = snescmd_readlong(0x08);
+  fdaddr = snescmd_readlong(0x2A08);
   printf("cwd addr=%lx  fdaddr=%lx\n", cwdaddr, fdaddr);
   uint16_t count = sram_readstrn(fn, cwdaddr, 256);
   if(count && fn[count-1] != '/') {
@@ -407,19 +407,23 @@ void snes_get_filepath(uint8_t *buffer, uint16_t length) {
   printf("%s\n", buffer);
 }
 
-void snescmd_writeblock(void *buf, uint16_t addr, uint16_t size) {
+uint16_t snescmd_writeblock(void *buf, uint16_t addr, uint16_t size) {
   fpga_set_snescmd_addr(addr);
-  while(size--) {
+  uint16_t count=size;
+  while(count--) {
     fpga_write_snescmd(*(uint8_t*)buf++);
   }
+  return size;
 }
 
-void snescmd_readblock(void *buf, uint16_t addr, uint16_t size) {
+uint16_t snescmd_readblock(void *buf, uint16_t addr, uint16_t size) {
   fpga_set_snescmd_addr(addr);
+  uint16_t count=size;
   uint16_t i = 0;
-  while(size--) {
+  while(count--) {
     ((uint8_t*)buf)[i++] = fpga_read_snescmd();
   }
+  return size;
 }
 
 uint64_t snescmd_gettime(void) {
@@ -455,7 +459,7 @@ void snescmd_prepare_nmihook() {
   }
   
   printf("bram count: %d\n", count);
-  snescmd_writeblock(bram, 0x4, count ? count : sizeof(bram));
+  snescmd_writeblock(bram, 0x2A04, count ? count : sizeof(bram));
 }
 
 void status_load_to_menu() {

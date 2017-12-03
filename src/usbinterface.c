@@ -55,13 +55,14 @@ static inline void __DMB2(void) { asm volatile ("dmb" ::: "memory"); }
 
 #if CONFIG_FWVER == 0x44534E53
 #define PRINT_FUNCTION() printf("%-20s ", __FUNCTION__);
-#define PRINT_CMD(buf) printf("header=%c%c%c%c op=%s space=%s flags=%d cmd_size=%d block_size=%d size=%d"         \
+#define PRINT_CMD(buf) printf("header=%c%c%c%c op=%s space=%s flags=%d cmd_size=%d block_size=%d offset=%6x size=%d"\
                                                                         , buf[0], buf[1], buf[2], buf[3]          \
                                                                         , usbint_server_opcode_s[buf[4]]          \
                                                                         , usbint_server_space_s[buf[5]]           \
                                                                         , (int)buf[6]                             \
                                                                         , (int)server_info.cmd_size               \
                                                                         , (int)server_info.block_size             \
+                                                                        , (int)server_info.offset                 \
                                                                         , (int)server_info.size                   \
                                                                );
 #define PRINT_DAT(num, total) printf("%d/%d ", num, total);
@@ -157,6 +158,7 @@ static const char *usbint_server_opcode_s[] = { FOREACH_SERVER_OPCODE(GENERATE_S
   OP(USBINT_SERVER_SPACE_FILE)                  \
   OP(USBINT_SERVER_SPACE_SNES)					\
   OP(USBINT_SERVER_SPACE_MSU)                   \
+  OP(USBINT_SERVER_SPACE_CMD)                   \
   OP(USBINT_SERVER_SPACE_CONFIG)
 enum usbint_server_space_e { FOREACH_SERVER_SPACE(GENERATE_ENUM) };
 #if CONFIG_FWVER == 0x44534E53
@@ -326,6 +328,10 @@ void usbint_recv_block(void) {
                 if (server_info.space == USBINT_SERVER_SPACE_SNES) {
                     UINT remainingBytes = min(server_info.block_size - blockBytesWritten, server_info.size - count);
                     bytesWritten = sram_writeblock(recv_buffer + blockBytesWritten, server_info.offset + count, remainingBytes);
+                }
+                else if (server_info.space == USBINT_SERVER_SPACE_CMD) {
+                    UINT remainingBytes = min(server_info.block_size - blockBytesWritten, server_info.size - count);
+                    bytesWritten = snescmd_writeblock(recv_buffer + blockBytesWritten, server_info.offset + count, remainingBytes);                    
                 }
                 else {
                     uint8_t group = server_info.size & 0xFF;
@@ -507,8 +513,7 @@ int usbint_handler_cmd(void) {
     case USBINT_SERVER_OPCODE_VGET:
     case USBINT_SERVER_OPCODE_VPUT: {
         // don't support MSU for now
-        server_info.error =  (server_info.space != USBINT_SERVER_SPACE_SNES)
-                          && (server_info.space != USBINT_SERVER_SPACE_CONFIG);
+        server_info.error = (server_info.space == USBINT_SERVER_SPACE_FILE);
 
         if (!server_info.error) {
             // get total size
@@ -787,6 +792,9 @@ int usbint_handler_dat(void) {
 				}
 				else if (server_info.space == USBINT_SERVER_SPACE_MSU) {
 					bytesRead = msu_readblock((uint8_t *)send_buffer[send_buffer_index] + bytesSent, server_info.offset + count, remainingBytes);
+				}	
+				else if (server_info.space == USBINT_SERVER_SPACE_CMD) {
+					bytesRead = snescmd_readblock((uint8_t *)send_buffer[send_buffer_index] + bytesSent, server_info.offset + count, remainingBytes);
 				}	
                 else {
                     // config

@@ -1,7 +1,7 @@
 ; Savestate code variables defaults
-!SS_INPUT_SAVE = #$2010	; select + r
-!SS_INPUT_LOAD = #$2020 ; select + l
-!SS_INPUT_COMPARE = #$2000 ; select
+;!SS_INPUT_SAVE = #$2010	; select + r
+;!SS_INPUT_LOAD = #$2020 ; select + l
+;!SS_INPUT_COMPARE = #$2000 ; select
 
 ; temporary state machine variable
 ;!CS_STATE = $002AD4

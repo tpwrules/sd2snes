@@ -48,6 +48,7 @@ module address(
   output return_vector_enable,
   output branch1_enable,
   output branch2_enable,
+  output exe_enable,
   input [8:0] bs_page_offset,
   input [9:0] bs_page,
   input bs_page_enable
@@ -248,6 +249,7 @@ assign usb_enable = featurebits[FEAT_USB1] & (!SNES_ADDR[22] && ((SNES_ADDR[15:0
 assign dma_enable = featurebits[FEAT_DMA1] & (!SNES_ADDR[22] && ((SNES_ADDR[15:0] & 16'hfff0) == 16'h2020));
 assign use_bsx = (MAPPER_DEC[3'b011]);
 assign srtc_enable = featurebits[FEAT_SRTC] & (!SNES_ADDR[22] && ((SNES_ADDR[15:0] & 16'hfffe) == 16'h2800));
+assign exe_enable =                           (!SNES_ADDR[22] && ((SNES_ADDR[15:0] & 16'hffff) == 16'h2C00)); // requires USB write to enable
 
 // DSP1 LoROM: DR=30-3f:8000-bfff; SR=30-3f:c000-ffff
 //          or DR=60-6f:0000-3fff; SR=60-6f:4000-7fff
@@ -281,7 +283,8 @@ assign dspx_a0 = featurebits[FEAT_DSPX]
 
 assign r213f_enable = featurebits[FEAT_213F] & (SNES_PA == 8'h3f);
 
-assign snescmd_enable = ({SNES_ADDR[22], SNES_ADDR[15:9]} == 8'b0_0010101);
+// snescmd covers $2A00-$2FFF.  This overlaps with at least one hardware cheat device address range.
+assign snescmd_enable = ({SNES_ADDR[22], SNES_ADDR[15:11]} == 6'b0_00101) && (SNES_ADDR[10:9] != 2'b00);
 assign nmicmd_enable = (SNES_ADDR == 24'h002BF2);
 assign return_vector_enable = (SNES_ADDR == 24'h002A5A);
 assign branch1_enable = (SNES_ADDR == 24'h002A13);
