@@ -255,6 +255,118 @@ always @(posedge clkin) begin
 end
 
 //---------------------------
+// WRAM
+//---------------------------
+
+// configuration state
+reg [7:0] mode_r; initial mode_r = 0;
+reg [7:0] cap_r[15:0]; initial for (i = 0; i < 16; i = i + 1) cap_r[i] = 0;
+
+// cap_r == 0 : WRAM SNOOP
+// cap_r == 1 : TRACE
+// cap_r == 2 : WRAM TRACE
+// cap_r == 3 : SNES CAST
+
+always @(posedge clkin) begin
+  if (reg_we_in && (reg_group_in == 8'h02)) begin
+    if (reg_index_in == 16) mode_r <= (mode_r & reg_invmask_in) | (reg_value_in & ~reg_invmask_in);
+    else cap_r[reg_index_in] <= (cap_r[reg_index_in] & reg_invmask_in) | (reg_value_in & ~reg_invmask_in);
+  end
+end
+
+reg IS_WRAM_SHADOW_ADDR_r; initial IS_WRAM_SHADOW_ADDR_r = 0;
+reg IS_WRAM_BANK_ADDR_r; initial IS_WRAM_BANK_ADDR_r = 0;
+reg IS_WRAM_PA_ADDR_r; initial IS_WRAM_PA_ADDR_r = 0;
+assign IS_WRAM_SHADOW_ADDR = !SNES_ADDR[22] && (SNES_ADDR[15:13] == 3'h0);
+always @(posedge clkin) IS_WRAM_SHADOW_ADDR_r <= IS_WRAM_SHADOW_ADDR;
+assign IS_WRAM_SHADOW = SNES_WR_end && IS_WRAM_SHADOW_ADDR_r;
+assign IS_WRAM_BANK_ADDR = ({SNES_ADDR[23:17],1'b0} == 8'h7E);
+always @(posedge clkin) IS_WRAM_BANK_ADDR_r <= IS_WRAM_BANK_ADDR;
+assign IS_WRAM_BANK = SNES_WR_end && IS_WRAM_BANK_ADDR_r;
+assign IS_WRAM_PA_ADDR = (SNES_PA == 8'h80);
+always @(posedge clkin) IS_WRAM_PA_ADDR_r <= IS_WRAM_PA_ADDR;
+assign IS_WRAM_PA = SNES_PAWR_end && IS_WRAM_PA_ADDR_r;
+
+assign IS_WRAM_ADDR = IS_WRAM_SHADOW_ADDR_r | IS_WRAM_BANK_ADDR_r | IS_WRAM_PA_ADDR_r;
+assign IS_WRAM = IS_WRAM_SHADOW | IS_WRAM_BANK | IS_WRAM_PA;
+
+reg [23:0] WRAM_ADDR; initial WRAM_ADDR = 0;
+
+wire [16:0] WRAM_OFFSET = ( IS_WRAM_SHADOW_ADDR ? {4'b0000,SNES_ADDR[12:0]}
+								          : IS_WRAM_BANK_ADDR   ? SNES_ADDR[16:0]
+									 			  :                       WRAM_ADDR[16:0]);
+// flop register state
+always @(posedge clkin) begin
+  if (reset) begin
+    WRAM_ADDR <= 0;
+  end
+  else begin
+    if (SNES_PAWR_end | SNES_PARD_end) begin
+      if      (SNES_PA == 8'h80) WRAM_ADDR[16: 0] <= WRAM_ADDR[16:0] + 1'b1;
+    end
+    if (SNES_PAWR_end) begin
+      if      (SNES_PA == 8'h81) WRAM_ADDR[ 7: 0] <= SNES_DATA_r;
+      else if (SNES_PA == 8'h82) WRAM_ADDR[15: 8] <= SNES_DATA_r;
+      else if (SNES_PA == 8'h83) WRAM_ADDR[23:16] <= SNES_DATA_r;
+    end
+  end
+end
+
+//---------------------------
+// WRAM SNOOP
+//---------------------------
+reg wram_we_r; initial wram_we_r = 0;
+reg [7:0] wram_data_r;
+reg [14:0] wram_addr_r;
+
+wire wram_we;
+wire [7:0] wram_data;
+wire [14:0] wram_addr;
+
+assign wram_we = wram_we_r;
+assign wram_data = wram_data_r;
+assign wram_addr = wram_addr_r;
+
+// for now, just capture the low order addresses.  programmability would require a SW (game reset) or HW coherence mechanism
+always @(posedge clkin) begin
+  wram_we_r   <= IS_WRAM && (WRAM_OFFSET < 17'h7800);
+  wram_addr_r <= WRAM_OFFSET[14:0];
+  wram_data_r <= SNES_DATA_r;
+end
+
+//---------------------------
+// WRAM TRACE
+//---------------------------
+
+// compare the address against all of the configuration registers and flop matches
+reg cap_enable_r;
+reg [7:0] cap_match_r;
+always @(posedge clkin) begin
+  cap_enable_r <= |(cap_r[{0,1'b1}][7:5] | cap_r[{1,1'b1}][7:5] | cap_r[{2,1'b1}][7:5] | cap_r[{3,1'b1}][7:5] | cap_r[{4,1'b1}][7:5] | cap_r[{5,1'b1}][7:5] | cap_r[{6,1'b1}][7:5] | cap_r[{7,1'b1}][7:5]);
+
+  for (i = 0; i < 8; i = i + 1) begin
+    cap_match_r[i] <= ({4'b0000, cap_r[{i,1'b1}][4:0], cap_r[{i,1'b0}][7:0]} <= WRAM_OFFSET[16:0]) && (WRAM_OFFSET[16:0] < {4'b0000, cap_r[{i,1'b1}][4:0], cap_r[{i,1'b0}][7:0]}+cap_r[{i,1'b1}][7:5]);
+  end
+end
+
+// priority decode for match
+reg       cap_match_hit_r;
+reg [2:0] cap_match_index_r;
+reg [1:0] cap_match_offset_r;
+always @(posedge clkin) begin
+  cap_match_hit_r <= (|cap_match_r) && IS_WRAM_ADDR;
+
+  for (i = 0; i < 8; i = i + 1) begin
+    if (cap_match_r[i]) begin
+      cap_match_index_r <= i;
+      cap_match_offset_r <= WRAM_OFFSET[16:0] - {4'b0000, cap_r[{i,1'b1}][4:0], cap_r[{i,1'b0}][7:0]};
+    end
+  end
+end
+
+assign IS_CAP = ~mode_r[0] && IS_WRAM && cap_match_hit_r;
+
+//---------------------------
 // TRACE
 //---------------------------
 parameter TRACE_RECORD_SIZE = 6;
@@ -346,7 +458,7 @@ assign trace_stop_hit = ( (trace_reg_trigger_stop_match0 & trace_match0_hit_r)
                         );
 
 // temporary enable based on filling buffer
-assign trace_we_in = trace_reg_control_enable && (trace_active == TRACE_STATE_ACTIVE) && (|trace_counter) && (!trace_reg_trigger_stop_full || !trace_buffer_full_r);
+assign trace_we_in = (mode_r == 1) && (trace_active == TRACE_STATE_ACTIVE) && (|trace_counter) && (!trace_reg_trigger_stop_full || !trace_buffer_full_r);
 wire nmi_active;
 
 // buffer inputs
@@ -373,7 +485,7 @@ assign trc_config_data_out = reg_read_in == 0 ? {2'h0, trace_buffer_full_r, trac
 //assign trace_rd_addr = IS_WRAM_SHADOW_ADDR | IS_WRAM_BANK_ADDR | IS_DMA_ADDR;
 
 always @(posedge clkin) begin
-  if (~trace_reg_control_enable) begin
+  if (mode_r != 1) begin
     trace_counter <= 0;
     trace_write_addr <= 0;
     trace_buffer_full_r <= 0;
@@ -475,7 +587,7 @@ assign irq_active = snescast_irq;
 reg [23:0] snescast_irq_ret;
 
 // HDMA
-parameter HDMA_CHANNELS             = 8;
+parameter HDMA_CHANNELS = 8;
 
 reg [7:0] r43xx[HDMA_CHANNELS-1:0][10:0];
 reg [7:0] r43xx_ch[10:0];
@@ -548,7 +660,9 @@ reg IS_NMI_START_ADDR_r; initial IS_NMI_START_ADDR_r = 0;
 always @(posedge clkin) IS_NMI_START_ADDR_r <= IS_NMI_START_ADDR;
 assign IS_NMI_START = !snescast_nmi && SNES_RD_end && IS_NMI_START_ADDR_r;
 assign IS_NMI_END_ADDR = SNES_ADDR_r == snescast_ret;
-assign IS_NMI_END = snescast_nmi && SNES_RD_end && IS_NMI_END_ADDR;
+reg IS_NMI_END_ADDR_r; initial IS_NMI_END_ADDR_r = 0;
+always @(posedge clkin) IS_NMI_END_ADDR_r <= IS_NMI_END_ADDR;
+assign IS_NMI_END = snescast_nmi && SNES_RD_end && IS_NMI_END_ADDR_r;
 assign IS_NMI = IS_NMI_START | IS_NMI_END;
 
 assign IS_IRQ_START_ADDR = SNES_ADDR_r == 24'h00FFEE;
@@ -556,7 +670,9 @@ reg IS_IRQ_START_ADDR_r; initial IS_IRQ_START_ADDR_r = 0;
 always @(posedge clkin) IS_IRQ_START_ADDR_r <= IS_IRQ_START_ADDR;
 assign IS_IRQ_START = !snescast_irq && SNES_RD_end && IS_IRQ_START_ADDR_r;
 assign IS_IRQ_END_ADDR = SNES_ADDR_r == snescast_irq_ret;
-assign IS_IRQ_END = snescast_irq && SNES_RD_end && IS_IRQ_END_ADDR;
+reg IS_IRQ_END_ADDR_r; initial IS_IRQ_END_ADDR_r = 0;
+always @(posedge clkin) IS_IRQ_END_ADDR_r <= IS_IRQ_END_ADDR;
+assign IS_IRQ_END = snescast_irq && SNES_RD_end && IS_IRQ_END_ADDR_r;
 assign IS_IRQ = IS_IRQ_START | IS_IRQ_END;
 
 assign IS_SPECIAL = IS_NMI | IS_IRQ;
@@ -567,7 +683,7 @@ assign IS_HDMA_READ = SNES_SNOOPRD_end && IS_HDMA_READ_ADDR;
 assign IS_HDMA_WRITE = SNES_SNOOPRD_end && IS_HDMA_WRITE_ADDR;
 assign IS_HDMA = IS_HDMA_READ | IS_HDMA_WRITE;
 
-assign snescast_wr = IS_PPUREG | IS_CPUREG | IS_CPUDMA | IS_APU | IS_SPECIAL | IS_HDMA;
+assign snescast_wr = (~cap_enable_r ? (IS_PPUREG | IS_CPUREG | IS_CPUDMA | IS_APU | IS_HDMA) : IS_CAP) | IS_SPECIAL;
 assign snescast_we_in = snescast_wr | snescast_wr_r;
 
 always @(posedge clkin) begin
@@ -578,6 +694,7 @@ always @(posedge clkin) begin
     snescast_we <= snescast_we_in;
     snescast_addr <= snescast_addr_r;
     snescast_data <= snescast_wr_r ? snescast_data_r
+                   : IS_CAP        ? {4'h8|cap_match_index_r,2'b00,cap_match_offset_r}
                    : IS_HDMA_READ  ? {4'h8|snescast_hdma_read_channel,4'hB}
                    : IS_HDMA_WRITE ? {4'h8|snescast_hdma_read_channel,4'hC}
                    : IS_SPECIAL    ? 8'hFF
@@ -690,8 +807,7 @@ always @(posedge clkin) begin
 //      snescast_hdma_scan_active <= 1;
 //    end
 
-// FIXME: uncomment this.
-/*    for (i = 0; i < HDMA_CHANNELS; i = i + 1) begin
+    for (i = 0; i < HDMA_CHANNELS; i = i + 1) begin
       // check both SNES_ADDR and SNES_PA for a match.  Note that if two HDMAs use the same source and destination field this will still fail to order things properly.
       snescast_hdma_mode[i] <= r43xx[i][8'h0][2:0];
       snescast_hdma_pa[i] <= r43xx[i][1] + ((snescast_hdma_mode[i][2:0] == 4) ? snescast_hdma_state[i][1:0] : (snescast_hdma_mode[i][1:0] == 2'b01) ? snescast_hdma_state[i][0] : (snescast_hdma_mode[i][1:0] == 2'b11) ? snescast_hdma_state[i][1] : 0);
@@ -846,14 +962,14 @@ always @(posedge clkin) begin
       // FIXME: disable HDMA.  Technically, I don't think these are cleared but it looks like some games will set them up again
       // May be better to not clear and instead ignore accesses.  But the problem then becomes when do we stop ignoring.  The end of the NMI may be too late.
       //r420C <= 0;
-    end*/
+    end
   end
 end
 
 // buffer inputs
-assign buf_we   = trace_reg_control_enable ? trace_we   : snescast_we;
-assign buf_data = trace_reg_control_enable ? trace_data : snescast_data;
-assign buf_addr = trace_reg_control_enable ? trace_addr : snescast_addr;
+assign buf_we   = mode_r[1] ? snescast_we   : mode_r[0] ? trace_we   : wram_we;
+assign buf_data = mode_r[1] ? snescast_data : mode_r[0] ? trace_data : wram_data;
+assign buf_addr = mode_r[1] ? snescast_addr : mode_r[0] ? trace_addr : wram_addr;
 
 assign msu_data_out = msu_data;
 assign msu_scaddr_out = {1'b0,snescast_addr_frame_r,1'b0,snescast_addr_op_r};

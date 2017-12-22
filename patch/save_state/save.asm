@@ -218,6 +218,7 @@ start:
     dw $F8DF, $6010, $6020 ; super metroid (*)
     dw $A0DA, $0050, $0060 ; smw (US)
     dw $8C80, $0050, $0060 ; smw (JP)
+    dw $33C2, $1010, $1020 ; soe (US)
     ;dw $0C17, $0090, $00A0 ; super valis (US)
     ;dw $5B4C, $0090, $00A0 ; super valis (JP)
 

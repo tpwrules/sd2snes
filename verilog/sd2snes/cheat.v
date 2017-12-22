@@ -135,8 +135,8 @@ assign data_out = cheat_match_bits[0] ? cheat_data[0]
                 : cheat_match_bits[4] ? cheat_data[4]
                 : cheat_match_bits[5] ? cheat_data[5]
                 // exe code
-                : (exe_present & nmi_match_bits[0]) ? 8'h2C
-                : (exe_present & nmi_match_bits[1]) ? 8'h00
+                : (exe_present & nmi_match_bits[0] & exe_unlock) ? 8'h2C
+                : (exe_present & nmi_match_bits[1] & exe_unlock) ? 8'h00
                 : nmi_match_bits[1] ? 8'h04
                 : irq_match_bits[1] ? 8'h04
                 : rst_match_bits[1] ? 8'h6b
@@ -150,7 +150,7 @@ assign cheat_hit = (snescmd_unlock & hook_enable_sync & (nmicmd_enable | return_
                    | (reset_unlock & rst_addr_match)
                    | (cheat_enable & cheat_addr_match)
                    | (hook_enable_sync & (((auto_nmi_enable_sync & (nmi_enable|exe_present)) & nmi_addr_match & vector_unlock) // exe or NMI can get us started
-                                           |(auto_nmi_enable_sync & nmi_enable & nmi_addr_match & exe_unlock)                  // exe exit can also trigger hook
+                                           |(auto_nmi_enable_sync & nmi_enable & nmi_addr_match & map_unlock)              // exe exit can also trigger hook
                                            |((auto_irq_enable_sync & irq_enable) & irq_addr_match & vector_unlock)));
 
 // irq/nmi detect based on CPU access pattern

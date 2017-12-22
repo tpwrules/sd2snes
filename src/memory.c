@@ -240,6 +240,7 @@ uint32_t sram_writeset(uint8_t val, uint32_t addr, uint32_t size) {
   return size;
 }
 
+char current_filename[258];
 uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   UINT bytes_read;
   DWORD filesize;
@@ -248,6 +249,9 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   tick_t ticksstart, ticks_total=0;
   ticksstart=getticks();
 
+  // copy the full name and path
+  strncpy(current_filename, (char *)filename, sizeof(current_filename)-1);
+  
   // save bram
   uint8_t snescmd_buf[0x70];
   snescmd_readblock(snescmd_buf, 0x2A90, 0x70);

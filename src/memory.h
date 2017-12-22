@@ -30,6 +30,8 @@
 #include <arm/NXP/LPC17xx/LPC17xx.h>
 #include "smc.h"
 
+extern char current_filename[];
+
 #define MENU_ADDR_BRAM_SRC      (0xFF00)
 
 #define SRAM_ROM_ADDR           (0x000000L)

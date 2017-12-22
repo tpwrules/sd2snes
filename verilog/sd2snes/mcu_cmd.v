@@ -75,9 +75,9 @@ module mcu_cmd(
   output msu_reset_out,
 
   // USB
-  output [7:0] usb_status_reset_out,
-  output [7:0] usb_status_set_out,
-  output usb_status_reset_we,
+  //output [7:0] usb_status_reset_out,
+  //output [7:0] usb_status_set_out,
+  //output usb_status_reset_we,
 
   // REG (generic)
   output [7:0] reg_group_out,
@@ -167,9 +167,9 @@ reg msu_status_reset_we_buf; initial msu_status_reset_we_buf = 0;
 reg MSU_RESET_OUT_BUF;
 reg [23:0] msu_scaddr_r;
 
-reg [7:0] usb_status_set_out_buf;
-reg [7:0] usb_status_reset_out_buf;
-reg usb_status_reset_we_buf = 0;
+//reg [7:0] usb_status_set_out_buf;
+//reg [7:0] usb_status_reset_out_buf;
+//reg usb_status_reset_we_buf = 0;
 
 reg [7:0] group_out_buf; initial group_out_buf = 8'hFF;
 reg [7:0] index_out_buf; initial index_out_buf = 8'hFF;
@@ -460,18 +460,18 @@ always @(posedge clk) begin
             dsp_feat_out <= {dsp_feat_tmp, param_data[7:0]};
           end
         endcase
-      8'hf8:
-        case (spi_byte_cnt)
-          32'h2: begin
-            usb_status_set_out_buf <= param_data[7:0];
-          end
-          32'h3: begin
-            usb_status_reset_out_buf <= param_data[7:0];
-            usb_status_reset_we_buf <= 1'b1;
-          end
-          32'h4:
-            usb_status_reset_we_buf <= 1'b0;
-        endcase
+//      8'hf8:
+//        case (spi_byte_cnt)
+//          32'h2: begin
+//            usb_status_set_out_buf <= param_data[7:0];
+//          end
+//          32'h3: begin
+//            usb_status_reset_out_buf <= param_data[7:0];
+//            usb_status_reset_we_buf <= 1'b1;
+//          end
+//          32'h4:
+//            usb_status_reset_we_buf <= 1'b0;
+//        endcase
       8'hfa: // handles all group, index, value, invmask writes.  unit is responsible for decoding group for match
         case (spi_byte_cnt)
           32'h2: begin
@@ -557,6 +557,7 @@ always @(posedge clk) begin
   else if (cmd_ready | param_ready /* bit_cnt == 7 */) begin
     if (cmd_data[7:4] == 4'hA)
       MCU_DATA_IN_BUF <= snescmd_data_in;
+      // TEMPORARILY disable MSU related operations to improve timing
     else if (cmd_data[7:0] == 8'hF1)
       case (spi_byte_cnt[0])
         1'b1: // buffer status (1st byte)
@@ -564,26 +565,26 @@ always @(posedge clk) begin
         1'b0: // control status (2nd byte)
           MCU_DATA_IN_BUF <= {1'b0, MSU_STATUSr[6:0]};
       endcase
-    else if (cmd_data[7:0] == 8'hF2)
-      case (spi_byte_cnt)
-        32'h1:
-          MCU_DATA_IN_BUF <= msu_addressrq[31:24];
-        32'h2:
-          MCU_DATA_IN_BUF <= msu_addressrq[23:16];
-        32'h3:
-          MCU_DATA_IN_BUF <= msu_addressrq[15:8];
-        32'h4:
-          MCU_DATA_IN_BUF <= msu_addressrq[7:0];
-      endcase
-    else if (cmd_data[7:0] == 8'hF3)
-      case (spi_byte_cnt)
-        32'h1:
-          MCU_DATA_IN_BUF <= msu_trackrq[15:8];
-        32'h2:
-          MCU_DATA_IN_BUF <= msu_trackrq[7:0];
-      endcase
-    else if (cmd_data[7:0] == 8'hF4)
-      MCU_DATA_IN_BUF <= msu_volumerq;
+//    else if (cmd_data[7:0] == 8'hF2)
+//      case (spi_byte_cnt)
+//        32'h1:
+//          MCU_DATA_IN_BUF <= msu_addressrq[31:24];
+//        32'h2:
+//          MCU_DATA_IN_BUF <= msu_addressrq[23:16];
+//        32'h3:
+//          MCU_DATA_IN_BUF <= msu_addressrq[15:8];
+//        32'h4:
+//          MCU_DATA_IN_BUF <= msu_addressrq[7:0];
+//      endcase
+//    else if (cmd_data[7:0] == 8'hF3)
+//      case (spi_byte_cnt)
+//        32'h1:
+//          MCU_DATA_IN_BUF <= msu_trackrq[15:8];
+//        32'h2:
+//          MCU_DATA_IN_BUF <= msu_trackrq[7:0];
+//      endcase
+//    else if (cmd_data[7:0] == 8'hF4)
+//      MCU_DATA_IN_BUF <= msu_volumerq;
     else if (cmd_data[7:0] == 8'hF5)
       MCU_DATA_IN_BUF <= msu_data;
     else if (cmd_data[7:0] == 8'hF6)
@@ -673,9 +674,9 @@ assign msu_status_set_out = msu_status_set_out_buf;
 assign msu_reset_out = MSU_RESET_OUT_BUF;
 assign msu_ptr_out = MSU_PTR_OUT_BUF;
 
-assign usb_status_reset_we = usb_status_reset_we_buf;
-assign usb_status_reset_out = usb_status_reset_out_buf;
-assign usb_status_set_out = usb_status_set_out_buf;
+//assign usb_status_reset_we = usb_status_reset_we_buf;
+//assign usb_status_reset_out = usb_status_reset_out_buf;
+//assign usb_status_set_out = usb_status_set_out_buf;
 
 assign bsx_regs_reset_we = bsx_regs_reset_we_buf;
 assign bsx_regs_reset_out = bsx_regs_reset_out_buf;

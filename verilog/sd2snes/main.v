@@ -115,10 +115,10 @@ wire [7:0] MSU_SNES_DATA_OUT;
 wire [5:0] msu_status_reset_bits;
 wire [5:0] msu_status_set_bits;
 
-wire [7:0] USB_SNES_DATA_IN;
-wire [7:0] USB_SNES_DATA_OUT;
-wire [7:0] usb_status_reset_bits;
-wire [7:0] usb_status_set_bits;
+//wire [7:0] USB_SNES_DATA_IN;
+//wire [7:0] USB_SNES_DATA_OUT;
+//wire [7:0] usb_status_reset_bits;
+//wire [7:0] usb_status_set_bits;
 
 wire [7:0] DMA_SNES_DATA_IN;
 wire [7:0] DMA_SNES_DATA_OUT;
@@ -433,7 +433,7 @@ initial STATE = ST_IDLE;
 assign DSPX_SNES_DATA_IN = BUS_DATA;
 assign SRTC_SNES_DATA_IN = BUS_DATA[3:0];
 assign MSU_SNES_DATA_IN = BUS_DATA;
-assign USB_SNES_DATA_IN = BUS_DATA;
+//assign USB_SNES_DATA_IN = BUS_DATA;
 assign DMA_SNES_DATA_IN = BUS_DATA;
 assign BSX_SNES_DATA_IN = BUS_DATA;
 assign CTX_SNES_DATA_IN = CTX_DIRr ? CTX_DINr : SNES_DATAr[0]; //CTX_BUS_DATA;
@@ -567,19 +567,19 @@ msu snes_msu (
   .DBG(DBG_MSU)
 );
 
-usb snes_usb (
-  .clkin(CLK2),
-  .enable(usb_enable),
-  .reg_addr(SNES_ADDR[2:0]),
-  .reg_data_in(USB_SNES_DATA_IN),
-  .reg_data_out(USB_SNES_DATA_OUT),
-  .reg_oe_falling(SNES_RD_start),
-  .reg_oe_rising(SNES_RD_end),
-  .reg_we_rising(SNES_WR_end),
-  .status_reset_bits(usb_status_reset_bits),
-  .status_set_bits(usb_status_set_bits),
-  .status_reset_we(usb_status_reset_we)
-);
+//usb snes_usb (
+//  .clkin(CLK2),
+//  .enable(usb_enable),
+//  .reg_addr(SNES_ADDR[2:0]),
+//  .reg_data_in(USB_SNES_DATA_IN),
+//  .reg_data_out(USB_SNES_DATA_OUT),
+//  .reg_oe_falling(SNES_RD_start),
+//  .reg_oe_rising(SNES_RD_end),
+//  .reg_we_rising(SNES_WR_end),
+//  .status_reset_bits(usb_status_reset_bits),
+//  .status_set_bits(usb_status_set_bits),
+//  .status_reset_we(usb_status_reset_we)
+//);
 
 wire [23:0] CTX_ADDR;
 wire [15:0] CTX_DOUT;
@@ -765,9 +765,9 @@ mcu_cmd snes_mcu_cmd(
   .msu_trackrq(msu_trackrq_out),
   .msu_ptr_out(msu_ptr_addr),
   .msu_reset_out(msu_addr_reset),
-  .usb_status_reset_out(usb_status_reset_bits),
-  .usb_status_set_out(usb_status_set_bits),
-  .usb_status_reset_we(usb_status_reset_we),
+  //.usb_status_reset_out(usb_status_reset_bits),
+  //.usb_status_set_out(usb_status_set_bits),
+  //.usb_status_reset_we(usb_status_reset_we),
   .reg_group_out(reg_group),
   .reg_index_out(reg_index),
   .reg_value_out(reg_value),
@@ -832,7 +832,7 @@ address snes_addr(
   //MSU-1
   .msu_enable(msu_enable),
   //USB-1
-  .usb_enable(usb_enable),
+  //.usb_enable(usb_enable),
   //DMA-1
   .dma_enable(dma_enable),
   //BS-X
@@ -935,7 +935,7 @@ assign SNES_DATA = (r213f_enable & ~SNES_PARD & ~r213f_forceread) ? r213fr
                                   :dspx_enable ? DSPX_SNES_DATA_OUT
                                   :dspx_dp_enable ? DSPX_SNES_DATA_OUT
                                   :msu_enable ? MSU_SNES_DATA_OUT
-                                  :usb_enable ? USB_SNES_DATA_OUT
+                                  //:usb_enable ? USB_SNES_DATA_OUT
                                   :dma_enable ? DMA_SNES_DATA_OUT
                                   :bsx_data_ovr ? BSX_SNES_DATA_OUT
                                   :(cheat_hit & ~feat_cmd_unlock) ? cheat_data_out
@@ -1237,7 +1237,7 @@ wire cart_read_oe = ( (IS_ROM & SNES_ROMSEL)
 
 assign SNES_DATABUS_OE = (dspx_enable | dspx_dp_enable) ? 1'b0 :
                          msu_enable ? 1'b0 :
-                         usb_enable ? 1'b0 :
+                         //usb_enable ? 1'b0 :
                          dma_enable ? 1'b0 :
                          loop_enable ? SNES_READ :
                          bsx_data_ovr ? (SNES_READ & SNES_WRITE) :

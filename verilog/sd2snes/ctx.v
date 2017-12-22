@@ -498,9 +498,6 @@ assign SRAM_SNES_ADDR[23:0] = IS_WRAM
                                             : (r2115[3:2] == 2'h1) ? ({VRAM_ADDR[14: 8],VRAM_ADDR[4:0],VRAM_ADDR[7:5],SNES_PA[0]})
                                             : (r2115[3:2] == 2'h2) ? ({VRAM_ADDR[14: 9],VRAM_ADDR[5:0],VRAM_ADDR[8:6],SNES_PA[0]})
                                             :                        ({VRAM_ADDR[14:10],VRAM_ADDR[6:0],VRAM_ADDR[9:7],SNES_PA[0]})))
-                            : IS_APU
-									          ? (24'hF80000 + ( IS_APU_RAM_r ? (APU_ADDR[15:0])
-									                          :                (8'hF4 + SNES_PA[1:0])))
                             : IS_CGRAM
 									          ? (24'hF90000 + CGRAM_ADDR[8:0])
                             : IS_OAM
@@ -513,6 +510,9 @@ assign SRAM_SNES_ADDR[23:0] = IS_WRAM
 									          : IS_MISC
 									          ? (24'hF90420 + ( IS_GAMEPAD_WRITE ? ({7'h00,SNES_ADDR[0]})
 									                          :                    (8'hDF)))
+                            : IS_APU
+									          ? (24'hF80000 + ( IS_APU_RAM_r ? (APU_ADDR[15:0])
+									                          :                (8'hF4 + SNES_PA[1:0])))
 								            : 24'hF98000;
 
 assign IS_WRITE = IS_WRAM | IS_VRAM | IS_CGRAM | IS_OAM | IS_APU | IS_PPUREG | IS_CPUREG | IS_MISC; // | IS_SNESCAST_NMI; // NMI for SNESCAST
@@ -558,7 +558,6 @@ assign ROM_WORD_ENABLE = WORD;
 assign OE_WR_ENABLE = (IS_WRAM_SHADOW_ADDR || IS_WRAM_BANK_ADDR || IS_CPUREG_WRITE_ADDR || IS_MISC_ADDR);
 assign OE_PAWR_ENABLE = (IS_WRAM_PA_ADDR || (SNES_PA <= 8'h33) || IS_APU_PORT_ADDR || IS_PPUREG_WRITE_ADDR);
 assign OE_PARD_ENABLE = (IS_APU_PORT_ADDR || IS_PPUREG_READ_ADDR);
-
 assign DBG = |CPUREG_STATE;
 
 endmodule

@@ -171,6 +171,7 @@ static const char *usbint_server_space_s[] = { FOREACH_SERVER_SPACE(GENERATE_STR
   OP(USBINT_SERVER_FLAGS_ONLYRESET=2)          \
   OP(USBINT_SERVER_FLAGS_CLRX=4)               \
   OP(USBINT_SERVER_FLAGS_SETX=8)               \
+  OP(USBINT_SERVER_FLAGS_STREAMBURST=16)       \
   OP(USBINT_SERVER_FLAGS_NORESP=64)            \
   OP(USBINT_SERVER_FLAGS_64BDATA=128)               
 enum usbint_server_flags_e { FOREACH_SERVER_FLAGS(GENERATE_ENUM) };
@@ -202,6 +203,7 @@ struct usbint_server_info_t {
 
 volatile struct usbint_server_info_t server_info;
 extern snes_romprops_t romprops;
+extern uint8_t current_features;
 
 unsigned recv_buffer_offset = 0;
 unsigned char recv_buffer[USB_BLOCK_SIZE];
@@ -428,7 +430,7 @@ void usbint_check_connect(void) {
             server_info.data_ready = 0;
             cmdDat = 0;
         }
-        set_usb_status(connected ? USB_SNES_STATUS_SET_CONNECTED : USB_SNES_STATUS_CLR_CONNECTED);
+        //set_usb_status(connected ? USB_SNES_STATUS_SET_CONNECTED : USB_SNES_STATUS_CLR_CONNECTED);
         
         PRINT_FUNCTION();
         PRINT_MSG(connected ? "[open]" : "[clos]");
@@ -708,6 +710,14 @@ int usbint_handler_cmd(void) {
         send_buffer[send_buffer_index][258] = (CONFIG_FWVER >>  8) & 0xFF;
         send_buffer[send_buffer_index][259] = (CONFIG_FWVER >>  0) & 0xFF;
         strncpy((char *)(send_buffer[send_buffer_index]) + 260, CONFIG_VERSION, MAX_STRING_LENGTH - 4);
+        
+        // features
+        send_buffer[send_buffer_index][6] = current_features;
+        // currently executing ROM
+        char *tempFileName = current_filename;
+        // chop from the beginning
+        if (strlen(tempFileName) > (MAX_STRING_LENGTH - 16)) tempFileName += strlen(tempFileName) - (MAX_STRING_LENGTH - 16);
+        strncpy((char *)(send_buffer[send_buffer_index]) + 16, current_filename, MAX_STRING_LENGTH - 16);
     }
     
     // send response.  also triggers data interrupt.
@@ -890,9 +900,15 @@ int usbint_handler_dat(void) {
 		
 		if (stream_state == USBINT_SERVER_STREAM_STATE_INIT) {
 			count = 0;
-			preload_count = 0; // VRAM + PPUREG + CPUREG + DMAREG
-
-			head_pointer = get_msu_pointer() & 0xFFFF;
+            
+            // don't reset the head pointer on burst reads.  it may try and read out the entire buffer which is ok.  that data should be discarded.
+            if (!(server_info.flags & USBINT_SERVER_FLAGS_STREAMBURST) || preload_count == 0) head_pointer = get_msu_pointer() & 0xFFFF;
+            
+            // burst reads don't preload state
+			preload_count = (server_info.flags & USBINT_SERVER_FLAGS_STREAMBURST) ? 0x50000 : 0; // VRAM + PPUREG + CPUREG + DMAREG
+            
+            // don't reset the head pointer on burst reads.  it may try and read out the entire buffer which is ok.  that data should be discarded.
+			//if (!(server_info.flags & USBINT_SERVER_FLAGS_STREAMBURST)) head_pointer = get_msu_pointer() & 0xFFFF;
 			
 			stream_state = USBINT_SERVER_STREAM_STATE_ACTIVE;
 		}
@@ -955,8 +971,8 @@ int usbint_handler_dat(void) {
         //PRINT_STATE(server_state);
         enum usbint_server_state_e old_server_state = server_state;
 
-        if (server_state != USBINT_SERVER_STATE_HANDLE_STREAM) {
-            if (count >= server_info.size) {
+        if (server_state != USBINT_SERVER_STATE_HANDLE_STREAM || ((server_info.flags & USBINT_SERVER_FLAGS_STREAMBURST) && (bytesSent < server_info.block_size))) {
+            if (count >= server_info.size || server_state == USBINT_SERVER_STATE_HANDLE_STREAM) {
                 //PRINT_FUNCTION();
                 //PRINT_MSG("[ldat]")
     
