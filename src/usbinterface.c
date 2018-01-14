@@ -771,6 +771,7 @@ int usbint_handler_dat(void) {
     int ret = 0;
     static int count = 0;
     int bytesSent = 0;
+    int streamEnd = 0;
     
     if (!server_info.data_ready) return ret;
     
@@ -946,7 +947,8 @@ int usbint_handler_dat(void) {
 		
 		// Fill remaining part of the buffer with NOPs.
 		// FIXME: if we do DMA compression we need to handled odd counts (probably add byte padding)
-        memset((unsigned char *)send_buffer[send_buffer_index] + bytesSent, 0xFF, 64 - bytesSent);
+        memset((unsigned char *)send_buffer[send_buffer_index] + bytesSent, 0xFF, server_info.block_size - bytesSent);
+        streamEnd = bytesSent < server_info.block_size ? 1 : 0;
         bytesSent = server_info.block_size;
 
 		break;
@@ -971,7 +973,7 @@ int usbint_handler_dat(void) {
         //PRINT_STATE(server_state);
         enum usbint_server_state_e old_server_state = server_state;
 
-        if (server_state != USBINT_SERVER_STATE_HANDLE_STREAM || ((server_info.flags & USBINT_SERVER_FLAGS_STREAMBURST) && (bytesSent < server_info.block_size))) {
+        if (server_state != USBINT_SERVER_STATE_HANDLE_STREAM || ((server_info.flags & USBINT_SERVER_FLAGS_STREAMBURST) && streamEnd)) {
             if (count >= server_info.size || server_state == USBINT_SERVER_STATE_HANDLE_STREAM) {
                 //PRINT_FUNCTION();
                 //PRINT_MSG("[ldat]")
