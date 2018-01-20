@@ -228,6 +228,14 @@ void usbint_set_state(unsigned open) {
     connected = open;
 }
 
+// TODO: New Design
+// - Unify interrupt handler and RAM/FILE IO
+// - Add IRQ disable/enable to other code to protect against conflict
+// - Need dedicated file pointer since it is retained across interrupts.
+// - Figure out which operation still need to be part of the main loop (boot, reset, etc).
+// - Support multiple commands in IO commands in flight.
+// - Separate input/output USB IRQ disable.
+
 // collect a flit
 void usbint_recv_flit(const unsigned char *in, int length) {
     //if (!length) return;
@@ -270,6 +278,8 @@ void usbint_recv_flit(const unsigned char *in, int length) {
         // the old code would skip receiving the flit and it would hang because the interrupt handler wouldn't be called again
         // To avoid that we disable the handler here and let the menu loop re-enable it when we have it locked.
         if (!cmdDat_old && cmdDat) NVIC_DisableIRQ(USB_IRQn);
+        
+        // FIXME: implement proper circular queue.
         
         // shift extra bytes down
         memmove((unsigned char*)recv_buffer, recv_buffer + size, recv_buffer_offset - size);
