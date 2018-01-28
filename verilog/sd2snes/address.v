@@ -21,7 +21,7 @@ module address(
   input CLK,
   input [7:0] featurebits,  // peripheral enable/disable
   input [2:0] MAPPER,       // MCU detected mapper
-  input [23:0] SNES_ADDR,   // requested address from SNES
+  input [23:0] SNES_ADDR_in,   // requested address from SNES
   input [7:0] SNES_PA,      // peripheral address from SNES
   input SNES_ROMSEL,        // ROMSEL from SNES
   output [23:0] ROM_ADDR,   // Address to request from SRAM0
@@ -32,6 +32,15 @@ module address(
   input [23:0] SAVERAM_MASK,
   input [23:0] ROM_MASK,
   output msu_enable,
+  // config interface
+  input [7:0] reg_group_in,
+  input [7:0] reg_index_in,
+  input [7:0] reg_value_in,
+  input [7:0] reg_invmask_in,
+  input       reg_we_in,
+  input [7:0] reg_read_in,
+  output[7:0] config_data_out,
+  // config interface
   output srtc_enable,
   output use_bsx,
   output bsx_tristate,
@@ -50,6 +59,8 @@ module address(
   input bs_page_enable
 );
 
+integer i;
+
 parameter [2:0]
   FEAT_DSPX = 0,
   FEAT_ST0010 = 1,
@@ -58,7 +69,189 @@ parameter [2:0]
   FEAT_213F = 4
 ;
 
+wire [23:0] SNES_ADDR; assign SNES_ADDR = SNES_ADDR_in;
+//reg [23:0] SNES_ADDR; always @(posedge CLK) SNES_ADDR <= SNES_ADDR_in;
+
 wire [23:0] SRAM_SNES_ADDR;
+
+// configuration state
+parameter [3:0] ADDRMAP_REGISTERS = 8;
+
+// Generic Address Map Support
+parameter [2:0]
+  ADDRMAP_MODE_DIS = 3'h7,
+  ADDRMAP_MODE_64K = 3'h0,
+  ADDRMAP_MODE_32K = 3'h1,
+  ADDRMAP_MODE_16K = 3'h2,
+  ADDRMAP_MODE_08K = 3'h3,
+  ADDRMAP_MODE_04K = 3'h4,
+  ADDRMAP_MODE_02K = 3'h5
+;
+
+parameter [3:0]
+  ADDRMAP_TYPE_ROM = 4'h0,
+  ADDRMAP_TYPE_RAM = 4'h2, // no masking
+  ADDRMAP_TYPE_RMM = 4'h3  // with mask
+;
+
+reg [7:0] addrmap_r[ADDRMAP_REGISTERS*8-1:0]; initial for (i = 0; i < (ADDRMAP_REGISTERS*8); i = i + 1) addrmap_r[i] = 8'hFF;
+
+always @(posedge CLK) begin
+  if (reg_we_in && (reg_group_in == 8'h01)) begin
+    if (reg_index_in < (ADDRMAP_REGISTERS*8)) addrmap_r[reg_index_in] <= (addrmap_r[reg_index_in] & reg_invmask_in) | (reg_value_in & ~reg_invmask_in);
+  end
+end
+
+assign config_data_out = addrmap_r[reg_read_in];
+
+// rename config register bytes
+reg [2:0]  AddrMapMode[ADDRMAP_REGISTERS-1:0];
+reg        AddrMapOutMaskMode[ADDRMAP_REGISTERS-1:0];
+reg [3:0]  AddrMapType[ADDRMAP_REGISTERS-1:0];
+reg [15:0] AddrMapBase[ADDRMAP_REGISTERS-1:0];
+reg [7:0]  AddrMapOutBase[ADDRMAP_REGISTERS-1:0];
+reg [15:0] AddrMapMask[ADDRMAP_REGISTERS-1:0];
+reg [15:0] AddrMapOutMask[ADDRMAP_REGISTERS-1:0];
+
+//reg [23:0] SpecialAddrMapBase[ADDRMAP_REGISTERS-1:0];
+//reg [23:0] SpecialAddrMapMask[ADDRMAP_REGISTERS-1:0];
+
+// workaround for problem with compiler
+always @(addrmap_r[0],addrmap_r[1],addrmap_r[2],addrmap_r[3],addrmap_r[4],addrmap_r[5],addrmap_r[6],addrmap_r[7],
+         addrmap_r[8],addrmap_r[9],addrmap_r[10],addrmap_r[11],addrmap_r[12],addrmap_r[13],addrmap_r[14],addrmap_r[15],
+         addrmap_r[16],addrmap_r[17],addrmap_r[18],addrmap_r[19],addrmap_r[20],addrmap_r[21],addrmap_r[22],addrmap_r[23],
+         addrmap_r[24],addrmap_r[25],addrmap_r[26],addrmap_r[27],addrmap_r[28],addrmap_r[29],addrmap_r[30],addrmap_r[31],
+         addrmap_r[32],addrmap_r[33],addrmap_r[34],addrmap_r[35],addrmap_r[36],addrmap_r[37],addrmap_r[38],addrmap_r[39],
+         addrmap_r[40],addrmap_r[41],addrmap_r[42],addrmap_r[43],addrmap_r[44],addrmap_r[45],addrmap_r[46],addrmap_r[47],
+         addrmap_r[48],addrmap_r[49],addrmap_r[50],addrmap_r[51],addrmap_r[52],addrmap_r[53],addrmap_r[54],addrmap_r[55],
+         addrmap_r[56],addrmap_r[57],addrmap_r[58],addrmap_r[59],addrmap_r[60],addrmap_r[61],addrmap_r[62],addrmap_r[63]
+        ) begin
+  for (i = 0; i < ADDRMAP_REGISTERS; i = i + 1) begin
+    AddrMapMode[i] = addrmap_r[i*8+0][2:0];
+    AddrMapOutMaskMode[i] = addrmap_r[i*8+0][3];
+    AddrMapType[i] = addrmap_r[i*8+0][7:4];
+    AddrMapBase[i] = {addrmap_r[i*8+2], addrmap_r[i*8+1]};
+    AddrMapOutBase[i] = addrmap_r[i*8+3];
+    AddrMapMask[i] = {addrmap_r[i*8+5], addrmap_r[i*8+4]};
+    AddrMapOutMask[i] = {addrmap_r[i*8+7], addrmap_r[i*8+6]};
+
+    //SpecialAddrMapBase[i][23:0] = {addrmap_r[i*8+3], addrmap_r[i*8+2], addrmap_r[i*8+1]};
+    //SpecialAddrMapMask[i][23:0] = {addrmap_r[i*8+6], addrmap_r[i*8+5], addrmap_r[i*8+4]};
+  end
+end
+
+// Check for AddrMapMatchValid 
+reg        AddrMapMatchValid;
+reg [2:0]  AddrMapModeMatch;
+reg [3:0]  AddrMapTypeMatch;
+reg [7:0]  AddrMapOutBaseMatch;
+reg [15:0] AddrMapOutMaskMatch;
+reg        AddrMapOutMaskModeMatch;
+always @(AddrMapMode[0], AddrMapType[0], AddrMapBase[0], AddrMapMask[0], AddrMapOutBase[0], AddrMapOutMask[0], AddrMapOutMaskMode[0],
+         AddrMapMode[1], AddrMapType[1], AddrMapBase[1], AddrMapMask[1], AddrMapOutBase[1], AddrMapOutMask[1], AddrMapOutMaskMode[1],
+         AddrMapMode[2], AddrMapType[2], AddrMapBase[2], AddrMapMask[2], AddrMapOutBase[2], AddrMapOutMask[2], AddrMapOutMaskMode[2],
+         AddrMapMode[3], AddrMapType[3], AddrMapBase[3], AddrMapMask[3], AddrMapOutBase[3], AddrMapOutMask[3], AddrMapOutMaskMode[3],
+         AddrMapMode[4], AddrMapType[4], AddrMapBase[4], AddrMapMask[4], AddrMapOutBase[4], AddrMapOutMask[4], AddrMapOutMaskMode[4],
+         AddrMapMode[5], AddrMapType[5], AddrMapBase[5], AddrMapMask[5], AddrMapOutBase[5], AddrMapOutMask[5], AddrMapOutMaskMode[5],
+         AddrMapMode[6], AddrMapType[6], AddrMapBase[6], AddrMapMask[6], AddrMapOutBase[6], AddrMapOutMask[6], AddrMapOutMaskMode[6],
+         AddrMapMode[7], AddrMapType[7], AddrMapBase[7], AddrMapMask[7], AddrMapOutBase[7], AddrMapOutMask[7], AddrMapOutMaskMode[7],
+         SNES_ADDR
+        ) begin
+  
+  if ((AddrMapMode[0] != ADDRMAP_MODE_DIS) && (~|(AddrMapType[0][3:2])) && (AddrMapBase[0] == (SNES_ADDR[23:8] & AddrMapMask[0]))) begin
+    AddrMapMatchValid  = 1;
+    AddrMapModeMatch = AddrMapMode[0];
+    AddrMapOutMaskModeMatch = AddrMapOutMaskMode[0];
+    AddrMapTypeMatch = AddrMapType[0];
+    AddrMapOutBaseMatch = AddrMapOutBase[0];
+    AddrMapOutMaskMatch = AddrMapOutMask[0];
+  end
+  else if ((AddrMapMode[1] != ADDRMAP_MODE_DIS) && (~|(AddrMapType[1][3:1])) && (AddrMapBase[1] == (SNES_ADDR[23:8] & AddrMapMask[1]))) begin
+    AddrMapMatchValid  = 1;
+    AddrMapModeMatch = AddrMapMode[1];
+    AddrMapOutMaskModeMatch = AddrMapOutMaskMode[1];
+    AddrMapTypeMatch = AddrMapType[1];
+    AddrMapOutBaseMatch = AddrMapOutBase[1];
+    AddrMapOutMaskMatch = AddrMapOutMask[1];
+  end
+  else if ((AddrMapMode[2] != ADDRMAP_MODE_DIS) && (~|(AddrMapType[2][3:1])) && (AddrMapBase[2] == (SNES_ADDR[23:8] & AddrMapMask[2]))) begin
+    AddrMapMatchValid  = 1;
+    AddrMapModeMatch = AddrMapMode[2];
+    AddrMapOutMaskModeMatch = AddrMapOutMaskMode[2];
+    AddrMapTypeMatch = AddrMapType[2];
+    AddrMapOutBaseMatch = AddrMapOutBase[2];
+    AddrMapOutMaskMatch = AddrMapOutMask[2];
+  end
+  else if ((AddrMapMode[3] != ADDRMAP_MODE_DIS) && (~|(AddrMapType[3][3:1])) && (AddrMapBase[3] == (SNES_ADDR[23:8] & AddrMapMask[3]))) begin
+    AddrMapMatchValid  = 1;
+    AddrMapModeMatch = AddrMapMode[3];
+    AddrMapOutMaskModeMatch = AddrMapOutMaskMode[3];
+    AddrMapTypeMatch = AddrMapType[3];
+    AddrMapOutBaseMatch = AddrMapOutBase[3];
+    AddrMapOutMaskMatch = AddrMapOutMask[3];
+  end
+  else if ((AddrMapMode[4] != ADDRMAP_MODE_DIS) && (~|(AddrMapType[4][3:1])) && (AddrMapBase[4] == (SNES_ADDR[23:8] & AddrMapMask[4]))) begin
+    AddrMapMatchValid  = 1;
+    AddrMapModeMatch = AddrMapMode[4];
+    AddrMapOutMaskModeMatch = AddrMapOutMaskMode[4];
+    AddrMapTypeMatch = AddrMapType[4];
+    AddrMapOutBaseMatch = AddrMapOutBase[4];
+    AddrMapOutMaskMatch = AddrMapOutMask[4];
+  end
+  else if ((AddrMapMode[5] != ADDRMAP_MODE_DIS) && (~|(AddrMapType[5][3:1])) && (AddrMapBase[5] == (SNES_ADDR[23:8] & AddrMapMask[5]))) begin
+    AddrMapMatchValid  = 1;
+    AddrMapModeMatch = AddrMapMode[5];
+    AddrMapOutMaskModeMatch = AddrMapOutMaskMode[5];
+    AddrMapTypeMatch = AddrMapType[5];
+    AddrMapOutBaseMatch = AddrMapOutBase[5];
+    AddrMapOutMaskMatch = AddrMapOutMask[5];
+  end
+  else if ((AddrMapMode[6] != ADDRMAP_MODE_DIS) && (~|(AddrMapType[6][3:1])) && (AddrMapBase[6] == (SNES_ADDR[23:8] & AddrMapMask[6]))) begin
+    AddrMapMatchValid  = 1;
+    AddrMapModeMatch = AddrMapMode[6];
+    AddrMapOutMaskModeMatch = AddrMapOutMaskMode[6];
+    AddrMapTypeMatch = AddrMapType[6];
+    AddrMapOutBaseMatch = AddrMapOutBase[6];
+    AddrMapOutMaskMatch = AddrMapOutMask[6];
+  end
+  else if ((AddrMapMode[7] != ADDRMAP_MODE_DIS) && (~|(AddrMapType[7][3:1])) && (AddrMapBase[7] == (SNES_ADDR[23:8] & AddrMapMask[7]))) begin
+    AddrMapMatchValid  = 1;
+    AddrMapModeMatch = AddrMapMode[7];
+    AddrMapOutMaskModeMatch = AddrMapOutMaskMode[7];
+    AddrMapTypeMatch = AddrMapType[7];
+    AddrMapOutBaseMatch = AddrMapOutBase[7];
+    AddrMapOutMaskMatch = AddrMapOutMask[7];
+  end
+  else begin
+    AddrMapMatchValid  = 0;
+    AddrMapModeMatch = 0;
+    AddrMapOutMaskModeMatch = 0;
+    AddrMapTypeMatch = 0;
+    AddrMapOutBaseMatch = 0;
+    AddrMapOutMaskMatch = 0;
+  end
+end
+
+// Generate address
+reg [23:0] CalcAddr;
+always @* begin
+  case (AddrMapModeMatch)
+    0: CalcAddr = {          SNES_ADDR[23:16], SNES_ADDR[15:0]};
+    1: CalcAddr = {1'b0,     SNES_ADDR[23:16], SNES_ADDR[14:0]};
+    2: CalcAddr = {2'b00,    SNES_ADDR[23:16], SNES_ADDR[13:0]};
+    3: CalcAddr = {3'b000,   SNES_ADDR[23:16], SNES_ADDR[12:0]};
+    4: CalcAddr = {4'b0000,  SNES_ADDR[23:16], SNES_ADDR[11:0]};
+    5: CalcAddr = {5'b00000, SNES_ADDR[23:16], SNES_ADDR[10:0]};
+  endcase
+end
+
+reg [23:0] AddrMapFinalAddress;
+always @* begin  
+  AddrMapFinalAddress = AddrMapOutMaskModeMatch ? {AddrMapOutBaseMatch[7:0] + (CalcAddr[23:16] & AddrMapOutMaskMatch[15:8]), CalcAddr[15:8] & AddrMapOutMaskMatch[7:0], CalcAddr[7:0]} : {AddrMapOutBaseMatch[7:0] + CalcAddr[23:16], CalcAddr[15:0]} & {AddrMapOutMaskMatch, 8'hFF};
+end
+
+
+// Output IS bits
 
 /* currently supported mappers:
    Index     Mapper
@@ -76,36 +269,38 @@ wire [23:0] SRAM_SNES_ADDR;
 assign IS_ROM = ((!SNES_ADDR[22] & SNES_ADDR[15])
                  |(SNES_ADDR[22]));
 
-assign IS_SAVERAM = SAVERAM_MASK[0]
-                    &(featurebits[FEAT_ST0010]
-                      ?((SNES_ADDR[22:19] == 4'b1101)
-                        & &(~SNES_ADDR[15:12])
-                        & SNES_ADDR[11])
-                      :((MAPPER == 3'b000
-                        || MAPPER == 3'b010
-                        || MAPPER == 3'b110)
-                      ? (!SNES_ADDR[22]
-                         & SNES_ADDR[21]
-                         & &SNES_ADDR[14:13]
-                         & !SNES_ADDR[15]
-                        )
-/*  LoROM:   SRAM @ Bank 0x70-0x7d, 0xf0-0xff
- *  Offset 0000-7fff for ROM >= 32 MBit, otherwise 0000-ffff */
-                      :(MAPPER == 3'b001)
-                      ? (&SNES_ADDR[22:20]
-                         & (~SNES_ROMSEL)
-                         & (~SNES_ADDR[15] | ~ROM_MASK[21])
-                        )
-/*  BS-X: SRAM @ Bank 0x10-0x17 Offset 5000-5fff */
-                      :(MAPPER == 3'b011)
-                      ? ((SNES_ADDR[23:19] == 5'b00010)
-                         & (SNES_ADDR[15:12] == 4'b0101)
-                        )
-/*  Menu mapper: 8Mbit "SRAM" @ Bank 0xf0-0xff (entire banks!) */
-                      :(MAPPER == 3'b111)
-                      ? (&SNES_ADDR[23:20])
-                      : 1'b0));
+//assign IS_SAVERAM = SAVERAM_MASK[0]
+//                    &(featurebits[FEAT_ST0010]
+//                      ?((SNES_ADDR[22:19] == 4'b1101)
+//                        & &(~SNES_ADDR[15:12])
+//                        & SNES_ADDR[11])
+//                      :((MAPPER == 3'b000
+//                        || MAPPER == 3'b010
+//                        || MAPPER == 3'b110)
+//                      ? (!SNES_ADDR[22]
+//                         & SNES_ADDR[21]
+//                         & &SNES_ADDR[14:13]
+//                         & !SNES_ADDR[15]
+//                        )
+///*  LoROM:   SRAM @ Bank 0x70-0x7d, 0xf0-0xff
+// *  Offset 0000-7fff for ROM >= 32 MBit, otherwise 0000-ffff */
+//                      :(MAPPER == 3'b001)
+//                      ? (&SNES_ADDR[22:20]
+//                         & (~SNES_ROMSEL)
+//                         & (~SNES_ADDR[15] | ~ROM_MASK[21])
+//                        )
+///*  BS-X: SRAM @ Bank 0x10-0x17 Offset 5000-5fff */
+//                      :(MAPPER == 3'b011)
+//                      ? ((SNES_ADDR[23:19] == 5'b00010)
+//                         & (SNES_ADDR[15:12] == 4'b0101)
+//                        )
+///*  Menu mapper: 8Mbit "SRAM" @ Bank 0xf0-0xff (entire banks!) */
+//                      :(MAPPER == 3'b111)
+//                      ? (&SNES_ADDR[23:20])
+//                      : 1'b0));
 
+// still support bs-x here
+assign IS_SAVERAM = SAVERAM_MASK[0] && ((AddrMapMatchValid  && ((AddrMapTypeMatch == ADDRMAP_TYPE_RMM && ~SNES_ROMSEL) || (AddrMapTypeMatch == ADDRMAP_TYPE_RAM))) || (MAPPER == 3'b011 && SNES_ADDR[23:19] == 5'b00010 && SNES_ADDR[15:12] == 4'b0101) || (MAPPER == 3'b110 && (!SNES_ADDR[22] & SNES_ADDR[21] & &SNES_ADDR[14:13] & !SNES_ADDR[15])));
 
 /* BS-X has 4 MBits of extra RAM that can be mapped to various places */
 // LoROM: A23 = r03/r04  A22 = r06  A21 = r05  A20 = 0    A19 = d/c
@@ -152,57 +347,89 @@ wire [23:0] BSX_ADDR = bsx_regs[2] ? {1'b0, SNES_ADDR[22:0]}
     8   1=map BSX cartridge ROM @80-9f:8000-ffff
 */
 
-assign SRAM_SNES_ADDR = ((MAPPER == 3'b000)
-                          ?(IS_SAVERAM
-                            ? 24'hE00000 + ({SNES_ADDR[20:16], SNES_ADDR[12:0]}
-                                            & SAVERAM_MASK)
-                            : ({1'b0, SNES_ADDR[22:0]} & ROM_MASK))
+//assign SRAM_SNES_ADDR = (  (MAPPER == 3'b000)
+//                          ?(IS_SAVERAM
+//                            ? 24'hE00000 + ({SNES_ADDR[20:16], SNES_ADDR[12:0]}
+//                                            & SAVERAM_MASK)
+//                            : ({1'b0, SNES_ADDR[22:0]} & ROM_MASK))
+//
+//                          :(MAPPER == 3'b001)
+//                          ?(IS_SAVERAM
+//                            ? 24'hE00000 + ({SNES_ADDR[20:16], SNES_ADDR[14:0]}
+//                                            & SAVERAM_MASK)
+//                            : ({1'b0, ~SNES_ADDR[23], SNES_ADDR[22:16], SNES_ADDR[14:0]}
+//                               & ROM_MASK))
+//
+//                          :(MAPPER == 3'b010)
+//                          ?(IS_SAVERAM
+//                            ? 24'hE00000 + ({SNES_ADDR[20:16], SNES_ADDR[12:0]}
+//                                            & SAVERAM_MASK)
+//                            : ({1'b0, !SNES_ADDR[23], SNES_ADDR[21:0]}
+//                               & ROM_MASK))
+//                          :(MAPPER == 3'b011)
+//                          ?(  IS_SAVERAM
+//                              ? 24'hE00000 + {SNES_ADDR[18:16], SNES_ADDR[11:0]}
+//                              : BSX_IS_CARTROM
+//                              ? (24'h800000 + ({SNES_ADDR[22:16], SNES_ADDR[14:0]} & 24'h0fffff))
+//                              : BSX_IS_PSRAM
+//                              ? (24'h400000 + (BSX_ADDR & 24'h07FFFF))
+//                              : bs_page_enable
+//                              ? (24'h900000 + {bs_page,bs_page_offset})
+//                              : (BSX_ADDR & 24'h0fffff)
+//                           )
+//                           :(MAPPER == 3'b110)
+//                           ?(IS_SAVERAM
+//                             ? 24'hE00000 + ((SNES_ADDR[14:0] - 15'h6000)
+//                                             & SAVERAM_MASK)
+//                             :(SNES_ADDR[15]
+//                               ?({1'b0, SNES_ADDR[23:16], SNES_ADDR[14:0]})
+//                               :({2'b10,
+//                                  SNES_ADDR[23],
+//                                  SNES_ADDR[21:16],
+//                                  SNES_ADDR[14:0]}
+//                                )
+//                              )
+//                            )
+//                           :(MAPPER == 3'b111)
+//                           ?(IS_SAVERAM
+//                             ? SNES_ADDR
+//                             : (({1'b0, SNES_ADDR[22:0]} & ROM_MASK)
+//                                + 24'hC00000)
+//                            )
+//                           :(MAPPER == 3'b100)
+//                           ? AddrMapAddress                            
+//                           : 24'b0);
 
-                          :(MAPPER == 3'b001)
-                          ?(IS_SAVERAM
-                            ? 24'hE00000 + ({SNES_ADDR[20:16], SNES_ADDR[14:0]}
-                                            & SAVERAM_MASK)
-                            : ({2'b00, SNES_ADDR[22:16], SNES_ADDR[14:0]}
-                               & ROM_MASK))
-
-                          :(MAPPER == 3'b010)
-                          ?(IS_SAVERAM
-                            ? 24'hE00000 + ({SNES_ADDR[20:16], SNES_ADDR[12:0]}
-                                            & SAVERAM_MASK)
-                            : ({1'b0, !SNES_ADDR[23], SNES_ADDR[21:0]}
-                               & ROM_MASK))
-                          :(MAPPER == 3'b011)
-                          ?(  IS_SAVERAM
-                              ? 24'hE00000 + {SNES_ADDR[18:16], SNES_ADDR[11:0]}
-                              : BSX_IS_CARTROM
-                              ? (24'h800000 + ({SNES_ADDR[22:16], SNES_ADDR[14:0]} & 24'h0fffff))
-                              : BSX_IS_PSRAM
-                              ? (24'h400000 + (BSX_ADDR & 24'h07FFFF))
-                              : bs_page_enable
-                              ? (24'h900000 + {bs_page,bs_page_offset})
-                              : (BSX_ADDR & 24'h0fffff)
-                           )
-                           :(MAPPER == 3'b110)
-                           ?(IS_SAVERAM
-                             ? 24'hE00000 + ((SNES_ADDR[14:0] - 15'h6000)
-                                             & SAVERAM_MASK)
-                             :(SNES_ADDR[15]
-                               ?({1'b0, SNES_ADDR[23:16], SNES_ADDR[14:0]})
-                               :({2'b10,
-                                  SNES_ADDR[23],
-                                  SNES_ADDR[21:16],
-                                  SNES_ADDR[14:0]}
-                                )
+// still support bs-x
+assign SRAM_SNES_ADDR = AddrMapMatchValid  
+                        ? AddrMapFinalAddress
+                        :(MAPPER == 3'b011)
+                        ?(  IS_SAVERAM
+                            ? 24'hE00000 + {SNES_ADDR[18:16], SNES_ADDR[11:0]}
+                            : BSX_IS_CARTROM
+                            ? (24'h800000 + ({SNES_ADDR[22:16], SNES_ADDR[14:0]} & 24'h0fffff))
+                            : BSX_IS_PSRAM
+                            ? (24'h400000 + (BSX_ADDR & 24'h07FFFF))
+                            : bs_page_enable
+                            ? (24'h900000 + {bs_page,bs_page_offset})
+                            : (BSX_ADDR & 24'h0fffff)
+                         )
+                         :(MAPPER == 3'b110)
+                         ?(IS_SAVERAM
+                           ? 24'hE00000 + ((SNES_ADDR[14:0] - 15'h6000)
+                                           & SAVERAM_MASK)
+                           :(SNES_ADDR[15]
+                             ?({1'b0, SNES_ADDR[23:16], SNES_ADDR[14:0]})
+                             :({2'b10,
+                                SNES_ADDR[23],
+                                SNES_ADDR[21:16],
+                                SNES_ADDR[14:0]}
                               )
                             )
-                           :(MAPPER == 3'b111)
-                           ?(IS_SAVERAM
-                             ? SNES_ADDR
-                             : (({1'b0, SNES_ADDR[22:0]} & ROM_MASK)
-                                + 24'hC00000)
-                            )
-                           : 24'b0);
+                          )
+                         :0;
 
+//assign ROM_ADDR = SRAM_SNES_ADDR_r;
 assign ROM_ADDR = SRAM_SNES_ADDR;
 
 assign ROM_HIT = IS_ROM | IS_WRITABLE | bs_page_enable;

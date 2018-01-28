@@ -28,6 +28,7 @@
 #include "rtc.h"
 #include "sysinfo.h"
 #include "cfg.h"
+#include "addrmap.h"
 
 #define EMC0TOGGLE        (3<<4)
 #define MR0R              (1<<1)
@@ -156,6 +157,7 @@ printf("PCONP=%lx\n", LPC_SC->PCONP);
     /* force memory size + mapper */
     set_rom_mask(0x3fffff);
     set_mapper(0x7);
+    addrmap_mapper(0x7);
     /* disable all cheats+hooks */
     fpga_write_cheat(7, 0x3f00);
     /* reset DAC */

@@ -128,4 +128,5 @@ void snescmd_prepare_nmihook(void);
 void snes_get_filepath(uint8_t *buffer, uint16_t length);
 void status_load_to_menu(void);
 void status_save_from_menu(void);
+void snes_addrmap(uint8_t val);
 #endif

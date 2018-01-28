@@ -39,6 +39,9 @@ module bsx(
   output [8:0] bs_page_offset
 );
 
+//reg [23:0] snes_addr;
+//always @(posedge clkin) snes_addr <= snes_addr_in;
+
 wire [3:0] reg_addr = snes_addr[19:16]; // 00-0f:5000-5fff
 wire [4:0] base_addr = snes_addr[4:0];  // 88-9f -> 08-1f
 wire [15:0] flash_addr = snes_addr[15:0];

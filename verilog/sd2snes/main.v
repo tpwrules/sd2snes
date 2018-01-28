@@ -157,6 +157,15 @@ wire [8:0] snescmd_addr_mcu;
 wire [7:0] snescmd_data_out_mcu;
 wire [7:0] snescmd_data_in_mcu;
 
+wire [7:0] reg_group;
+wire [7:0] reg_index;
+wire [7:0] reg_value;
+wire [7:0] reg_invmask;
+wire       reg_we;
+wire [7:0] reg_read;
+// unit level configuration output
+wire [7:0] addr_config_data;
+
 reg [7:0] SNES_PARDr;
 reg [7:0] SNES_READr;
 reg [7:0] SNES_WRITEr;
@@ -173,8 +182,10 @@ reg free_strobe = 0;
 
 wire SNES_PARD_start = ((SNES_PARDr[6:1] | SNES_PARDr[7:2]) == 6'b111110);
 wire SNES_RD_start = ((SNES_READr[6:1] | SNES_READr[7:2]) == 6'b111100);
-wire SNES_RD_end = ((SNES_READr[6:1] & SNES_READr[7:2]) == 6'b000001);
-wire SNES_WR_end = ((SNES_WRITEr[6:1] & SNES_WRITEr[7:2]) == 6'b000001);
+//wire SNES_RD_end = ((SNES_READr[6:1] & SNES_READr[7:2]) == 6'b000001);
+//wire SNES_WR_end = ((SNES_WRITEr[6:1] & SNES_WRITEr[7:2]) == 6'b000001);
+reg SNES_RD_end; always @(posedge CLK2) SNES_RD_end <= ((SNES_READr[5:0] & SNES_READr[6:1]) == 6'b000001);
+reg SNES_WR_end; always @(posedge CLK2) SNES_WR_end <= ((SNES_WRITEr[5:0] & SNES_WRITEr[6:1]) == 6'b000001);
 wire SNES_cycle_start = ((SNES_CPU_CLKr[7:2] & SNES_CPU_CLKr[6:1]) == 6'b000011);
 wire SNES_cycle_end = ((SNES_CPU_CLKr[7:2] | SNES_CPU_CLKr[6:1]) == 6'b111000);
 wire SNES_WRITE = SNES_WRITEr[2] & SNES_WRITEr[1];
@@ -186,6 +197,11 @@ wire SNES_ROMSEL = (SNES_ROMSELr[5] & SNES_ROMSELr[4]);
 wire [23:0] SNES_ADDR = (SNES_ADDRr[6] & SNES_ADDRr[5]);
 wire [7:0] SNES_PA = (SNES_PAr[6] & SNES_PAr[5]);
 wire [7:0] SNES_DATA_IN = (SNES_DATAr[3] & SNES_DATAr[2]);
+
+reg [23:0] SNES_ADDR_r;
+always @(posedge CLK2) SNES_ADDR_r <= (SNES_ADDRr[5] & SNES_ADDRr[4]);
+reg [23:0] SNES_ADDR_BSX_r;
+always @(posedge CLK2) SNES_ADDR_BSX_r <= (SNES_ADDRr[4] & SNES_ADDRr[3]);
 
 reg [7:0] BUS_DATA;
 
@@ -350,7 +366,7 @@ bsx snes_bsx(
   .clkin(CLK2),
   .use_bsx(use_bsx),
   .pgm_we(bsx_regs_reset_we),
-  .snes_addr(SNES_ADDR),
+  .snes_addr(SNES_ADDR_BSX_r),
   .reg_data_in(BSX_SNES_DATA_IN),
   .reg_data_out(BSX_SNES_DATA_OUT),
   .reg_oe_falling(SNES_RD_start),
@@ -461,6 +477,16 @@ mcu_cmd snes_mcu_cmd(
   .msu_trackrq(msu_trackrq_out),
   .msu_ptr_out(msu_ptr_addr),
   .msu_reset_out(msu_addr_reset),
+  // config
+  .reg_group_out(reg_group),
+  .reg_index_out(reg_index),
+  .reg_value_out(reg_value),
+  .reg_invmask_out(reg_invmask),
+  .reg_we_out(reg_we),
+  .reg_read_out(reg_read),
+  // vv config data in vv
+  .addr_config_data_in(addr_config_data),
+  // ^^ config data in ^^
   .bsx_regs_set_out(bsx_regs_set_bits),
   .bsx_regs_reset_out(bsx_regs_reset_bits),
   .bsx_regs_reset_we(bsx_regs_reset_we),
@@ -503,7 +529,7 @@ address snes_addr(
   .CLK(CLK2),
   .MAPPER(MAPPER),
   .featurebits(featurebits),
-  .SNES_ADDR(SNES_ADDR), // requested address from SNES
+  .SNES_ADDR_in(SNES_ADDR_r), // requested address from SNES
   .SNES_PA(SNES_PA),
   .SNES_ROMSEL(SNES_ROMSEL),
   .ROM_ADDR(MAPPED_SNES_ADDR),   // Address to request from SRAM (active low)
@@ -513,6 +539,14 @@ address snes_addr(
   .IS_WRITABLE(IS_WRITABLE),
   .SAVERAM_MASK(SAVERAM_MASK),
   .ROM_MASK(ROM_MASK),
+  // config
+  .reg_group_in(reg_group),
+  .reg_index_in(reg_index),
+  .reg_value_in(reg_value),
+  .reg_invmask_in(reg_invmask),
+  .reg_we_in(reg_we),
+  .reg_read_in(reg_read),
+  .config_data_out(addr_config_data),
   //MSU-1
   .msu_enable(msu_enable),
   //BS-X

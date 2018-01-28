@@ -100,6 +100,14 @@
         F3        -             get MSU audio track no. (16bit, MSB first)
         F4        -             get MSU volume (8bit)
 
+        FC        ggii          config read
+                                gg = group
+                                ii = index
+        FD        ggiivvmm      config write 
+                                gg = group
+                                ii = index
+                                vv = value
+                                mm = inverse mask (0=write bit)
         FE        -             get SNES master clock frequency (32bit, MSB first)
                                 measured 1x/sec
         FF        {xx}*         echo (returns the sent data in the next byte)
@@ -215,6 +223,7 @@ void set_mapper(uint8_t val) {
   FPGA_SELECT();
   FPGA_TX_BYTE(FPGA_CMD_SETMAPPER(val));
   FPGA_DESELECT();
+  printf("mapper set to %hhi\n", val);
 }
 
 uint8_t fpga_test() {
@@ -465,5 +474,28 @@ void fpga_set_dspfeat(uint16_t feat) {
   FPGA_TX_BYTE(FPGA_CMD_DSPFEAT);
   FPGA_TX_BYTE(feat >> 8);
   FPGA_TX_BYTE(feat & 0xff);
+  FPGA_DESELECT();
+}
+
+uint8_t fpga_read_config(uint8_t group, uint8_t index) {
+  uint8_t data;
+  FPGA_SELECT();
+  FPGA_TX_BYTE(FPGA_CMD_CONFIG_READ);
+  FPGA_TX_BYTE(group);
+  FPGA_TX_BYTE(index);
+  FPGA_RX_BYTE(); // null read to create delay
+  data = FPGA_RX_BYTE();
+  FPGA_DESELECT();
+  return data;
+}
+
+void fpga_write_config(uint8_t group, uint8_t index, uint8_t value, uint8_t invmask) {
+  FPGA_SELECT();
+  FPGA_TX_BYTE(FPGA_CMD_CONFIG_WRITE);
+  FPGA_TX_BYTE(group);
+  FPGA_TX_BYTE(index);
+  FPGA_TX_BYTE(value);
+  FPGA_TX_BYTE(invmask);
+  FPGA_TX_BYTE(0x00); // flop reset
   FPGA_DESELECT();
 }

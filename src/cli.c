@@ -47,6 +47,7 @@
 #include "cic.h"
 #include "xmodem.h"
 #include "rtc.h"
+#include "addrmap.h"
 
 #include "cli.h"
 
@@ -359,7 +360,7 @@ void cmd_mapper(void) {
   int32_t mapper;
   mapper = parse_unsigned(0,7,10);
   set_mapper((uint8_t)mapper & 0x7);
-  printf("mapper set to %ld\n", mapper);
+  addrmap_mapper((uint8_t)mapper & 0x7);
 }
 
 void cmd_sreset(void) {

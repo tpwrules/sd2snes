@@ -48,6 +48,7 @@ memory.c: RAM operations
 #include "cli.h"
 #include "cheat.h"
 #include "rtc.h"
+#include "addrmap.h"
 
 #include <string.h>
 char* hex = "0123456789ABCDEF";
@@ -373,6 +374,9 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   }
 
   set_mapper(romprops.mapper_id);
+  addrmap_mapper(romprops.mapper_id);
+  
+  addrmap_yaml_load(filename);
 
 //printf("%04lx\n", romprops.header_address + ((void*)&romprops.header.vect_irq16 - (void*)&romprops.header));
   if(flags & (LOADROM_WITH_RESET|LOADROM_WAIT_SNES)) {
