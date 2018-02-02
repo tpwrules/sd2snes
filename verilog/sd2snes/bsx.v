@@ -23,7 +23,7 @@ module bsx(
   input reg_oe_falling,
   input reg_oe_rising,
   input reg_we_rising,
-  input [23:0] snes_addr,
+  input [23:0] snes_addr_in,
   input [7:0] reg_data_in,
   output [7:0] reg_data_out,
   input [7:0] reg_reset_bits,
@@ -39,8 +39,8 @@ module bsx(
   output [8:0] bs_page_offset
 );
 
-//reg [23:0] snes_addr;
-//always @(posedge clkin) snes_addr <= snes_addr_in;
+reg [23:0] snes_addr;
+always @(posedge clkin) snes_addr <= snes_addr_in;
 
 wire [3:0] reg_addr = snes_addr[19:16]; // 00-0f:5000-5fff
 wire [4:0] base_addr = snes_addr[4:0];  // 88-9f -> 08-1f

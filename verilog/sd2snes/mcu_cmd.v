@@ -247,24 +247,6 @@ always @(posedge clk) begin
     endcase
   end else if (param_ready) begin
     casex (cmd_data[7:0])
-      8'h1x:
-        case (spi_byte_cnt)
-          32'h2:
-            ROM_MASK[23:16] <= param_data;
-          32'h3:
-            ROM_MASK[15:8] <= param_data;
-          32'h4:
-            ROM_MASK[7:0] <= param_data;
-        endcase
-      8'h2x:
-        case (spi_byte_cnt)
-          32'h2:
-            SAVERAM_MASK[23:16] <= param_data;
-          32'h3:
-            SAVERAM_MASK[15:8] <= param_data;
-          32'h4:
-            SAVERAM_MASK[7:0] <= param_data;
-        endcase
       8'h4x:
         SD_DMA_ENr <= 1'b0;
       8'h6x:
@@ -387,15 +369,6 @@ always @(posedge clk) begin
           32'h4:
             bsx_regs_reset_we_buf <= 1'b0;
         endcase
-      8'he7:
-        case (spi_byte_cnt)
-          32'h2: begin
-            srtc_reset_buf <= 1'b1;
-          end
-          32'h3: begin
-            srtc_reset_buf <= 1'b0;
-          end
-        endcase
       8'he8: begin// reset DSPx PGM+DAT address
         case (spi_byte_cnt)
           32'h2: begin
@@ -432,10 +405,6 @@ always @(posedge clk) begin
           dac_vol_select_out <= param_data[2:0];
           dac_palmode_out <= param_data[7];
         end
-      8'hed:
-        featurebits_out <= param_data;
-      8'hee:
-        region_out <= param_data[0];
       8'hef:
         case (spi_byte_cnt)
           32'h2: dsp_feat_tmp <= param_data[7:0];
@@ -443,7 +412,39 @@ always @(posedge clk) begin
             dsp_feat_out <= {dsp_feat_tmp, param_data[7:0]};
           end
         endcase
-      8'hfd: // handles all group, index, value, invmask writes.  unit is responsible for decoding group for match
+
+      8'h1x:
+        case (spi_byte_cnt)
+          32'h2:
+            ROM_MASK[23:16] <= param_data;
+          32'h3:
+            ROM_MASK[15:8] <= param_data;
+          32'h4:
+            ROM_MASK[7:0] <= param_data;
+        endcase
+      8'h2x:
+        case (spi_byte_cnt)
+          32'h2:
+            SAVERAM_MASK[23:16] <= param_data;
+          32'h3:
+            SAVERAM_MASK[15:8] <= param_data;
+          32'h4:
+            SAVERAM_MASK[7:0] <= param_data;
+        endcase
+      8'hE7:
+        case (spi_byte_cnt)
+          32'h2: begin
+            srtc_reset_buf <= 1'b1;
+          end
+          32'h3: begin
+            srtc_reset_buf <= 1'b0;
+          end
+        endcase
+      8'hED:
+        featurebits_out <= param_data;
+      8'hEE:
+        region_out <= param_data[0];
+      8'hFD: // handles all group, index, value, invmask writes.  unit is responsible for decoding group for match
         case (spi_byte_cnt)
           32'h2: begin
             group_out_buf <= param_data;
@@ -470,8 +471,95 @@ always @(posedge clk) begin
   end
 end
 
+//// Flopped writes to ease timing constraints.
+//reg cmd_ready_r;
+//reg param_ready_r;
+//reg [7:0] cmd_data_r;
+//reg [7:0] param_data_r;
+//reg [31:0] spi_byte_cnt_r;
+//
+//always @(posedge clk) begin
+//  // flop incoming signals
+//  cmd_ready_r <= cmd_ready;
+//  param_ready_r <= param_ready;
+//  cmd_data_r <= cmd_data;
+//  param_data_r <= param_data;
+//  spi_byte_cnt_r <= spi_byte_cnt;
+//  
+//  if (cmd_ready_r) begin
+//  end
+//  else if (param_data_r) begin
+//    casex (cmd_data_r[7:0])
+//      8'h1x:
+//        case (spi_byte_cnt_r)
+//          32'h2:
+//            ROM_MASK[23:16] <= param_data_r;
+//          32'h3:
+//            ROM_MASK[15:8] <= param_data_r;
+//          32'h4:
+//            ROM_MASK[7:0] <= param_data_r;
+//        endcase
+//      8'h2x:
+//        case (spi_byte_cnt_r)
+//          32'h2:
+//            SAVERAM_MASK[23:16] <= param_data_r;
+//          32'h3:
+//            SAVERAM_MASK[15:8] <= param_data_r;
+//          32'h4:
+//            SAVERAM_MASK[7:0] <= param_data_r;
+//        endcase
+//      8'hE7:
+//        case (spi_byte_cnt_r)
+//          32'h2: begin
+//            srtc_reset_buf <= 1'b1;
+//          end
+//          32'h3: begin
+//            srtc_reset_buf <= 1'b0;
+//          end
+//        endcase
+//      8'hED:
+//        featurebits_out <= param_data_r;
+//      8'hEE:
+//        region_out <= param_data_r[0];
+//      8'hFD: // handles all group, index, value, invmask writes.  unit is responsible for decoding group for match
+//        case (spi_byte_cnt_r)
+//          32'h2: begin
+//            group_out_buf <= param_data_r;
+//          end
+//          32'h3: begin
+//            index_out_buf <= param_data_r;
+//          end
+//          32'h4: begin
+//            value_out_buf <= param_data_r;
+//          end
+//          32'h5: begin
+//            invmask_out_buf <= param_data_r;
+//            reg_we_buf <= 1;
+//          end
+//          32'h6: begin
+//            reg_we_buf <= 0;
+//            group_out_buf <= 8'hFF;
+//            index_out_buf <= 8'hFF;
+//            value_out_buf <= 8'hFF;
+//            invmask_out_buf <= 8'hFF;
+//          end
+//        endcase
+//    endcase
+//  end
+//end
+
 always @(posedge clk) begin
-  if(param_ready && cmd_data[7:4] == 4'h0)  begin
+  if (SD_DMA_NEXTADDR | (mcu_nextaddr & (cmd_data[7:5] == 3'h4)
+                               && (cmd_data[3])
+                               && (spi_byte_cnt >= (32'h1+cmd_data[4])))
+  ) begin
+    case (SD_DMA_TGTr)
+      2'b00: ADDR_OUT_BUF <= ADDR_OUT_BUF + 1;
+      2'b01: DAC_ADDR_OUT_BUF <= DAC_ADDR_OUT_BUF + 1;
+      2'b10: MSU_ADDR_OUT_BUF <= MSU_ADDR_OUT_BUF + 1;
+    endcase
+  end
+  else if(param_ready && cmd_data[7:4] == 4'h0)  begin
     case (cmd_data[1:0])
       2'b01: begin
         case (spi_byte_cnt)
@@ -504,15 +592,6 @@ always @(posedge clk) begin
           32'h4:
             ADDR_OUT_BUF[7:0] <= param_data;
         endcase
-    endcase
-  end else if (SD_DMA_NEXTADDR | (mcu_nextaddr & (cmd_data[7:5] == 3'h4)
-                               && (cmd_data[3])
-                               && (spi_byte_cnt >= (32'h1+cmd_data[4])))
-  ) begin
-    case (SD_DMA_TGTr)
-      2'b00: ADDR_OUT_BUF <= ADDR_OUT_BUF + 1;
-      2'b01: DAC_ADDR_OUT_BUF <= DAC_ADDR_OUT_BUF + 1;
-      2'b10: MSU_ADDR_OUT_BUF <= MSU_ADDR_OUT_BUF + 1;
     endcase
   end
 end
@@ -564,10 +643,6 @@ always @(posedge clk) begin
         32'h5:
           MCU_DATA_IN_BUF <= SNES_SYSCLK_FREQ_BUF[7:0];
       endcase
-    else if (cmd_data[7:0] == 8'hFF)
-      MCU_DATA_IN_BUF <= param_data;
-    else if (cmd_data[7:0] == 8'hD1)
-      MCU_DATA_IN_BUF <= snescmd_data_in;
     else if (cmd_data[7:0] == 8'hFC)
       case (spi_byte_cnt)
         32'h2: begin
@@ -581,6 +656,10 @@ always @(posedge clk) begin
           else                         MCU_DATA_IN_BUF <= 0;
         end
       endcase 
+    else if (cmd_data[7:0] == 8'hFF)
+      MCU_DATA_IN_BUF <= param_data;
+    else if (cmd_data[7:0] == 8'hD1)
+      MCU_DATA_IN_BUF <= snescmd_data_in;
     else if (cmd_data[7:0] == 8'hF0)
       MCU_DATA_IN_BUF <= 8'hA5;
   end

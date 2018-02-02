@@ -69,8 +69,11 @@ parameter [2:0]
   FEAT_213F = 4
 ;
 
-wire [23:0] SNES_ADDR; assign SNES_ADDR = SNES_ADDR_in;
-//reg [23:0] SNES_ADDR; always @(posedge CLK) SNES_ADDR <= SNES_ADDR_in;
+//wire [23:0] SNES_ADDR; assign SNES_ADDR = SNES_ADDR_in;
+reg [23:0] SNES_ADDR_d0; always @(posedge CLK) SNES_ADDR_d0 <= SNES_ADDR_in;
+reg [23:0] SNES_ADDR_d1; always @(posedge CLK) SNES_ADDR_d1 <= SNES_ADDR_d0;
+reg [23:0] SNES_ADDR_d2; always @(posedge CLK) SNES_ADDR_d2 <= SNES_ADDR_d1;
+reg [23:0] SNES_ADDR;    always @(posedge CLK) SNES_ADDR <= SNES_ADDR_d2;
 
 wire [23:0] SRAM_SNES_ADDR;
 
@@ -78,20 +81,23 @@ wire [23:0] SRAM_SNES_ADDR;
 parameter [3:0] ADDRMAP_REGISTERS = 8;
 
 // Generic Address Map Support
-parameter [2:0]
-  ADDRMAP_MODE_DIS = 3'h7,
-  ADDRMAP_MODE_64K = 3'h0,
-  ADDRMAP_MODE_32K = 3'h1,
-  ADDRMAP_MODE_16K = 3'h2,
-  ADDRMAP_MODE_08K = 3'h3,
-  ADDRMAP_MODE_04K = 3'h4,
-  ADDRMAP_MODE_02K = 3'h5
+parameter [3:0]
+  ADDRMAP_MODE_64K = 4'h0,
+  ADDRMAP_MODE_32K = 4'h1,
+  ADDRMAP_MODE_16K = 4'h2,
+  ADDRMAP_MODE_08K = 4'h3,
+  ADDRMAP_MODE_04K = 4'h4,
+  ADDRMAP_MODE_02K = 4'h5,
+  ADDRMAP_MODE_01K = 4'h6
+  //ADDRMAP_MODE_008 = 3'h7
 ;
 
 parameter [3:0]
   ADDRMAP_TYPE_ROM = 4'h0,
-  ADDRMAP_TYPE_RAM = 4'h2, // no masking
-  ADDRMAP_TYPE_RMM = 4'h3  // with mask
+  ADDRMAP_TYPE_RAM = 4'h2,
+  
+  ADDRMAP_TYPE_NOP = 4'hE,
+  ADDRMAP_TYPE_DIS = 4'hF
 ;
 
 reg [7:0] addrmap_r[ADDRMAP_REGISTERS*8-1:0]; initial for (i = 0; i < (ADDRMAP_REGISTERS*8); i = i + 1) addrmap_r[i] = 8'hFF;
@@ -147,107 +153,88 @@ reg [3:0]  AddrMapTypeMatch;
 reg [7:0]  AddrMapOutBaseMatch;
 reg [15:0] AddrMapOutMaskMatch;
 reg        AddrMapOutMaskModeMatch;
-always @(AddrMapMode[0], AddrMapType[0], AddrMapBase[0], AddrMapMask[0], AddrMapOutBase[0], AddrMapOutMask[0], AddrMapOutMaskMode[0],
-         AddrMapMode[1], AddrMapType[1], AddrMapBase[1], AddrMapMask[1], AddrMapOutBase[1], AddrMapOutMask[1], AddrMapOutMaskMode[1],
-         AddrMapMode[2], AddrMapType[2], AddrMapBase[2], AddrMapMask[2], AddrMapOutBase[2], AddrMapOutMask[2], AddrMapOutMaskMode[2],
-         AddrMapMode[3], AddrMapType[3], AddrMapBase[3], AddrMapMask[3], AddrMapOutBase[3], AddrMapOutMask[3], AddrMapOutMaskMode[3],
-         AddrMapMode[4], AddrMapType[4], AddrMapBase[4], AddrMapMask[4], AddrMapOutBase[4], AddrMapOutMask[4], AddrMapOutMaskMode[4],
-         AddrMapMode[5], AddrMapType[5], AddrMapBase[5], AddrMapMask[5], AddrMapOutBase[5], AddrMapOutMask[5], AddrMapOutMaskMode[5],
-         AddrMapMode[6], AddrMapType[6], AddrMapBase[6], AddrMapMask[6], AddrMapOutBase[6], AddrMapOutMask[6], AddrMapOutMaskMode[6],
-         AddrMapMode[7], AddrMapType[7], AddrMapBase[7], AddrMapMask[7], AddrMapOutBase[7], AddrMapOutMask[7], AddrMapOutMaskMode[7],
-         SNES_ADDR
-        ) begin
-  
-  if ((AddrMapMode[0] != ADDRMAP_MODE_DIS) && (~|(AddrMapType[0][3:2])) && (AddrMapBase[0] == (SNES_ADDR[23:8] & AddrMapMask[0]))) begin
-    AddrMapMatchValid  = 1;
-    AddrMapModeMatch = AddrMapMode[0];
-    AddrMapOutMaskModeMatch = AddrMapOutMaskMode[0];
-    AddrMapTypeMatch = AddrMapType[0];
-    AddrMapOutBaseMatch = AddrMapOutBase[0];
-    AddrMapOutMaskMatch = AddrMapOutMask[0];
+
+reg        AddrMapMatchValid_d2;
+reg [2:0]  AddrMapModeMatch_d2;
+reg [3:0]  AddrMapTypeMatch_d2;
+reg [7:0]  AddrMapOutBaseMatch_d2;
+reg [15:0] AddrMapOutMaskMatch_d2;
+reg        AddrMapOutMaskModeMatch_d2;
+
+reg [2:0]  AddrMapIndexMatch;
+//always @(AddrMapMode[0], AddrMapType[0], AddrMapBase[0], AddrMapMask[0], AddrMapOutBase[0], AddrMapOutMask[0], AddrMapOutMaskMode[0],
+//         AddrMapMode[1], AddrMapType[1], AddrMapBase[1], AddrMapMask[1], AddrMapOutBase[1], AddrMapOutMask[1], AddrMapOutMaskMode[1],
+//         AddrMapMode[2], AddrMapType[2], AddrMapBase[2], AddrMapMask[2], AddrMapOutBase[2], AddrMapOutMask[2], AddrMapOutMaskMode[2],
+//         AddrMapMode[3], AddrMapType[3], AddrMapBase[3], AddrMapMask[3], AddrMapOutBase[3], AddrMapOutMask[3], AddrMapOutMaskMode[3],
+//         AddrMapMode[4], AddrMapType[4], AddrMapBase[4], AddrMapMask[4], AddrMapOutBase[4], AddrMapOutMask[4], AddrMapOutMaskMode[4],
+//         AddrMapMode[5], AddrMapType[5], AddrMapBase[5], AddrMapMask[5], AddrMapOutBase[5], AddrMapOutMask[5], AddrMapOutMaskMode[5],
+//         AddrMapMode[6], AddrMapType[6], AddrMapBase[6], AddrMapMask[6], AddrMapOutBase[6], AddrMapOutMask[6], AddrMapOutMaskMode[6],
+//         AddrMapMode[7], AddrMapType[7], AddrMapBase[7], AddrMapMask[7], AddrMapOutBase[7], AddrMapOutMask[7], AddrMapOutMaskMode[7],
+//         SNES_ADDR_d0
+//        ) begin
+always @(posedge CLK) begin
+  if      ((AddrMapType[0] != ADDRMAP_TYPE_DIS) && (AddrMapBase[0] == (SNES_ADDR_d0[23:8] & AddrMapMask[0]))) begin
+    AddrMapIndexMatch <= 0;
   end
-  else if ((AddrMapMode[1] != ADDRMAP_MODE_DIS) && (~|(AddrMapType[1][3:1])) && (AddrMapBase[1] == (SNES_ADDR[23:8] & AddrMapMask[1]))) begin
-    AddrMapMatchValid  = 1;
-    AddrMapModeMatch = AddrMapMode[1];
-    AddrMapOutMaskModeMatch = AddrMapOutMaskMode[1];
-    AddrMapTypeMatch = AddrMapType[1];
-    AddrMapOutBaseMatch = AddrMapOutBase[1];
-    AddrMapOutMaskMatch = AddrMapOutMask[1];
+  else if ((AddrMapType[1] != ADDRMAP_TYPE_DIS) && (AddrMapBase[1] == (SNES_ADDR_d0[23:8] & AddrMapMask[1]))) begin
+    AddrMapIndexMatch <= 1;
   end
-  else if ((AddrMapMode[2] != ADDRMAP_MODE_DIS) && (~|(AddrMapType[2][3:1])) && (AddrMapBase[2] == (SNES_ADDR[23:8] & AddrMapMask[2]))) begin
-    AddrMapMatchValid  = 1;
-    AddrMapModeMatch = AddrMapMode[2];
-    AddrMapOutMaskModeMatch = AddrMapOutMaskMode[2];
-    AddrMapTypeMatch = AddrMapType[2];
-    AddrMapOutBaseMatch = AddrMapOutBase[2];
-    AddrMapOutMaskMatch = AddrMapOutMask[2];
+  else if ((AddrMapType[2] != ADDRMAP_TYPE_DIS) && (AddrMapBase[2] == (SNES_ADDR_d0[23:8] & AddrMapMask[2]))) begin
+    AddrMapIndexMatch <= 2;
   end
-  else if ((AddrMapMode[3] != ADDRMAP_MODE_DIS) && (~|(AddrMapType[3][3:1])) && (AddrMapBase[3] == (SNES_ADDR[23:8] & AddrMapMask[3]))) begin
-    AddrMapMatchValid  = 1;
-    AddrMapModeMatch = AddrMapMode[3];
-    AddrMapOutMaskModeMatch = AddrMapOutMaskMode[3];
-    AddrMapTypeMatch = AddrMapType[3];
-    AddrMapOutBaseMatch = AddrMapOutBase[3];
-    AddrMapOutMaskMatch = AddrMapOutMask[3];
+  else if ((AddrMapType[3] != ADDRMAP_TYPE_DIS) && (AddrMapBase[3] == (SNES_ADDR_d0[23:8] & AddrMapMask[3]))) begin
+    AddrMapIndexMatch <= 3;
   end
-  else if ((AddrMapMode[4] != ADDRMAP_MODE_DIS) && (~|(AddrMapType[4][3:1])) && (AddrMapBase[4] == (SNES_ADDR[23:8] & AddrMapMask[4]))) begin
-    AddrMapMatchValid  = 1;
-    AddrMapModeMatch = AddrMapMode[4];
-    AddrMapOutMaskModeMatch = AddrMapOutMaskMode[4];
-    AddrMapTypeMatch = AddrMapType[4];
-    AddrMapOutBaseMatch = AddrMapOutBase[4];
-    AddrMapOutMaskMatch = AddrMapOutMask[4];
+  else if ((AddrMapType[4] != ADDRMAP_TYPE_DIS) && (AddrMapBase[4] == (SNES_ADDR_d0[23:8] & AddrMapMask[4]))) begin
+    AddrMapIndexMatch <= 4;
   end
-  else if ((AddrMapMode[5] != ADDRMAP_MODE_DIS) && (~|(AddrMapType[5][3:1])) && (AddrMapBase[5] == (SNES_ADDR[23:8] & AddrMapMask[5]))) begin
-    AddrMapMatchValid  = 1;
-    AddrMapModeMatch = AddrMapMode[5];
-    AddrMapOutMaskModeMatch = AddrMapOutMaskMode[5];
-    AddrMapTypeMatch = AddrMapType[5];
-    AddrMapOutBaseMatch = AddrMapOutBase[5];
-    AddrMapOutMaskMatch = AddrMapOutMask[5];
+  else if ((AddrMapType[5] != ADDRMAP_TYPE_DIS) && (AddrMapBase[5] == (SNES_ADDR_d0[23:8] & AddrMapMask[5]))) begin
+    AddrMapIndexMatch <= 5;
   end
-  else if ((AddrMapMode[6] != ADDRMAP_MODE_DIS) && (~|(AddrMapType[6][3:1])) && (AddrMapBase[6] == (SNES_ADDR[23:8] & AddrMapMask[6]))) begin
-    AddrMapMatchValid  = 1;
-    AddrMapModeMatch = AddrMapMode[6];
-    AddrMapOutMaskModeMatch = AddrMapOutMaskMode[6];
-    AddrMapTypeMatch = AddrMapType[6];
-    AddrMapOutBaseMatch = AddrMapOutBase[6];
-    AddrMapOutMaskMatch = AddrMapOutMask[6];
+  else if ((AddrMapType[6] != ADDRMAP_TYPE_DIS) && (AddrMapBase[6] == (SNES_ADDR_d0[23:8] & AddrMapMask[6]))) begin
+    AddrMapIndexMatch <= 6;
   end
-  else if ((AddrMapMode[7] != ADDRMAP_MODE_DIS) && (~|(AddrMapType[7][3:1])) && (AddrMapBase[7] == (SNES_ADDR[23:8] & AddrMapMask[7]))) begin
-    AddrMapMatchValid  = 1;
-    AddrMapModeMatch = AddrMapMode[7];
-    AddrMapOutMaskModeMatch = AddrMapOutMaskMode[7];
-    AddrMapTypeMatch = AddrMapType[7];
-    AddrMapOutBaseMatch = AddrMapOutBase[7];
-    AddrMapOutMaskMatch = AddrMapOutMask[7];
+  else if ((AddrMapType[7] != ADDRMAP_TYPE_DIS) && (AddrMapBase[7] == (SNES_ADDR_d0[23:8] & AddrMapMask[7]))) begin
+    AddrMapIndexMatch <= 7;
   end
   else begin
-    AddrMapMatchValid  = 0;
-    AddrMapModeMatch = 0;
-    AddrMapOutMaskModeMatch = 0;
-    AddrMapTypeMatch = 0;
-    AddrMapOutBaseMatch = 0;
-    AddrMapOutMaskMatch = 0;
+    AddrMapIndexMatch <= 0;
   end
+end
+
+always @(posedge CLK) begin
+    AddrMapMatchValid_d2 <= AddrMapType[AddrMapIndexMatch][3:1] != 3'b111;
+    AddrMapModeMatch_d2 <= AddrMapMode[AddrMapIndexMatch];
+    AddrMapOutMaskModeMatch_d2 <= AddrMapOutMaskMode[AddrMapIndexMatch];
+    AddrMapTypeMatch_d2 <= AddrMapType[AddrMapIndexMatch];
+    AddrMapOutBaseMatch_d2 <= AddrMapOutBase[AddrMapIndexMatch];
+    AddrMapOutMaskMatch_d2 <= AddrMapOutMask[AddrMapIndexMatch];
 end
 
 // Generate address
 reg [23:0] CalcAddr;
-always @* begin
+always @(posedge CLK) begin
   case (AddrMapModeMatch)
-    0: CalcAddr = {          SNES_ADDR[23:16], SNES_ADDR[15:0]};
-    1: CalcAddr = {1'b0,     SNES_ADDR[23:16], SNES_ADDR[14:0]};
-    2: CalcAddr = {2'b00,    SNES_ADDR[23:16], SNES_ADDR[13:0]};
-    3: CalcAddr = {3'b000,   SNES_ADDR[23:16], SNES_ADDR[12:0]};
-    4: CalcAddr = {4'b0000,  SNES_ADDR[23:16], SNES_ADDR[11:0]};
-    5: CalcAddr = {5'b00000, SNES_ADDR[23:16], SNES_ADDR[10:0]};
+    0: CalcAddr <= {          SNES_ADDR_d2[23:16], SNES_ADDR_d2[15:0]};
+    1: CalcAddr <= {1'b0,     SNES_ADDR_d2[23:16], SNES_ADDR_d2[14:0]};
+    2: CalcAddr <= {2'b00,    SNES_ADDR_d2[23:16], SNES_ADDR_d2[13:0]};
+    3: CalcAddr <= {3'b000,   SNES_ADDR_d2[23:16], SNES_ADDR_d2[12:0]};
+    4: CalcAddr <= {4'b0000,  SNES_ADDR_d2[23:16], SNES_ADDR_d2[11:0]};
+    5: CalcAddr <= {5'b00000, SNES_ADDR_d2[23:16], SNES_ADDR_d2[10:0]};
+    default: CalcAddr <= 0;
   endcase
+
+  AddrMapMatchValid <= AddrMapMatchValid_d2;
+  AddrMapModeMatch <= AddrMapModeMatch_d2;
+  AddrMapOutMaskModeMatch <= AddrMapOutMaskModeMatch_d2;
+  AddrMapTypeMatch <= AddrMapTypeMatch_d2;
+  AddrMapOutBaseMatch <= AddrMapOutBaseMatch_d2;
+  AddrMapOutMaskMatch <= AddrMapOutMaskMatch_d2;
 end
 
 reg [23:0] AddrMapFinalAddress;
-always @* begin  
-  AddrMapFinalAddress = AddrMapOutMaskModeMatch ? {AddrMapOutBaseMatch[7:0] + (CalcAddr[23:16] & AddrMapOutMaskMatch[15:8]), CalcAddr[15:8] & AddrMapOutMaskMatch[7:0], CalcAddr[7:0]} : {AddrMapOutBaseMatch[7:0] + CalcAddr[23:16], CalcAddr[15:0]} & {AddrMapOutMaskMatch, 8'hFF};
+always @* begin
+  AddrMapFinalAddress = ~AddrMapOutMaskModeMatch ? {AddrMapOutBaseMatch[7:0] + (CalcAddr[23:16] & AddrMapOutMaskMatch[15:8]), CalcAddr[15:8] & AddrMapOutMaskMatch[7:0], CalcAddr[7:0]} : {AddrMapOutBaseMatch[7:0] + CalcAddr[23:16], CalcAddr[15:0]} & {AddrMapOutMaskMatch, 8'hFF};
 end
 
 
@@ -300,7 +287,7 @@ assign IS_ROM = ((!SNES_ADDR[22] & SNES_ADDR[15])
 //                      : 1'b0));
 
 // still support bs-x here
-assign IS_SAVERAM = SAVERAM_MASK[0] && ((AddrMapMatchValid  && ((AddrMapTypeMatch == ADDRMAP_TYPE_RMM && ~SNES_ROMSEL) || (AddrMapTypeMatch == ADDRMAP_TYPE_RAM))) || (MAPPER == 3'b011 && SNES_ADDR[23:19] == 5'b00010 && SNES_ADDR[15:12] == 4'b0101) || (MAPPER == 3'b110 && (!SNES_ADDR[22] & SNES_ADDR[21] & &SNES_ADDR[14:13] & !SNES_ADDR[15])));
+assign IS_SAVERAM = SAVERAM_MASK[0] && ((AddrMapMatchValid && AddrMapTypeMatch == ADDRMAP_TYPE_RAM) || (MAPPER == 3'b011 && SNES_ADDR[23:19] == 5'b00010 && SNES_ADDR[15:12] == 4'b0101) || (MAPPER == 3'b110 && (!SNES_ADDR[22] & SNES_ADDR[21] & &SNES_ADDR[14:13] & !SNES_ADDR[15])));
 
 /* BS-X has 4 MBits of extra RAM that can be mapped to various places */
 // LoROM: A23 = r03/r04  A22 = r06  A21 = r05  A20 = 0    A19 = d/c

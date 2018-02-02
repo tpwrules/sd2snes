@@ -199,9 +199,10 @@ wire [7:0] SNES_PA = (SNES_PAr[6] & SNES_PAr[5]);
 wire [7:0] SNES_DATA_IN = (SNES_DATAr[3] & SNES_DATAr[2]);
 
 reg [23:0] SNES_ADDR_r;
-always @(posedge CLK2) SNES_ADDR_r <= (SNES_ADDRr[5] & SNES_ADDRr[4]);
-reg [23:0] SNES_ADDR_BSX_r;
-always @(posedge CLK2) SNES_ADDR_BSX_r <= (SNES_ADDRr[4] & SNES_ADDRr[3]);
+always @(posedge CLK2) SNES_ADDR_r <= (SNES_ADDRr[1] & SNES_ADDRr[0]);
+wire [23:0] SNES_ADDR_a1;
+assign SNES_ADDR_a1 = (SNES_ADDRr[5] & SNES_ADDRr[4]);
+//always @(posedge CLK2) SNES_ADDR_BSX_r <= (SNES_ADDRr[5] & SNES_ADDRr[4]);
 
 reg [7:0] BUS_DATA;
 
@@ -366,7 +367,7 @@ bsx snes_bsx(
   .clkin(CLK2),
   .use_bsx(use_bsx),
   .pgm_we(bsx_regs_reset_we),
-  .snes_addr(SNES_ADDR_BSX_r),
+  .snes_addr_in(SNES_ADDR_a1),
   .reg_data_in(BSX_SNES_DATA_IN),
   .reg_data_out(BSX_SNES_DATA_OUT),
   .reg_oe_falling(SNES_RD_start),
