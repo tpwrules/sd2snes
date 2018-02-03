@@ -165,14 +165,14 @@ void addrmap_mapper(uint8_t val) {
   else if (val == 2) {
       // exthirom
 
-      // 20-3F/A0-BF:6000-7FFF -> 0 (SaveRAM)
-      if (rammask > 0) { AM(index*8+0, 0x23); AM2(index*8+1, 0x2060); AM(index*8+3, 0xE0); AM2(index*8+4, 0x60E0); AM2(index*8+6, rammask >> 8); }
+      // 80-BF:6000-7FFF -> 0 (SaveRAM)
+      if (rammask > 0) { AM(index*8+0, 0x23); AM2(index*8+1, 0x8060); AM(index*8+3, 0xE0); AM2(index*8+4, 0xC0E0); AM2(index*8+6, rammask >> 8); }
       index++;
       // 00-3F:8000-FFFF, 40-7F:0000-FFFF -> 00:0000
-      AM(index*8+0, 0x00); AM2(index*8+1, 0x0000); AM(index*8+3, 0x00); AM2(index*8+4, 0x8000); AM2(index*8+6, rommask >> 8);
+      AM(index*8+0, 0x00); AM2(index*8+1, 0x0000); AM(index*8+3, 0x40); AM2(index*8+4, 0x8000); AM2(index*8+6, 0x3FFF);
       index++;
       // 80-BF:8000-FFFF, C0-FF:0000-FFFF -> 00:0000
-      AM(index*8+0, 0x00); AM2(index*8+1, 0x8000); AM(index*8+3, 0x00); AM2(index*8+4, 0x8000); AM2(index*8+6, rommask >> 8);
+      AM(index*8+0, 0x00); AM2(index*8+1, 0x8000); AM(index*8+3, 0x00); AM2(index*8+4, 0x8000); AM2(index*8+6, (rommask-0x400000) >> 8);
       index++;
   }
   else if (val == 3) {
