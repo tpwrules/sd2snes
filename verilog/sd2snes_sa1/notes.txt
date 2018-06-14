@@ -1,0 +1,297 @@
+At every instruction boundary - set interrupt pending.  Record vector  Set FL.  Clear WAI.
+
+Every memory operation reads/writes through the MDR.  This includes fetch and unmapped addresses.
+
+Unmapped reads and write are NOPs wrt memory accesses.
+
+Each operation takes minimum 2 ticks (10.74 MHz).
+
+Emulation always means M=1, X=1
+
+Clock Basics:
+1	Fetch
+1-N	Operation (E.g. NOP=1, WDM=1)
+
+All instructions have constant latency assuming free access to the bus.
+Memory operations will need to perform memory op early to avoid ROM latency problem.
+- Can use 16b accesses for all ROM accesses to amoritize.
+- Mirror shifted by one address range in 8MB+.  Support a max of 6MB ROM.
+- 
+
+TODO:
+Figure out if Absolute Indexed Indirect really ignores value of X status bit
+Need to handle misaligned accesses (bank wrap vs increment)
+
+Addressing Modes (33)
+----------------
+- Absolute								    24/2				addr <= {DBR/PBR,Operand[15:0]}
+* Absolute Indexed, X					16/0	17?			addr <= {DBR,Operand[15:0]+X[15/7:0]} // no wrap
+* Absolute Indexed, Y					09/0				addr <= {DBR,Operand[15:0]+Y[15/7:0]} // no wrap
+* Absolute Indexed Indirect		00/2				pc[15:0] <= [{PBR,Operand[15:0]+X[15:0]}][15:0] // always 16b X
+- Absolute Indirect						00/1				pc[15:0] <= [{8'h00,Operand[15:0]}][15:0]
+- Absolute Indirect Long		  00/1				pc[23:0] <= [{8'h00,Operand[15:0]}][23:0]
+- Absolute Long							  08/2				addr <= Operand[23:0]
+* Absolute Long Indexed, X		08/0				addr <= Operand[23:0] + X[15/7:0]
+- Accumulator							    06/0
+* Block Move							    02/0				srcaddr <= {Operand[15:8],X[15/7:0]}
+                                          dstaddr <= {Operand[7:0],Y[15/7:0]}
+                                          count <= A[15:0] + 1
+- Direct Page							    24/0				addr <= D[15:0] + Operand[7:0] // emulation mode has special addressing (lower 8b)
+* Direct Page Indexed, X			18/0				addr <= D[15:0] + Operand[7:0] + X[15/7:0]
+* Direct Page Indexed, Y			02/0				addr <= D[15:0] + Operand[7:0] + Y[15/7:0]
+* Direct Page Indexed Indirect, X		08/0				addr <= {DBR,[{8'h00,D[15:0] + Operand[7:0] + X[15/7:0]}][15:0]}
+- Direct Page Indirect 				08/0				addr <= {DBR,[{8'h00,D[15:0] + Operand[7:0]}][15:0]}
+- Direct Page Indirect Long		08/0				addr <= [{8'h00,D[15:0] + Operand[7:0]}][23:0]
+* Direct Page Indirect Indexed, Y		08/0				addr <= {DBR,[{8'h00,D[15:0] + Operand[7:0]}][15:0]} + Y[15/7:0]
+* Direct Page Indirect Long Indexed, Y	08/0				addr <= {[{8'h00,D[15:0] + Operand[7:0]}][23:0]} + Y[15/7:0]
+
+- Immediate								    14/0				val <= Operand[15/7:0]
+- Implied								      28/0				-
+- Program Counter Relative		00/9				pc[15:0] <= pc[15:0] + SEXT16(Operand[7:0])
+- Program Counter Relative Long		00/1				
+
+// stack grows down with accesses (upper address gets pushed first)
+- Stack Absolute						  01/0				val <= Operand[15:0] // push val
+- Stack Direct Page Indirect	01/0				addr <= {DBR,[{8'h00,D[15:0] + Operand[7:0]}][15:0]} // read and push this to the stack
+- Stack Interrupt						  00/2				pc <= {8'h00,[FFE6/FFFE or FFE4/FFF4]} // push PC and status
+- Stack Program Counter Relative		01/0				val <= pc[15:0] + Operand[15:0] // push val
+- Stack Pull							    06/0				addr <= {8'h00,S[15:0] + 1} // +1 for 8b +1 and +2 for 16b
+- Stack Push							    07/0				addr <= {8'h00,S[15:0]} // 8b or upper 16b then lower 16b
+- Stack RTI								    00/1				addr <= {8'h00,S[15:0] + 1} // (high) pull pc[23/15:0], status (low)
+- Stack RTL								    00/1				addr <= {8'h00,S[15:0] + 1} // (high) pull pc[23:0] (low).  increment pc[15:0] before writing
+- Stack RTS								    00/1				addr <= {8'h00,S[15:0] + 1} // (high) pull pc[15:0] (low).  increment pc[15:0]
+- Stack Relative						  08/0				addr <= {8'h00,S[15:0] + Operand[7:0]}
+- Stack Relative Indirect Indexed, Y	08/0				addr <= {DBR,[{8'h00,S[15:0] + Operand[7:0]}][15:0]} + Y[15/7:0]
+
+255
++1 WDM
+
+Operations
+----------
+24+ per addressing mode
+
+6b		Addressing - Can be 5b with some merging
+7b		Operation - Compacted opcode.
+2bx2	Size (0-3) 1-4
+3b		Latency (0-7) 1-8
+3b		Destination
+
+----
+26->32b
+
+ROM Size 256 * 4B -> 1024B
+
+
+0  ST_EXE_FETCH
+1  SA1_ROM_RRQ
+2  SA1_ROM_RD_PENDr
+   ST_MEM_DELAY = 7
+3  ST_MEM_DELAY = 6
+4  ST_MEM_DELAY = 5
+5  ST_MEM_DELAY = 4
+6  ST_MEM_DELAY = 3
+7  ST_MEM_DELAY = 2
+8  ST_MEM_DELAY = 1
+9  ST_MEM_DELAY = 0
+10 ST_SA1_ROM_RD_END,SA1_ROM_DINr,RQ_SA1_ROM_RDYr
+11 ST_MMC_EXE_END,mmc_data_r,DECODE
+12 ADDRESS
+   ADDRESS_END
+13 EXECUTE
+14 WAIT
+
+Extra bytes
+m=0
+adc 69
+and 29 x
+bit 89 x
+cmp C9 x
+eor 49 x
+lda A9 x
+ora 09 x
+sbc E9
+
+
+x=0
+cpx E0 x
+cpy C0 x
+ldx A2 x
+ldy A0 x
+
+// command to generate decoder input
+cat optable.txt | perl -e 'while(<>) { chomp; next if m/^;/; my @table = split /\s+/; printf "           Instruction(index=$table[0], opcode=eOpcode.$table[1], mode=eMode.%-32s, operands=%d, latency=%d, prc=ePrc.%-4s, src=eReg.%-4s, dst=eReg.%-4s, load=$table[8], store=$table[9], ctl=$table[10], grp=eGrp.$table[11], imm=$table[12], bnk=eBnk.$table[13], add=eAdd.$table[14], mod=eMod.$table[15], ind=$table[16], lng=$table[17], stk=$table[18]),\n", $table[2], $table[3]-1, $table[4], $table[5], $table[6], $table[7]; print "\n" if ((hex($table[0]) & 0xF) == 0xF); }' > test
+
+37, 47, 77
+
+dey 88
+iny C8
+dex CA
+inx E8
+
+Load/Write Accumulator
+G1 (105)
+ADC
+AND
+CMP
+EOR
+LDA // move to pull?
+ORA
+SBC
+
+RMW
+G2 (30)
+ASL
+DEC
+INC
+LSR
+ROL
+ROR
+
+CBranch (8)
+BCC (0x90) 100
+BCS (0xB0) 101
+BEQ (0xF0) 111
+BMI (0x30) 001
+BNE (0xD0) 110
+BPL (0x10) 000
+BVC (0x50) 010
+BVS (0x70) 011
+
+Jump (13)
+JMP (0x4C,0x5C,0x6C,0x7C,0xDC)  x1xx1100
+BRA (0x80)                      10000000
+BRL (0x82)                      10000010
+JSL (0x22)                      00100010
+JSR (0x20, 0xFC)                00100000 11111100
+RTS (0x60)                      01100000
+RTL (0x6B)                      01101011
+RTI (0x40)                      01000000
+
+Push/Store (31) - 8 sources (A X Y B D P K Z)
+PHA
+PHX
+PHY
+PHB
+PHD
+PHP
+PHK
+STZ (4)
+STX (3) // G1
+STY (3) // G1
+STA (14)
+
+Pull/Load (16) A X Y /Z B D /S P
+PLA
+PLX
+PLY
+PLB
+PLD
+PLP
+LDX (5)
+LDY (5)
+
+Compare (11)
+CMP     110   01 or 10 or 11 
+CPX 7:5 1110ee00
+CPY 7:5 1100ee00
+BIT (5) All others 0010 0100/1100
+                   0011 0100/1100
+                   1000 1001
+   
+BIT bit6=0
+C*  bit6=1
+CMP |[1:0] = 1
+   
+00
+01 
+10
+11
+                   
+P (9)
+CLC (0x18) 0001
+SEC (0x38) 0011
+CLI (0x58) 0101
+SEI (0x78) 0111
+CLV (0xB8) 1011
+CLD (0xD8) 1101
+SED (0xF8) 1111
+
+REP (0xC2)
+SEP (0xE2)
+
+MV (2)
+MVN (0x54)
+MVP (0x44)
+
+Ignore (2)
+NOP
+WDM
+
+// A 
+Transfer (12)  // split into 2? (simple, special)
+TAX (0xAA) 10101010 // opcode[5:4],opcode[1]
+TAY (0xA8) 10101000
+TSX (0xBA) 10111010
+TXA (0x8A) 10001010
+TXS (0x9A) 10011010
+TYA (0x98) 10011000
+             ++  +
+TCD (0x5B) 01011011 // opcode[7:5]
+TCS (0x1B) 00011011
+TDC (0x7B) 01111011
+TSC (0x3B) 00111011
+TXY (0x9B) 10011011
+TYX (0xBB) 10111011
+
+Special (4)
+BRK (0x00) 00000000
+COP (0x02) 00000010
+STP (0xDB) 11011011
+WAI (0xCB) 11001011
+
+Simple (4)
+DEX (0xCA) 11001010 101
+DEY (0x88) 10001000 000
+INX (0xE8) 11101000 110
+INY (0xC8) 11001000 100
+
+Stack (3)
+PEA (0xF4) 11110100
+PEI (0xD4) 11010100
+PER (0x62) 01100010
+
+Xchange (2)
+XBA (0xEB)
+XCE (0xFB)
+
+Test (4)
+TRB
+TSB
+
+Decoder Bits:
+-------------
+- Remove Opcode.  Create 256 entry mapping table for debugger.
+- Bit per new group
+- 3-8b mask
+- Try to use opcode bits when possible rather than decoder.
+
++ PRI (opcode[7:5] as switch for operation) all write to a.
++ RMW (opcode[7:5] as switch for operation)
++ CBR (opcode[7:5] as switch for operation)
+- JMP (opcode[7] | opcode[2] ? nonstack : stack)
++ PHS all rely on src and addr.  Use push/store to substitute S for K.
++ PLL all rely on addr and dest encoder
+- CMP (opcode[7:5])
++ STS (opcode[4] ? opcode[7:5] : opcode[5])
+- MOV (opcode[4])
++ TFR (opcode[0] ? opcode[7:5] : opcode[5:4],opcode[1])
+- SPC (opcode[1]^opcode[4],opcode[0])
++ SMP (opcode[6:5],opcode[1]) - opcode bits messy
+- STK (opcode[5:4]
++ XCH (opcode[4])
+- TST (opcode[4])
+
+- StackPull
+- StackPush
+
+
