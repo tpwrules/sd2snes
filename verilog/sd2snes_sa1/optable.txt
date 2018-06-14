@@ -1,7 +1,7 @@
 ;    OP  ADDRESSING MODE                       SIZE  LAT  PRC   SRC   DST   LOAD  STORE CTL   GRP   IMM   BNK   ADD   MOD   IND   LNG   STK
-0x00 BRK StackInterrupt                        2     7    B     I     I     0     0     1     SPC   0     Z     SPL   I     0     0     1
+0x00 BRK StackInterrupt                        2     7    B     I     I     0     1     1     SPC   0     Z     SPL   I     0     0     1
 0x01 ORA DirectPageIndexedIndirectX            2     6    M     I     A     1     0     0     PRI   0     Z     DPR   X     1     0     0
-0x02 COP StackInterrupt                        2     7    B     I     I     0     0     1     SPC   0     Z     SPL   I     0     0     1
+0x02 COP StackInterrupt                        2     7    B     I     I     0     1     1     SPC   0     Z     SPL   I     0     0     1
 0x03 ORA StackRelative                         2     4    M     I     A     1     0     0     PRI   0     Z     SPR   I     0     0     0
 0x04 TSB DirectPage                            2     5    M     I     I     1     1     0     TST   0     Z     DPR   I     0     0     0
 0x05 ORA DirectPage                            2     3    M     I     A     1     0     0     PRI   0     Z     DPR   I     0     0     0

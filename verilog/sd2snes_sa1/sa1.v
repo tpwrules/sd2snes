@@ -761,7 +761,7 @@ reg        exe_mmc_wr_r; initial exe_mmc_wr_r = 0;
 reg        exe_mmc_dpe_r; initial exe_mmc_dpe_r = 0;
 reg [1:0]  exe_mmc_byte_total_r; initial exe_mmc_byte_total_r = 0;
 reg        exe_mmc_long_r; initial exe_mmc_long_r = 0;
-reg [23:0] exe_mmc_data_r;
+reg [31:0] exe_mmc_data_r;
 
 reg        dma_mmc_rd_r; initial dma_mmc_rd_r = 0;
 reg        dma_mmc_wr_r; initial dma_mmc_wr_r = 0;
@@ -1420,16 +1420,16 @@ always @(posedge CLK) begin
         if (~rom_bus_rrq_r & ~rom_bus_wrq_r & ROM_BUS_RDY) begin
           mmc_byte_r <= mmc_byte_r + 1;
 
-          if (mmc_wr_r) begin
-            rom_bus_data_r[7:0] <= mmc_data_r[15:8];
-          end
-          else begin
+          if (~mmc_wr_r) begin
             case (mmc_byte_r)
               0: mmc_data_r[ 7: 0] <= ROM_BUS_RDDATA[7:0];
               1: mmc_data_r[15: 8] <= ROM_BUS_RDDATA[7:0];
               2: mmc_data_r[23:16] <= ROM_BUS_RDDATA[7:0];
               3: mmc_data_r[31:24] <= ROM_BUS_RDDATA[7:0];
             endcase
+          end
+          else begin
+            mmc_data_r <= {mmc_data_r[7:0],mmc_data_r[31:24],mmc_data_r[23:16],mmc_data_r[15:8]};
           end
           
           if (mmc_byte_r != mmc_byte_total_r) begin
@@ -1463,6 +1463,9 @@ always @(posedge CLK) begin
               3: mmc_data_r[31:23] <= iram_dout[7:0];
             endcase
           end
+          else begin
+            mmc_data_r <= {mmc_data_r[7:0],mmc_data_r[31:24],mmc_data_r[23:16],mmc_data_r[15:8]};
+          end
 
           if (mmc_byte_r != mmc_byte_total_r) begin
             // stay in the same state and make a new request
@@ -1490,7 +1493,7 @@ always @(posedge CLK) begin
             endcase
           end
           else begin
-            mmc_data_r[7:0] <= mmc_data_r[15:8];
+            mmc_data_r <= {mmc_data_r[7:0],mmc_data_r[31:24],mmc_data_r[23:16],mmc_data_r[15:8]};
           end
           
           if (mmc_byte_r != mmc_byte_total_r) begin
@@ -1533,7 +1536,7 @@ assign RAM_BUS_WRDATA = ram_bus_data_r;
 
 assign iram_wren = mmc_iram_wr_r;
 assign iram_addr = mmc_addr_r[10:0];
-assign iram_din  = mmc_byte_r[0] ? mmc_data_r[15:8] : mmc_data_r[7:0];
+assign iram_din  = mmc_data_r[7:0];
 
 assign sa1_mmio_addr  = mmc_addr_r[7:0];
 assign sa1_mmio_data  = mmc_data_r[7:0];
@@ -1679,6 +1682,8 @@ reg [7:0]  exe_p_r; initial exe_p_r = 0;
 reg        exe_e_r; initial exe_e_r = 1;
 reg        exe_wai_r; initial exe_wai_r = 0;
 
+reg        exe_active_r; initial exe_active_r = 0;
+
 //wire       exe_grp_pri   = exe_decode_r[`GRP_PRI];
 //wire       exe_grp_rmw   = exe_decode_r[`GRP_RMW];
 //wire       exe_grp_cbr   = exe_decode_r[`GRP_CBR];
@@ -1770,6 +1775,8 @@ always @(posedge CLK) begin
     exe_mmc_data_r<= 0;
     exe_mmc_long_r<= 0;
     exe_mmc_byte_total_r <= 0;
+
+    exe_active_r <= 0;
     
     e2c_waitcnt_r <= 0;
   end
@@ -1784,6 +1791,8 @@ always @(posedge CLK) begin
           exe_data_word_r <= 0;
           exe_mmc_long_r <= 0;
           exe_mmc_dpe_r <= 0;
+          
+          exe_active_r <= 1;
 
           EXE_STATE <= ST_EXE_FETCH;
         end
@@ -2140,6 +2149,29 @@ always @(posedge CLK) begin
           end
           `GRP_SPC: begin
             // BRK, COP, STP, WAI, RTI
+            exe_mmc_byte_total_r <= {1'b1,E_r};
+
+            if (exe_load_r) begin
+              // RTI
+              exe_pbr_r    <= E_r ? exe_pbr_r : mmc_data_r[31:24];
+              exe_target_r <= mmc_data_r[23:8];
+              exe_p_r      <= mmc_data_r[7:0];
+              
+              if (mmc_data_r[`P_X]) begin
+                exe_x_r[15:8] <= 0;
+                exe_y_r[15:8] <= 0;
+              end
+            end
+            else if (exe_opcode_r[4]^exe_opcode_r[1]) begin
+              // STP,WAI
+              exe_active_r <= 0;
+              exe_wai_r <= exe_opcode_r[0];
+            end
+            else begin
+              // COP/BRK
+              exe_mmc_data_r <= {PBR_r,exe_nextpc_r,P_r};
+              exe_target_r <= {16'h00FF,3'h7,E_r,E_r,1'b1,~exe_opcode_r[1],1'b0};
+            end
           end
           `GRP_STK: begin
             // non-indirect will store data at stack address
@@ -2229,7 +2261,7 @@ always @(posedge CLK) begin
           // default to one clock
           e2c_waitcnt_r  <= 1;
 
-          EXE_STATE <= ST_EXE_FETCH;
+          EXE_STATE <= exe_active_r ? ST_EXE_FETCH : ST_EXE_IDLE;
         end
       end
     endcase
