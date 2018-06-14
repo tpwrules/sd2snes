@@ -1,0 +1,65 @@
+`define GRP_PRI     0
+`define GRP_RMW     1
+`define GRP_CBR     2
+`define GRP_JMP     3
+`define GRP_PHS     4
+`define GRP_PLL     5
+`define GRP_CMP     6
+`define GRP_STS     7
+`define GRP_MOV     8
+`define GRP_TXR     9
+`define GRP_SPC     10
+`define GRP_SMP     11
+`define GRP_STK     12
+`define GRP_XCH     13
+`define GRP_TST     14
+
+`define ADD_O16     0
+`define ADD_DPR     1
+`define ADD_PCR     2
+`define ADD_SPL     3
+`define ADD_SMI     4
+`define ADD_SPR     5
+
+`define BNK_PBR     0
+`define BNK_DBR     1
+`define BNK_ZRO     2
+`define BNK_O24     3
+
+`define MOD_X16     0
+`define MOD_Y16     1
+`define MOD_YPT     2
+`define MOD_INV     3
+
+`define ADD_STK     31:31
+`define ADD_LNG     30:30
+`define ADD_IND     29:29
+`define ADD_IMM     28:28
+`define ADD_MOD     27:26
+`define ADD_ADD     25:23
+`define ADD_BNK     22:21
+`define DEC_GROUP   20:17
+`define DEC_SIZE    16:15
+`define DEC_LATENCY 14:11
+`define DEC_PRC     10:9
+`define DEC_SRC      8:6
+`define DEC_DST      5:3
+`define DEC_LOAD     2:2
+`define DEC_STORE    1:1
+`define DEC_CONTROL  0:0
+
+`define PRC_B        0
+`define PRC_M        1
+`define PRC_X        2
+`define PRC_W        3
+
+`define REG_Z        0
+`define REG_A        1
+`define REG_X        2
+`define REG_Y        3
+`define REG_S        4
+`define REG_D        5
+`define REG_B        6
+`define REG_P        7
+`define REG_K        4
+
