@@ -98,8 +98,8 @@ module sa1(
 
 // address map tests
 `define IS_ROM(a)  ((&a[23:22]) | (~a[22] & a[15]))                                     // 00-3F/80-BF:8000-FFFF, C0-FF:0000-FFFF
-`define IS_BRAM(a) ((~a[22] & ~a[15] & &a[14:13]) | (~a[23] & a[22] & ~a[21] & ~a[20])) // 40-4F:0000-FFFF, 00-3F/80-BF:6000-7FFF
-`define IS_IRAM(a) (~a[22] & ~a[15] & ~a[14] & (~^a[13:12]) & ~a[11])                   // 00-3F/80-BF:0/3000-0/37FF
+`define IS_BRAM(a) ((~a[22] & ~a[15] & &a[14:13]) | (~a[23] & a[22] & ~a[21] & ~a[20])) // 00-3F/80-BF:6000-7FFF, 40-4F:0000-FFFF
+`define IS_IRAM(a) (~a[22] & ~a[15] & ~a[14] & ~^a[13:12] & ~a[11])                     // 00-3F/80-BF:0/3000-0/37FF
 `define IS_MMIO(a) (~a[22] & ~a[15] & ~a[14] & a[13] & ~a[12] & ~a[11] & ~a[10] & a[9]) // 00-3F/80-BF:2200-23FF
 `define IS_PRAM(a) (~a[23] & a[22] & a[21] & ~a[20])                                    // 60-6F:0000-FFFF
 
@@ -107,11 +107,11 @@ module sa1(
 wire       sw46;
 wire [6:0] cbm;
 // TODO: add MMC support to both here and addr module
-`define MAP_ROM(a) ((a[22] ? {2'b00, a[21:0]} : {3'b000, a[21:16], a[14:0]}) & ROM_MASK)
-`define MAP_BRAM(a) (24'hE00000 + ((a[22] ? a[19:0] : {(sw46 ? cbm[6:5] : 2'h0),cbm[4:0],a[12:0]}) & SAVERAM_MASK))
+`define MAP_ROM(a)  ((a[22] ? {2'b00, a[21:0]} : {3'b000, a[21:16], a[14:0]}) & ROM_MASK)
+`define MAP_BRAM(a) (24'hE00000 | ((a[22] ? a[19:0] : {(sw46 ? cbm[6:5] : 2'h0),cbm[4:0],a[12:0]}) & SAVERAM_MASK))
 `define MAP_IRAM(a) (a[10:0])
 `define MAP_MMIO(a) (a[8:0])
-`define MAP_PRAM(a) (a[19:0] & SAVERAM_MASK)
+`define MAP_PRAM(a) (24'hE00000 | (a[19:0] & SAVERAM_MASK))
 
 // temporaries
 integer i;
@@ -232,247 +232,6 @@ parameter
   ADDR_VDP   = 8'h0C, // $2
   ADDR_VC    = 8'h0E
   ;
-
-////---
-//// Opcodes
-////---
-//// special
-//`define OP_BRK           8'h00
-//`define OP_COP           8'h02
-//`define OP_CLC           8'h18
-//`define OP_CLD           8'hD8
-//`define OP_CLI           8'h58
-//`define OP_CLV           8'hB8
-//`define OP_SEC           8'h38
-//`define OP_SED           8'hF8
-//`define OP_SEI           8'h78
-//`define OP_REP           8'hC2
-//`define OP_SEP           8'hE2
-//`define OP_NOP           8'hEA
-//`define OP_STP           8'hDB
-//`define OP_WAI           8'hCB
-//`define OP_WDM           8'h42
-//
-//// arithmetic
-//`define OP_ADC           8'h61,8'h63,8'h65,8'h67,8'h69,8'h6D,8'h6F,8'h71,8'h73,8'h75,8'h77,8'h79,8'h7D,8'h7F
-//`define OP_SBC           8'hE1,8'hE3,8'hE5,8'hE7,8'hE9,8'hED,8'hEF,8'hF1,8'hF3,8'hF5,8'hF7,8'hF9,8'hFD,8'hFF
-//`define OP_CMP           8'hC1,8'hC3,8'hC5,8'hC7,8'hC9,8'hCD,8'hCF,8'hD1,8'hD3,8'hD5,8'hD7,8'hD9,8'hDD,8'hDF
-//`define OP_CPX           8'hE0,8'hE4,8'hEC
-//`define OP_CPY           8'hC0,8'hC4,8'hCC
-//`define OP_DEC           8'h3A,8'hC6,8'hCE,8'hD6,8'hDE
-//`define OP_DEX           8'hCA
-//`define OP_DEY           8'h88
-//`define OP_INC           8'h1A,8'hE6,8'hEE,8'hF6,8'hFE
-//`define OP_INX           8'hE8
-//`define OP_INY           8'hC8
-//
-//// logic
-//`define OP_ORA           8'h01,8'h03,8'h05,8'h07,8'h09,8'h0D,8'h0F,8'h11,8'h12,8'h13,8'h15,8'h17,8'h19,8'h1D,8'h1F
-//`define OP_AND           8'h21,8'h23,8'h25,8'h27,8'h29,8'h2D,8'h2F,8'h31,8'h32,8'h33,8'h35,8'h37,8'h39,8'h3D,8'h3F
-//`define OP_EOR           8'h41,8'h43,8'h45,8'h47,8'h49,8'h4D,8'h4F,8'h51,8'h52,8'h53,8'h55,8'h57,8'h59,8'h5D,8'h5F
-//`define OP_ASL           8'h06,8'h0A,8'h0E,8'h16,8'h1E
-//`define OP_LSR           8'h46,8'h4A,8'h4E,8'h56,8'h5E
-//`define OP_ROL           8'h26,8'h2A,8'h2E,8'h36,8'h3E
-//`define OP_ROR           8'h66,8'h6A,8'h6E,8'h76,8'h7E
-//`define OP_BIT           8'h24,8'h2C,8'h34,8'h3C,8'h89
-//`define OP_TRB           8'h14,8'h1C
-//`define OP_TSB           8'h04,8'h0C
-//
-//// control
-//`define OP_BPL           8'h10
-//`define OP_BMI           8'h30
-//`define OP_BVC           8'h50
-//`define OP_BVS           8'h70
-//`define OP_BCC           8'h90
-//`define OP_BCS           8'hB0
-//`define OP_BNE           8'hD0
-//`define OP_BEQ           8'hF0
-//`define OP_BRA           8'h80
-//`define OP_BRL           8'h82
-//`define OP_JMP           8'h4C,8'h5C,8'h6C,8'h7C,8'hDC
-//`define OP_JSR           8'h20,8'h22,8'hFC
-//`define OP_RTI           8'h40
-//`define OP_RTS           8'h60
-//`define OP_RTL           8'h6B
-//
-//// memory
-//`define OP_LDA           8'hA1,8'hA3,8'hA5,8'hA7,8'hA9,8'hAD,8'hAF,8'hB1,8'hB2,8'hB3,8'hB5,8'hB7,8'hB9,8'hBD,8'hBF
-//`define OP_LDX           8'hA2,8'hA6,8'hAE,8'hB6,8'hBE
-//`define OP_LDY           8'hA0,8'hA4,8'hAC,8'hB4,8'hBC
-//`define OP_STA           8'h81,8'h83,8'h85,8'h87,8'h89,8'h8D,8'h8F,8'h91,8'h92,8'h93,8'h95,8'h97,8'h99,8'h9D,8'h9F
-//`define OP_STX           8'h86,8'h8E,8'h96
-//`define OP_STY           8'h84,8'h8C,8'h94
-//`define OP_STZ           8'h64,8'h74,8'h9C,8'h9E
-//`define OP_MVN           8'h54
-//`define OP_MVP           8'h44
-//
-//// stack
-//`define OP_PEA           8'hF4
-//`define OP_PEI           8'hD4
-//`define OP_PER           8'h62
-//`define OP_PHA           8'h48
-//`define OP_PHB           8'h8B
-//`define OP_PHD           8'h0B
-//`define OP_PHK           8'h4B
-//`define OP_PHP           8'h08
-//`define OP_PHX           8'hDA
-//`define OP_PHY           8'h5A
-//`define OP_PLA           8'h68
-//`define OP_PLB           8'hAB
-//`define OP_PLD           8'h2B
-//`define OP_PLP           8'h28
-//`define OP_PLX           8'hFA
-//`define OP_PLY           8'h7A
-//
-//// move
-//`define OP_TAX           8'hAA
-//`define OP_TAY           8'hA8
-//`define OP_TCD           8'h5B
-//`define OP_TCS           8'h1B
-//`define OP_TDC           8'h7B
-//`define OP_TSC           8'h3B
-//`define OP_TSX           8'hBA
-//`define OP_TXA           8'h8A
-//`define OP_TXS           8'h9A
-//`define OP_TXY           8'h9B
-//`define OP_TYA           8'h98
-//`define OP_TYX           8'hBB
-//`define OP_XBA           8'hEB
-//`define OP_XCE           8'hFB
-
-//---
-// Instructions
-//---
-
-`define INST_ADC         0
-`define INST_AND         1
-`define INST_ASL         2
-`define INST_BCC         3
-`define INST_BCS         4
-`define INST_BEQ         5
-`define INST_BIT         6
-`define INST_BMI         7
-`define INST_BNE         8
-`define INST_BPL         9
-`define INST_BRA         10
-`define INST_BRK         11
-`define INST_BRL         12
-`define INST_BVC         13
-`define INST_BVS         14
-`define INST_CLC         15
-`define INST_CLD         16
-`define INST_CLI         17
-`define INST_CLV         18
-`define INST_CMP         19
-`define INST_COP         20
-`define INST_CPX         21
-`define INST_CPY         22
-`define INST_DEC         23
-`define INST_DEX         24
-`define INST_DEY         25
-`define INST_EOR         26
-`define INST_INC         27
-`define INST_INX         28
-`define INST_INY         29
-`define INST_JML         30
-`define INST_JMP         31
-`define INST_JSL         32
-`define INST_JSR         33
-`define INST_LDA         34
-`define INST_LDX         35
-`define INST_LDY         36
-`define INST_LSR         37
-`define INST_MVN         38
-`define INST_MVP         39
-`define INST_NOP         40
-`define INST_ORA         41
-`define INST_PEA         42
-`define INST_PEI         43
-`define INST_PER         44
-`define INST_PHA         45
-`define INST_PHB         46
-`define INST_PHD         47
-`define INST_PHK         48
-`define INST_PHP         49
-`define INST_PHX         50
-`define INST_PHY         51
-`define INST_PLA         52
-`define INST_PLB         53
-`define INST_PLD         54
-`define INST_PLP         55
-`define INST_PLX         56
-`define INST_PLY         57
-`define INST_REP         58
-`define INST_ROL         59
-`define INST_ROR         60
-`define INST_RTI         61
-`define INST_RTL         62
-`define INST_RTS         63
-`define INST_SBC         64
-`define INST_SEC         65
-`define INST_SED         66
-`define INST_SEI         67
-`define INST_SEP         68
-`define INST_STA         69
-`define INST_STP         70
-`define INST_STX         71
-`define INST_STY         72
-`define INST_STZ         73
-`define INST_TAX         74
-`define INST_TAY         75
-`define INST_TCD         76
-`define INST_TCS         77
-`define INST_TDC         78
-`define INST_TRB         79
-`define INST_TSB         80
-`define INST_TSC         81
-`define INST_TSX         82
-`define INST_TXA         83
-`define INST_TXS         84
-`define INST_TXY         85
-`define INST_TYA         86
-`define INST_TYX         87
-`define INST_WAI         88
-`define INST_WDM         89
-`define INST_XBA         90
-`define INST_XCE         91
-
-//---
-// Address Modes
-//---
-
-`define ADDR_Absolute                       0
-`define ADDR_AbsoluteIndexedX		            1
-`define ADDR_AbsoluteIndexedY		            2
-`define ADDR_AbsoluteIndexedIndirect	      3
-`define ADDR_AbsoluteIndirect		            4
-`define ADDR_AbsoluteIndirectLong	          5
-`define ADDR_AbsoluteLong		                6
-`define ADDR_AbsoluteLongIndexedX	          7
-`define ADDR_Accumulator		                8
-`define ADDR_DirectPage			                9
-`define ADDR_DirectPageIndexedX		          10
-`define ADDR_DirectPageIndexedY		          11
-`define ADDR_DirectPageIndexedIndirectX	    12
-`define ADDR_DirectPageIndirect		          13
-`define ADDR_DirectPageIndirectLong	        14
-`define ADDR_DirectPageIndirectIndexedY	    15
-`define ADDR_DirectPageIndirectLongIndexedY 16
-`define ADDR_Immediate			                17
-`define ADDR_Implied			                  18
-`define ADDR_ProgramCounterRelative	        19
-`define ADDR_ProgramCounterRelativeLong	    20
-`define ADDR_StackAbsolute		              21
-`define ADDR_StackDirectPageIndirect	      22
-`define ADDR_StackInterrupt		              23
-`define ADDR_StackProgramCounterRelative    24
-`define ADDR_StackPull			                25
-`define ADDR_StackPush			                26
-`define ADDR_StackRTI			                  27
-`define ADDR_StackRTL			                  28
-`define ADDR_StackRTS			                  29
-`define ADDR_StackRelative		              30
-`define ADDR_StackRelativeIndirectIndexedY  31
 
 //-------------------------------------------------------------------
 // CONFIG
@@ -908,14 +667,14 @@ always @(posedge CLK) begin
       data_out_r <= snes_iram_out;
     end
   
-    // Register Write Buffer.  snes writes are sent on non-SA1 clocks
+    // Register Write Buffer.
     if (SNES_WR_end & `IS_MMIO(addr_in_r)) begin
       snes_writebuf_val_r  <= 1;
       snes_writebuf_iram_r <= 0;
       snes_writebuf_addr_r <= {2'h0,addr_in_r[8:0]};
       snes_writebuf_data_r <= data_in_r;
     end
-    else if (SNES_WR_end & `IS_IRAM(addr_in_r) & &addr_in_r[13:12]) begin
+    else if (SNES_WR_end & `IS_IRAM(addr_in_r)) begin
       snes_writebuf_val_r  <= 0;
       snes_writebuf_iram_r <= 1;
       snes_writebuf_addr_r <= addr_in_r[10:0];
@@ -1287,6 +1046,7 @@ always @(posedge CLK) begin
           mmc_dpe_r <= exe_mmc_dpe_r;
           mmc_wr_r <= exe_mmc_wr_r;
           mmc_long_r <= exe_mmc_long_r;
+          mmc_data_r <= exe_mmc_data_r;
 
           if      (`IS_ROM(exe_mmc_addr) & ROM_BUS_RDY) begin
             rom_bus_rrq_r  <= ~exe_mmc_wr_r;
@@ -1298,20 +1058,13 @@ always @(posedge CLK) begin
             MMC_STATE <= exe_mmc_wr_r ? ST_MMC_INV : ST_MMC_ROM;
           end
           else if (`IS_BRAM(exe_mmc_addr) & ROM_BUS_RDY) begin
-`ifdef CSRAM
-            ram_bus_rrq_r  <= ~exe_mmc_wr_r;
-            ram_bus_wrq_r  <=  exe_mmc_wr_r;
-            ram_bus_addr_r <= `MAP_BRAM(exe_mmc_addr);
-            ram_bus_data_r <= exe_mmc_data_r[7:0];
-`else
             rom_bus_rrq_r  <= ~exe_mmc_wr_r;
             rom_bus_wrq_r  <=  exe_mmc_wr_r;
-            rom_bus_addr_r <= 24'hE00000 + `MAP_BRAM(exe_mmc_addr);
+            rom_bus_addr_r <= `MAP_BRAM(exe_mmc_addr);
             rom_bus_data_r <= exe_mmc_data_r[7:0];
-`endif
-            mmc_addr_r     <= `MAP_BRAM(exe_mmc_addr);
+            rom_bus_word_r <= 0;
 
-            //mmc_invalid_r <= exe_mmc_wr_r;
+            mmc_addr_r     <= `MAP_BRAM(exe_mmc_addr);
             mmc_busy_r <= 1;
             MMC_STATE <= ST_MMC_BRAM;
           end
@@ -1328,17 +1081,13 @@ always @(posedge CLK) begin
             MMC_STATE <= ST_MMC_MMIO;
           end
           else if (`IS_PRAM(exe_mmc_addr) & ROM_BUS_RDY) begin
-`ifdef CSRAM
-            ram_bus_rrq_r  <= ~exe_mmc_wr_r;
-            ram_bus_wrq_r  <=  exe_mmc_wr_r;
-            ram_bus_addr_r <= `MAP_PRAM(exe_mmc_addr);
-            ram_bus_data_r <= exe_mmc_data_r[7:0];
-`else
             rom_bus_rrq_r  <= ~exe_mmc_wr_r;
             rom_bus_wrq_r  <=  exe_mmc_wr_r;
-            rom_bus_addr_r <= 24'hE00000 + `MAP_PRAM(exe_mmc_addr);
+            rom_bus_addr_r <= `MAP_PRAM(exe_mmc_addr);
             rom_bus_data_r <= exe_mmc_data_r[7:0];
-`endif
+            rom_bus_word_r <= 0;
+            
+            mmc_addr_r     <= `MAP_PRAM(exe_mmc_addr);
             mmc_busy_r <= 1;
             MMC_STATE <= exe_mmc_wr_r ? ST_MMC_INV : ST_MMC_BRAM;
           end
@@ -1347,7 +1096,6 @@ always @(posedge CLK) begin
             MMC_STATE <= ST_MMC_INV;
           end
           
-          mmc_data_r      <= exe_mmc_data_r;
           mmc_state_end_r <= ST_MMC_EXE_END;
         end
         // TODO: assign priority conditions
@@ -1381,39 +1129,6 @@ always @(posedge CLK) begin
         end
       end
       ST_MMC_BRAM: begin
-`ifdef CSRAM
-        ram_bus_rrq_r <= 0;
-        ram_bus_wrq_r <= 0;
-
-        if (~ram_bus_rrq_r & ~ram_bus_wrq_r & RAM_BUS_RDY) begin
-          mmc_byte_r <= mmc_byte_r + 1;
-
-          if (mmc_wr_r) begin
-            ram_bus_data_r[7:0] <= mmc_data_r[15:8];
-          end
-          else begin
-            case (mmc_byte_r)
-              0: mmc_data_r[ 7: 0] <= RAM_BUS_RDDATA[7:0];
-              1: mmc_data_r[15: 8] <= RAM_BUS_RDDATA[7:0];
-              2: mmc_data_r[23:16] <= RAM_BUS_RDDATA[7:0];
-              3: mmc_data_r[31:24] <= RAM_BUS_RDDATA[7:0];
-            endcase
-          end
-          
-          if (mmc_byte_r != mmc_byte_total_r) begin
-            // stay in the same state and make a new request
-            ram_bus_rrq_r  <= ~mmc_wr_r;
-            ram_bus_wrq_r  <=  mmc_wr_r;
-            
-            if      (mmc_dpe_r)  ram_bus_addr_r[7:0]  <= ram_bus_addr_r[7:0]  + 1;
-            else if (mmc_long_r) ram_bus_addr_r[23:0] <= ram_bus_addr_r[23:0] + 1;
-            else                 ram_bus_addr_r[15:0] <= ram_bus_addr_r[15:0] + 1;
-          end
-          else begin
-            MMC_STATE <= mmc_state_end_r;
-          end
-        end
- `else
         rom_bus_rrq_r <= 0;
         rom_bus_wrq_r <= 0;
 
@@ -1440,16 +1155,15 @@ always @(posedge CLK) begin
             if      (mmc_dpe_r)  rom_bus_addr_r[7:0]  <= rom_bus_addr_r[7:0]  + 1;
             else if (mmc_long_r) rom_bus_addr_r[23:0] <= rom_bus_addr_r[23:0] + 1;
             else                 rom_bus_addr_r[15:0] <= rom_bus_addr_r[15:0] + 1;
+            
+            rom_bus_data_r <= mmc_data_r[15:8];
           end
           else begin
             MMC_STATE <= mmc_state_end_r;
           end
         end
- `endif
       end
       ST_MMC_IRAM: begin
-        mmc_iram_wr_r <= 0;
-        
         mmc_iram_state_r <= ~mmc_iram_state_r;
       
         if (mmc_iram_state_r) begin
@@ -1523,7 +1237,7 @@ end
 assign ROM_BUS_RRQ = rom_bus_rrq_r;
 assign ROM_BUS_WRQ = rom_bus_wrq_r;
 assign ROM_BUS_WORD = rom_bus_word_r;
-assign ROM_BUS_ADDR = {rom_bus_addr_r[23]|rom_bus_addr_r[0],rom_bus_addr_r[22:1],rom_bus_addr_r[23]&rom_bus_addr_r[0]};
+assign ROM_BUS_ADDR = {rom_bus_addr_r[23] | (rom_bus_addr_r[0] & rom_bus_word_r), rom_bus_addr_r[22:1], (rom_bus_addr_r[23] | ~rom_bus_word_r) & rom_bus_addr_r[0]};
 assign ROM_BUS_WRDATA = rom_bus_data_r;
 
 `ifdef CSRAM
@@ -1670,6 +1384,7 @@ reg [15:0] exe_nextpc_r; initial exe_nextpc_r = 0;
 reg [15:0] exe_nextpc_addr_r; initial exe_nextpc_addr_r = 0;
 reg [15:0] exe_add_post_r; initial exe_add_post_r = 0;
 reg [23:0] exe_target_r; initial exe_target_r = 0;
+reg [15:0] exe_mod_r; initial exe_mod_r = 0;
 
 reg [15:0] exe_a_r; initial exe_a_r = 0;
 reg [15:0] exe_x_r; initial exe_x_r = 0;
@@ -1843,6 +1558,9 @@ always @(posedge CLK) begin
             // TODO: hide the -1 in the decoder
             e2c_waitcnt_r <= dec_data[`DEC_LATENCY] - 1;
             
+            // `define ADD_MOD     27:26
+            exe_mod_r <= dec_data[27] ? 16'h0000 : dec_data[26] ? Y_r[15:0] : X_r[15:0];
+            
             if (dec_data[`DEC_SIZE] > 1 || (|({~P_r[`P_X],~P_r[`P_M]}&dec_data[`DEC_PRC]) & dec_data[`ADD_IMM])) begin
               // fetch the remainder of the instruction
               exe_fetch_addr_r[15:0] <= exe_fetch_addr_r[15:0] + 2;
@@ -1882,12 +1600,12 @@ always @(posedge CLK) begin
         endcase
 
         case (exe_dec_add_base)
-          `ADD_O16: exe_addr_r[15:0] <= exe_operand_r[15:0]                                            + (exe_dec_add_mod[1] ? 8'h00 : exe_dec_add_mod[0] ? Y_r[15:0] : X_r[15:0]);
-          `ADD_DPR: exe_addr_r[15:0] <= D_r + {8'h00,exe_operand_r[7:0]}                               + (exe_dec_add_mod[1] ? 8'h00 : exe_dec_add_mod[0] ? Y_r[15:0] : X_r[15:0]);
-          `ADD_PCR: exe_addr_r[15:0] <= exe_nextpc_addr_r + {(exe_dec_add_long ? exe_operand_r[15:8] : {8{exe_operand_r[7]}}),exe_operand_r[7:0]} + (exe_dec_add_mod[1] ? 8'h00 : exe_dec_add_mod[0] ? Y_r[15:0] : X_r[15:0]);
-          `ADD_SPL: exe_addr_r[15:0] <= S_r + 1                                                        + (exe_dec_add_mod[1] ? 8'h00 : exe_dec_add_mod[0] ? Y_r[15:0] : X_r[15:0]);
-          `ADD_SMI: exe_addr_r[15:0] <= S_r - exe_data_word_r                                          + (exe_dec_add_mod[1] ? 8'h00 : exe_dec_add_mod[0] ? Y_r[15:0] : X_r[15:0]);
-          `ADD_SPR: exe_addr_r[15:0] <= S_r + {8'h00,exe_operand_r[7:0]}                               + (exe_dec_add_mod[1] ? 8'h00 : exe_dec_add_mod[0] ? Y_r[15:0] : X_r[15:0]);
+          `ADD_O16: exe_addr_r[15:0] <= exe_operand_r[15:0]                                            + exe_mod_r;
+          `ADD_DPR: exe_addr_r[15:0] <= D_r + {8'h00,exe_operand_r[7:0]}                               + exe_mod_r;
+          `ADD_PCR: exe_addr_r[15:0] <= exe_nextpc_addr_r + {(exe_dec_add_long ? exe_operand_r[15:8] : {8{exe_operand_r[7]}}),exe_operand_r[7:0]} + exe_mod_r;
+          `ADD_SPL: exe_addr_r[15:0] <= S_r + 1                                                        + exe_mod_r;
+          `ADD_SMI: exe_addr_r[15:0] <= S_r - exe_data_word_r                                          + exe_mod_r;
+          `ADD_SPR: exe_addr_r[15:0] <= S_r + {8'h00,exe_operand_r[7:0]}                               + exe_mod_r;
         endcase
 
         // initialize the operand data as the immediate field.
@@ -1929,9 +1647,6 @@ always @(posedge CLK) begin
         // save target address since it will be overwritten by JSL/JSR
         exe_target_r <= exe_addr_r;
 
-        // NOP and WDM are not in any group
-        //case ({exe_grp_pri,exe_grp_rmw,exe_grp_cbr,exe_grp_jmp,exe_grp_phs,exe_grp_pll,exe_grp_cmp,exe_grp_sts,
-        //       exe_grp_mov,exe_grp_txr,exe_grp_smp,exe_grp_spc,exe_grp_stk,exe_grp_xch,exe_grp_tst})
         case (exe_dec_grp)
           `GRP_PRI: begin
             // TODO: deal with D bit
@@ -1954,7 +1669,8 @@ always @(posedge CLK) begin
               
             if (&exe_opcode_r[6:5]) begin
               exe_p_r[`P_V] <= exe_data_word_r ? (~(A_r[15] ^ exe_data_r[15]) & (A_r[15] ^ exe_result[15])) : (~(A_r[7] ^ exe_data_r[7]) & (A_r[7] ^ exe_result[7]));
-              exe_p_r[`P_C] <= exe_data_word_r ? exe_result[16] : exe_result[8];
+              // SBC sets carry when no borrow required...
+              exe_p_r[`P_C] <= exe_opcode_r[7] ^ (exe_data_word_r ? exe_result[16] : exe_result[8]);
             end
           end
           `GRP_RMW: begin
@@ -1966,14 +1682,17 @@ always @(posedge CLK) begin
               3: exe_result[16:0] = exe_data_word_r ? {exe_data_r[0],exe_data_r[0],exe_data_r[15:1]} : {8'h00,exe_data_r[0],exe_data_r[0],exe_data_r[7:1]}; // ROR
               //4: // STX,STY
               //5: // -
-              6: exe_result[15:0] = (exe_data_word_r ? exe_data_r[15:0] : exe_data_r[7:0]) - 1; // DEC
-              7: exe_result[15:0] = (exe_data_word_r ? exe_data_r[15:0] : exe_data_r[7:0]) + 1; // INC
+              6: exe_result[15:0] = exe_data_word_r ? (exe_data_r[15:0]-1) : (exe_data_r[7:0]-1); // DEC
+              7: exe_result[15:0] = exe_data_word_r ? (exe_data_r[15:0]+1) : (exe_data_r[7:0]+1); // INC
               default: exe_result[15:0] = 0;
             endcase
             
             if (~exe_store_r) begin
               exe_a_r <= {exe_data_word_r ? exe_result[15:8] : exe_a_r[15:8], exe_result[7:0]};
             end
+            
+            // data for store
+            exe_mmc_data_r[15:0] <= exe_result[15:0];
             
             exe_p_r[`P_N] <= exe_data_word_r ? exe_result[15]     : exe_result[7];
             exe_p_r[`P_Z] <= exe_data_word_r ? ~|exe_result[15:0] : ~|exe_result[7:0];
@@ -2008,7 +1727,7 @@ always @(posedge CLK) begin
             exe_mmc_data_r[15:0] <= exe_data_r[15:0];
             
             if (exe_dec_add_stk) exe_s_r <= S_r - (exe_data_word_r ? 2 : 1);
-
+            
             EXE_STATE <= ST_EXE_EXECUTE_END;
           end
           `GRP_PLL: begin
@@ -2041,7 +1760,7 @@ always @(posedge CLK) begin
             end
             else begin
               // CMP, CPX, CPY
-              exe_result = exe_data_word_r ? exe_dst_r[15:0] - exe_src_r[15:0] : {8'h00,exe_dst_r[7:0]} - {8'h00,exe_src_r[7:0]};
+              exe_result[16:0] = exe_data_word_r ? exe_dst_r[15:0] - exe_src_r[15:0] : {8'h00,exe_dst_r[7:0]} - {8'h00,exe_src_r[7:0]};
               
               exe_p_r[`P_N] <= exe_data_word_r ? exe_result[15]     : exe_result[7];
               exe_p_r[`P_Z] <= exe_data_word_r ? ~|exe_result[15:0] : ~|exe_result[7:0];
@@ -2077,7 +1796,7 @@ always @(posedge CLK) begin
             // TODO: apply correct latency
             exe_d_r <= exe_operand_r[7:0];
           
-            if ((exe_load_r | |exe_a_r) & ~exe_store_r) begin
+            if ((exe_load_r | |exe_a_r) & ~exe_store_r /* & ~INT*/) begin
               exe_mmc_rd_r   <= 1;
               exe_mmc_wr_r   <= 0;
               exe_mmc_addr_r <= {exe_operand_r[15:8], exe_x_r}; // use intermediate X
@@ -2090,20 +1809,20 @@ always @(posedge CLK) begin
               // predecrement and guard check
               exe_a_r        <= exe_a_r - 1;
             end
-            else if (|exe_a_r) begin
+            else begin
               exe_mmc_rd_r   <= 0;
               exe_mmc_wr_r   <= 1;
               exe_mmc_addr_r <= {exe_operand_r[7:0], exe_y_r}; // use intermediate X
               exe_mmc_byte_total_r <= 0;
               
-              exe_load_r     <= 1;
+              exe_load_r     <= |exe_a_r /*& ~INT*/;
               exe_store_r    <= 0;
               
               exe_y_r        <= exe_y_r + (exe_opcode_r[4] ? 1 : -1);
             end
             
-            // exit when we have completed the instruction or hit an interrupt
-            EXE_STATE <= (~exe_load_r & (~|exe_a_r /*| INT*/)) ? ST_EXE_WAIT : ST_EXE_EXECUTE_END;
+            // END takes care of exit
+            EXE_STATE <= ST_EXE_EXECUTE_END;
           end
           `GRP_TXR: begin
             exe_result[15:0] = {exe_data_word_r ? exe_src_r[15:8] : exe_dst_r[15:8], exe_src_r[7:0]};
@@ -2124,23 +1843,25 @@ always @(posedge CLK) begin
             end
           end
           `GRP_SMP: begin
-            if (P_r[`P_X]) begin
-              exe_result[7:0] = (exe_opcode_r[6] ^ exe_opcode_r[1]) ? exe_src_r[7:0] + 1 : exe_src_r[7:0] - 1;
+            if (~exe_data_word_r) begin
+              exe_result[7:0] = ((exe_opcode_r[4] & ~exe_opcode_r[5]) | (~exe_opcode_r[4] & (exe_opcode_r[6] ^ exe_opcode_r[1]))) ? exe_src_r[7:0] + 1 : exe_src_r[7:0] - 1;
               
               // register output
-              if (exe_opcode_r[5] ^ exe_opcode_r[1]) exe_x_r[7:0]  <= exe_result[7:0];
-              else                                   exe_y_r[7:0]  <= exe_result[7:0];
+              if      (exe_opcode_r[4])                   exe_a_r[7:0]  <= exe_result[7:0];
+              else if (exe_opcode_r[5] ^ exe_opcode_r[1]) exe_x_r[7:0]  <= exe_result[7:0];
+              else                                        exe_y_r[7:0]  <= exe_result[7:0];
 
               // condition codes
               exe_p_r[`P_N] <= exe_result[7];
               exe_p_r[`P_Z] <= ~|exe_result[7:0];
             end
             else begin
-              exe_result[15:0] = (exe_opcode_r[6] ^ exe_opcode_r[1]) ? exe_src_r[15:0] + 1 :  (exe_src_r[15:0] - 1);
+              exe_result[15:0] = ((exe_opcode_r[4] & ~exe_opcode_r[5]) | (~exe_opcode_r[4] & (exe_opcode_r[6] ^ exe_opcode_r[1]))) ? exe_src_r[15:0] + 1 :  (exe_src_r[15:0] - 1);
               
               // register output
-              if (exe_opcode_r[5] ^ exe_opcode_r[1]) exe_x_r[15:0]  <= exe_result[15:0];
-              else                                   exe_y_r[15:0]  <= exe_result[15:0];
+              if      (exe_opcode_r[4])                   exe_a_r[7:0]   <= exe_result[15:0];
+              else if (exe_opcode_r[5] ^ exe_opcode_r[1]) exe_x_r[15:0]  <= exe_result[15:0];
+              else                                        exe_y_r[15:0]  <= exe_result[15:0];
 
               // condition codes
               exe_p_r[`P_N] <= exe_result[15];
@@ -2156,6 +1877,7 @@ always @(posedge CLK) begin
               exe_pbr_r    <= E_r ? exe_pbr_r : mmc_data_r[31:24];
               exe_target_r <= mmc_data_r[23:8];
               exe_p_r      <= mmc_data_r[7:0];
+              exe_s_r <= S_r + {~E_r,E_r,E_r};
               
               if (mmc_data_r[`P_X]) begin
                 exe_x_r[15:8] <= 0;
@@ -2168,9 +1890,12 @@ always @(posedge CLK) begin
               exe_wai_r <= exe_opcode_r[0];
             end
             else begin
+              // TODO: add NMI/INT support here, too.
               // COP/BRK
               exe_mmc_data_r <= {PBR_r,exe_nextpc_r,P_r};
               exe_target_r <= {16'h00FF,3'h7,E_r,E_r,1'b1,~exe_opcode_r[1],1'b0};
+              exe_s_r <= S_r - {~E_r,E_r,E_r};
+              exe_p_r[`P_I] <= 1;
             end
           end
           `GRP_STK: begin
@@ -2222,7 +1947,7 @@ always @(posedge CLK) begin
           exe_mmc_rd_r <= 0;
           exe_mmc_wr_r <= 0;
           exe_load_r <= 0;
-          exe_data_r <= mmc_data_r;
+          if (exe_load_r) exe_data_r <= mmc_data_r;
         
           // return to EXECUTE if there are still work to do
           EXE_STATE <= exe_load_r ? ST_EXE_EXECUTE : ST_EXE_WAIT;
@@ -2261,6 +1986,8 @@ always @(posedge CLK) begin
           // default to one clock
           e2c_waitcnt_r  <= 1;
 
+          // TODO: add interrupt support to go back to EXECUTE and look like a special BRK/COP
+          // Should just work if we are already at the PC of the instruction to return to.
           EXE_STATE <= exe_active_r ? ST_EXE_FETCH : ST_EXE_IDLE;
         end
       end
@@ -2505,6 +2232,18 @@ always @(posedge CLK) begin
         8'hAB           : pgmpre_out[0] <= mmc_long_r;
         8'hAC           : pgmpre_out[0] <= mmc_dpe_r;
         8'hAD           : pgmpre_out[0] <= mmc_state_end_r;
+
+//        8'hB0           : pgmpre_out[0] <= exe_mmc_rd_r;
+//        8'hB1           : pgmpre_out[0] <= exe_mmc_addr_r[7:0];
+//        8'hB2           : pgmpre_out[0] <= exe_mmc_addr_r[15:8];
+//        8'hB3           : pgmpre_out[0] <= exe_mmc_addr_r[23:16];
+//        8'hB4           : pgmpre_out[0] <= exe_mmc_data_r[7:0];
+//        8'hB5           : pgmpre_out[0] <= exe_mmc_data_r[15:8];
+//        8'hB6           : pgmpre_out[0] <= exe_mmc_data_r[23:16];
+//        8'hB7           : pgmpre_out[0] <= exe_mmc_data_r[31:24];
+//        8'hB8           : pgmpre_out[0] <= exe_mmc_wr_r;
+//        8'hB9           : pgmpre_out[0] <= exe_mmc_long_r;
+//        8'hBA           : pgmpre_out[0] <= exe_mmc_byte_total_r;
 `endif
         
         // C0-DF EXECUTE
@@ -2588,177 +2327,3 @@ assign IRQ         = 1'b0;
 assign BMAPS_SBM   = BMAPS_r[`BMAPS_SBM];
 
 endmodule
-
-`ifdef ADDR_OLD
-        exe_mmc_byte_total_r <= 0;
-        exe_mmc_long_r <= 0;
-        exe_mmc_dpe_r  <= 0;
-
-        exe_dst_r <= REG[exe_dec_dst];
-        exe_src_r  <= REG[exe_dec_src];
-
-        exe_nextpc_r <= exe_nextpc_addr_r;
-        EXE_STATE <= ST_EXE_EXECUTE; // default to execute
-      
-        case (exe_dec_mode)
-          `ADDR_Absolute                       : exe_addr_r <= {(exe_control_r ? PBR_r : DBR_r),exe_operand_r[15:0]};
-          `ADDR_AbsoluteIndexedX	             : exe_addr_r <= {DBR_r,exe_operand_r[15:0] + X_r};
-          `ADDR_AbsoluteIndexedY	             : exe_addr_r <= {DBR_r,exe_operand_r[15:0] + Y_r};
-
-          `ADDR_AbsoluteIndexedIndirect	       : begin exe_mmc_addr_r <= {PBR_r,exe_operand_r[15:0] + X_r}; exe_mmc_rd_r <= 1;                      EXE_STATE <= ST_EXE_ADDRESS_END; end
-          `ADDR_AbsoluteIndirect	             : begin exe_mmc_addr_r <= {8'h00,exe_operand_r[15:0]};       exe_mmc_rd_r <= 1;                      EXE_STATE <= ST_EXE_ADDRESS_END; end
-          `ADDR_AbsoluteIndirectLong	         : begin exe_mmc_addr_r <= {8'h00,exe_operand_r[15:0]};       exe_mmc_rd_r <= 1; exe_mmc_long_r <= 1; EXE_STATE <= ST_EXE_ADDRESS_END; end
-
-          `ADDR_AbsoluteLong		               : begin exe_addr_r <= exe_operand_r[23:0]; exe_mmc_long_r <= 1; if (exe_control_r) exe_pbr_r <= exe_operand_r[23:16]; end
-          `ADDR_AbsoluteLongIndexedX	         : exe_addr_r <= exe_operand_r[23:0] + X_r;
-          `ADDR_Accumulator		                 : begin end
-          `ADDR_DirectPage		                 : begin exe_addr_r <= {8'h00,D_r +       {8'h00,exe_operand_r[7:0]}};  exe_mmc_dpe_r <= exe_dpe; end
-          `ADDR_DirectPageIndexedX	           : begin exe_addr_r <= {8'h00,D_r + X_r + {8'h00,exe_operand_r[7:0]}};  exe_mmc_dpe_r <= exe_dpe; end
-          `ADDR_DirectPageIndexedY	           : begin exe_addr_r <= {8'h00,D_r + Y_r + {8'h00,exe_operand_r[7:0]}};  exe_mmc_dpe_r <= exe_dpe; end
-
-          `ADDR_DirectPageIndexedIndirectX     : begin
-            exe_addr_r[23:16] <= DBR_r;
-            exe_mmc_addr_r <= {8'h00,D_r + exe_operand_r[7:0] + X_r};
-            exe_mmc_rd_r <= 1;
-            exe_mmc_dpe_r <= exe_dpe;
-            EXE_STATE <= ST_EXE_ADDRESS_END;
-          end
-          `ADDR_DirectPageIndirect	           : begin
-            exe_addr_r[23:16] <= DBR_r;
-            exe_mmc_addr_r <= {8'h00,D_r + exe_operand_r[7:0]};
-            exe_mmc_rd_r <= 1;
-            exe_mmc_dpe_r <= exe_dpe;
-            EXE_STATE <= ST_EXE_ADDRESS_END;
-          end
-          `ADDR_DirectPageIndirectLong	       : begin
-            exe_mmc_addr_r <= {8'h00,D_r + exe_operand_r[7:0]};
-            exe_mmc_rd_r <= 1;
-            //exe_mmc_dpe_r <= exe_dpe;
-            exe_mmc_long_r <= 1;
-            EXE_STATE <= ST_EXE_ADDRESS_END;
-          end
-          `ADDR_DirectPageIndirectIndexedY     : begin
-            exe_addr_r[23:16] <= DBR_r;
-            exe_mmc_addr_r <= {8'h00,D_r + exe_operand_r[7:0]};
-            exe_mmc_rd_r <= 1;
-            exe_mmc_dpe_r <= exe_dpe;
-            // FIXME: indexing happens after read to form address
-            EXE_STATE <= ST_EXE_ADDRESS_END;
-          end
-          `ADDR_DirectPageIndirectLongIndexedY : begin
-            exe_mmc_addr_r <= {8'h00,D_r + exe_operand_r[7:0]};
-            exe_mmc_rd_r <= 1;
-            //exe_mmc_dpe_r <= exe_dpe;
-            exe_mmc_long_r <= 1;
-            // FIXME: indexing happens after read to form address
-            EXE_STATE <= ST_EXE_ADDRESS_END;
-          end
-
-          `ADDR_Immediate		                   : exe_data_r  <= exe_operand_r[15:0];
-          `ADDR_Implied			                   : exe_data_r  <= REG[exe_dec_src];
-          `ADDR_ProgramCounterRelative	       : exe_addr_r <= {PBR_r,exe_nextpc_addr_r + {{8{exe_operand_r[7]}},exe_operand_r[7:0]}};
-          `ADDR_ProgramCounterRelativeLong     : exe_addr_r <= {PBR_r,exe_operand_r[15:0]};
-          `ADDR_StackAbsolute		               : exe_data_r  <= exe_operand_r[15:0];
-
-          `ADDR_StackDirectPageIndirect	       : begin
-            exe_addr_r[23:16] <= DBR_r;
-            exe_mmc_addr_r <= {8'h00,D_r + exe_operand_r[7:0]};
-            exe_mmc_rd_r <= 1;
-            exe_mmc_dpe_r <= exe_dpe;
-            //exe_mmc_long_r <= 1;
-            EXE_STATE <= ST_EXE_ADDRESS_END;
-          end
-
-          `ADDR_StackInterrupt		             : begin end
-          `ADDR_StackProgramCounterRelative    : exe_data_r  <= exe_nextpc_addr_r + exe_operand_r[15:0];
-          `ADDR_StackPull		                   : exe_addr_r <= S_r + 1;
-          `ADDR_StackPush		                   : begin exe_addr_r <= S_r - exe_data_word_r; exe_data_r <= REGS[exe_dec_src]; end
-          `ADDR_StackRTI		                   : exe_addr_r <= S_r + 1;
-          `ADDR_StackRTL		                   : begin exe_mmc_long_r <= 1; exe_addr_r <= S_r + 1; end
-          `ADDR_StackRTS		                   : exe_addr_r <= S_r + 1;
-          `ADDR_StackRelative		               : exe_addr_r <= S_r + exe_operand_r[7:0];
-
-          `ADDR_StackRelativeIndirectIndexedY  : begin
-            exe_addr_r[23:16] <= DBR_r;
-            exe_mmc_addr_r <= {8'h00,S_r + exe_operand_r[7:0]};
-            exe_mmc_rd_r <= 1;
-            //exe_mmc_dpe_r <= exe_dpe;
-            //exe_mmc_long_r <= 1;
-            // FIXME: indexing happens after read to form address
-            EXE_STATE <= ST_EXE_ADDRESS_END;
-          end
-        endcase
-`endif
-
-`ifdef WRITEREG_DEBUG
-        ADDR_CCNT  : pgmpre_out[0] <= CCNT_r;
-        ADDR_SIE   : pgmpre_out[0] <= SIE_r;
-        ADDR_SIC   : pgmpre_out[0] <= SIC_r;
-        ADDR_CRV   : pgmpre_out[0] <= CRV_r[7:0]; // $2
-        ADDR_CRV+1 : pgmpre_out[0] <= CRV_r[15:8]; // $2
-        ADDR_CNV   : pgmpre_out[0] <= CNV_r[7:0]; // $2
-        ADDR_CNV+1 : pgmpre_out[0] <= CNV_r[15:8]; // $2
-        ADDR_CIV   : pgmpre_out[0] <= CIV_r[7:0]; // $2
-        ADDR_CIV+1 : pgmpre_out[0] <= CIV_r[15:8]; // $2
-        ADDR_SCNT  : pgmpre_out[0] <= SCNT_r;
-        ADDR_CIE   : pgmpre_out[0] <= CIE_r;
-        ADDR_CIC   : pgmpre_out[0] <= CIC_r;
-        ADDR_SNV   : pgmpre_out[0] <= SNV_r[7:0]; // $2
-        ADDR_SNV+1 : pgmpre_out[0] <= SNV_r[15:8]; // $2
-        ADDR_SIV   : pgmpre_out[0] <= SIV_r[7:0]; // $2
-        ADDR_SIV+1 : pgmpre_out[0] <= SIV_r[15:8]; // $2
-        ADDR_TMC   : pgmpre_out[0] <= TMC_r;
-        ADDR_CTR   : pgmpre_out[0] <= CTR_r;
-        ADDR_HCNT  : pgmpre_out[0] <= HCNT_r[7:0]; // $2
-        ADDR_HCNT+1: pgmpre_out[0] <= HCNT_r[15:8]; // $2
-        ADDR_VCNT  : pgmpre_out[0] <= VCNT_r[7:0]; // $2
-        ADDR_VCNT+1: pgmpre_out[0] <= VCNT_r[15:8]; // $2
-        ADDR_CXB   : pgmpre_out[0] <= CXB_r;
-        ADDR_DXB   : pgmpre_out[0] <= DXB_r;
-        ADDR_EXB   : pgmpre_out[0] <= EXB_r;
-        ADDR_FXB   : pgmpre_out[0] <= FXB_r;
-        ADDR_BMAPS : pgmpre_out[0] <= BMAPS_r;
-        ADDR_BMAP  : pgmpre_out[0] <= BMAP_r;
-        ADDR_SWBE  : pgmpre_out[0] <= SWBE_r;
-        ADDR_CWBE  : pgmpre_out[0] <= CWBE_r;
-        ADDR_BWPA  : pgmpre_out[0] <= BWPA_r;
-        ADDR_SIWP  : pgmpre_out[0] <= SIWP_r;
-        ADDR_CIWP  : pgmpre_out[0] <= CIWP_r;
-        ADDR_DCNT  : pgmpre_out[0] <= DCNT_r;
-        ADDR_CDMA  : pgmpre_out[0] <= CDMA_r;
-`ifdef DEBUG_EXT
-        ADDR_SDA   : pgmpre_out[0] <= SDA_r[7:0]; // $3
-        ADDR_SDA+1 : pgmpre_out[0] <= SDA_r[15:8]; // $3
-        ADDR_SDA+2 : pgmpre_out[0] <= SDA_r[23:16]; // $3
-        ADDR_DDA   : pgmpre_out[0] <= DDA_r[7:0]; // $3
-        ADDR_DDA+1 : pgmpre_out[0] <= DDA_r[15:8]; // $3
-        ADDR_DDA+2 : pgmpre_out[0] <= DDA_r[23:16]; // $3
-        ADDR_DTC   : pgmpre_out[0] <= DTC_r;
-        ADDR_BBF   : pgmpre_out[0] <= BBF_r;
-        ADDR_BRF0  : pgmpre_out[0] <= BRF_r[0][7:0];
-        ADDR_BRF1  : pgmpre_out[0] <= BRF_r[0][15:8];
-        ADDR_BRF2  : pgmpre_out[0] <= BRF_r[1][7:0];
-        ADDR_BRF3  : pgmpre_out[0] <= BRF_r[1][15:8];
-        ADDR_BRF4  : pgmpre_out[0] <= BRF_r[2][7:0];
-        ADDR_BRF5  : pgmpre_out[0] <= BRF_r[2][15:8];
-        ADDR_BRF6  : pgmpre_out[0] <= BRF_r[3][7:0];
-        ADDR_BRF7  : pgmpre_out[0] <= BRF_r[3][15:8];
-        ADDR_BRF8  : pgmpre_out[0] <= BRF_r[4][7:0];
-        ADDR_BRF9  : pgmpre_out[0] <= BRF_r[4][15:8];
-        ADDR_BRFA  : pgmpre_out[0] <= BRF_r[5][7:0];
-        ADDR_BRFB  : pgmpre_out[0] <= BRF_r[5][15:8];
-        ADDR_BRFC  : pgmpre_out[0] <= BRF_r[6][7:0];
-        ADDR_BRFD  : pgmpre_out[0] <= BRF_r[6][15:8];
-        ADDR_BRFE  : pgmpre_out[0] <= BRF_r[7][7:0];
-        ADDR_BRFF  : pgmpre_out[0] <= BRF_r[7][15:8];      
-        ADDR_MCNT  : pgmpre_out[0] <= MCNT_r;
-        ADDR_MA    : pgmpre_out[0] <= MA_r[7:0]; // $2
-        ADDR_MA+1  : pgmpre_out[0] <= MA_r[15:8]; // $2
-        ADDR_MB    : pgmpre_out[0] <= MB_r[7:0]; // $2
-        ADDR_MB+1  : pgmpre_out[0] <= MB_r[15:8]; // $2
-        ADDR_VBD   : pgmpre_out[0] <= VBD_r;
-        ADDR_VDA   : pgmpre_out[0] <= VDA_r[7:0]; // $3
-        ADDR_VDA+1 : pgmpre_out[0] <= VDA_r[15:8]; // $3
-        ADDR_VDA+2 : pgmpre_out[0] <= VDA_r[23:16]; // $3
-`endif
-`endif

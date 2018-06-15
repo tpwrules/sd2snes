@@ -9,7 +9,7 @@
 0x07 ORA DirectPageIndirectLong                2     6    M     I     A     1     0     0     PRI   0     Z     DPR   I     1     1     0
 0x08 PHP StackPush                             1     3    B     P     I     0     1     0     PHS   0     Z     SMI   I     0     0     1
 0x09 ORA Immediate                             2     2    M     I     A     0     0     0     PRI   1     Z     O16   I     0     0     0
-0x0A ASL Accumulator                           1     2    M     I     A     0     0     0     RMW   0     Z     O16   I     0     0     0
+0x0A ASL Accumulator                           1     2    M     A     A     0     0     0     RMW   0     Z     O16   I     0     0     0
 0x0B PHD StackPush                             1     4    W     D     I     0     1     0     PHS   0     Z     SMI   I     0     0     1
 0x0C TSB Absolute                              3     6    M     I     I     1     1     0     TST   0     D     O16   I     0     0     0
 0x0D ORA Absolute                              3     4    M     I     A     1     0     0     PRI   0     D     O16   I     0     0     0
@@ -25,7 +25,7 @@
 0x17 ORA DirectPageIndirectLongIndexedY        2     6    M     I     A     1     0     0     PRI   0     Z     DPR   P     1     1     0
 0x18 CLC Implied                               1     2    B     I     I     0     0     0     STS   0     Z     O16   I     0     0     0
 0x19 ORA AbsoluteIndexedY                      3     4    M     I     A     1     0     0     PRI   0     D     O16   Y     0     0     0
-0x1A INC Accumulator                           1     2    M     I     A     0     0     0     RMW   0     Z     O16   I     0     0     0
+0x1A INC Accumulator                           1     2    M     A     A     0     0     0     SMP   0     Z     O16   I     0     0     0
 0x1B TCS Implied                               1     2    W     A     S     0     0     0     TXR   0     Z     O16   I     0     0     0
 0x1C TRB Absolute                              3     6    M     I     I     1     1     0     TST   0     D     O16   I     0     0     0
 0x1D ORA AbsoluteIndexedX                      3     4    M     I     A     1     0     0     PRI   0     D     O16   X     0     0     0
@@ -41,7 +41,7 @@
 0x27 AND DirectPageIndirectLong                2     6    M     I     A     1     0     0     PRI   0     Z     DPR   I     1     1     0
 0x28 PLP StackPull                             1     4    B     I     P     1     0     0     PLL   0     Z     SPL   I     0     0     1
 0x29 AND Immediate                             2     2    M     I     A     0     0     0     PRI   1     Z     O16   I     0     0     0
-0x2A ROL Accumulator                           1     2    M     I     A     0     0     0     RMW   0     Z     O16   I     0     0     0
+0x2A ROL Accumulator                           1     2    M     A     A     0     0     0     RMW   0     Z     O16   I     0     0     0
 0x2B PLD StackPull                             1     5    W     I     D     1     0     0     PLL   0     Z     SPL   I     0     0     1
 0x2C BIT Absolute                              3     4    M     I     A     1     0     0     CMP   0     D     O16   I     0     0     0
 0x2D AND Absolute                              3     4    M     I     A     1     0     0     PRI   0     D     O16   I     0     0     0
@@ -57,7 +57,7 @@
 0x37 AND DirectPageIndirectLongIndexedY        2     6    M     I     A     1     0     0     PRI   0     Z     DPR   P     1     1     0
 0x38 SEC Implied                               1     2    B     I     I     0     0     0     STS   0     Z     O16   I     0     0     0
 0x39 AND AbsoluteIndexedY                      3     4    M     I     A     1     0     0     PRI   0     D     O16   Y     0     0     0
-0x3A DEC Accumulator                           1     2    M     I     A     0     0     0     RMW   0     Z     O16   I     0     0     0
+0x3A DEC Accumulator                           1     2    M     A     A     0     0     0     SMP   0     Z     O16   I     0     0     0
 0x3B TSC Implied                               1     2    W     S     A     0     0     0     TXR   0     Z     O16   I     0     0     0
 0x3C BIT AbsoluteIndexedX                      3     4    M     I     A     1     0     0     CMP   0     D     O16   X     0     0     0
 0x3D AND AbsoluteIndexedX                      3     4    M     I     A     1     0     0     PRI   0     D     O16   X     0     0     0
@@ -73,7 +73,7 @@
 0x47 EOR DirectPageIndirectLong                2     6    M     I     A     1     1     0     PRI   0     Z     DPR   I     1     1     0
 0x48 PHA StackPush                             1     3    M     A     I     0     1     0     PHS   0     Z     SMI   I     0     0     1
 0x49 EOR Immediate                             2     2    M     I     A     0     0     0     PRI   1     Z     O16   I     0     0     0
-0x4A LSR Accumulator                           1     2    M     I     A     0     0     0     RMW   0     Z     O16   I     0     0     0
+0x4A LSR Accumulator                           1     2    M     A     A     0     0     0     RMW   0     Z     O16   I     0     0     0
 0x4B PHK StackPush                             1     3    B     K     I     0     1     0     PHS   0     Z     SMI   I     0     0     1
 0x4C JMP Absolute                              3     3    B     I     I     0     0     1     JMP   0     P     O16   I     0     0     0
 0x4D EOR Absolute                              3     4    M     I     A     1     1     0     PRI   0     D     O16   I     0     0     0
@@ -105,7 +105,7 @@
 0x67 ADC DirectPageIndirectLong                2     6    M     I     A     1     0     0     PRI   0     Z     DPR   I     1     1     0
 0x68 PLA StackPull                             1     4    M     I     A     1     0     0     PLL   0     Z     SPL   I     0     0     1
 0x69 ADC Immediate                             2     2    M     I     A     0     0     0     PRI   1     Z     O16   I     0     0     0
-0x6A ROR Accumulator                           1     2    M     I     A     0     0     0     RMW   0     Z     O16   I     0     0     0
+0x6A ROR Accumulator                           1     2    M     A     A     0     0     0     RMW   0     Z     O16   I     0     0     0
 0x6B RTL StackRTL                              1     6    B     I     I     1     0     1     JMP   0     Z     SPL   I     0     1     1
 0x6C JMP AbsoluteIndirect                      3     5    B     I     I     0     0     1     JMP   0     Z     O16   I     1     0     0
 0x6D ADC Absolute                              3     4    M     I     A     1     0     0     PRI   0     D     O16   I     0     0     0
