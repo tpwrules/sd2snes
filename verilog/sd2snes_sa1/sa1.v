@@ -530,6 +530,40 @@ reg        vdp_mmc_rd_r; initial vdp_mmc_rd_r = 0;
 reg [23:0] vdp_mmc_addr_r;
 
 //-------------------------------------------------------------------
+// Math
+//-------------------------------------------------------------------
+wire [31:0] mult_out;
+wire [15:0] divq_out;
+wire [15:0] divr_out;
+wire        div_by_zero;
+
+sa1_mult mult(
+  .clk(CLK),
+  .a(MA_r),
+  .b(MB_r),
+  .p(mult_out)
+);
+
+sa1_div div(
+  .clk(CLK),
+  .dividend(MA_r),
+  .divisor(MB_r),
+  .quotient(divq_out),
+  .fractional(divr_out)
+);
+
+always @(posedge CLK) begin 
+  MR_r[39:32] <= 0;
+  
+  if (MCNT_r[`MCNT_MD]) begin
+    MR_r[31:0] <= |MB_r ? {divr_out,divq_out} : 0;
+  end
+  else begin
+    MR_r[31:0] <= mult_out;
+  end
+end
+
+//-------------------------------------------------------------------
 // REGISTER/MMIO ACCESS
 //-------------------------------------------------------------------
 reg        data_enable_r; initial data_enable_r = 0;
@@ -618,7 +652,7 @@ always @(posedge CLK) begin
     CFR_r  <= 0;
     HCR_r  <= 0;
     VCR_r  <= 0;
-    MR_r   <= 0;
+    //MR_r   <= 0;
     OF_r   <= 0;
     VDP_r  <= 0;
     VC_r   <= 0;
@@ -1655,11 +1689,11 @@ always @(posedge CLK) begin
               0: exe_result[15:0] = exe_a_r | exe_data_r; // ORA
               1: exe_result[15:0] = exe_a_r & exe_data_r; // AND
               2: exe_result[15:0] = exe_a_r ^ exe_data_r; // EOR
-              3: exe_result[16:0] = exe_data_word_r ? exe_a_r[15:0] + exe_data_r[15:0] + P_r[`P_C] : {8'h00,exe_a_r[7:0]} + {8'h00,exe_data_r[7:0]} + P_r[`P_C]; // ADC
+              3: exe_result[16:0] = exe_data_word_r ? {1'b0,exe_a_r[15:0]} + {1'b0,exe_data_r[15:0]} + P_r[`P_C] : {9'h000,exe_a_r[7:0]} + {9'h000,exe_data_r[7:0]} + P_r[`P_C]; // ADC
               //4: // STA
               5: exe_result[15:0] = exe_data_r; // LDA
               //6: // CMP
-              7: exe_result[16:0] = exe_data_word_r ? exe_a_r[15:0] + ~exe_data_r[15:0] + P_r[`P_C] : {8'h00,exe_a_r[7:0]} + {8'h00,~exe_data_r[7:0]} + P_r[`P_C];// SBC
+              7: exe_result[16:0] = exe_data_word_r ? {1'b0,exe_a_r[15:0]} + ~{1'b0,exe_data_r[15:0]} + P_r[`P_C] : {9'h000,exe_a_r[7:0]} + {9'h000,~exe_data_r[7:0]} + P_r[`P_C];// SBC
               default: exe_result[15:0] = 0;
             endcase
               
@@ -1760,7 +1794,8 @@ always @(posedge CLK) begin
             end
             else begin
               // CMP, CPX, CPY
-              exe_result[16:0] = exe_data_word_r ? exe_dst_r[15:0] - exe_src_r[15:0] : {8'h00,exe_dst_r[7:0]} - {8'h00,exe_src_r[7:0]};
+              if (exe_data_word_r) exe_result[16:0] = {1'b0,exe_dst_r[15:0]} - {1'b0,exe_data_r[15:0]};
+              else                 exe_result[8:0]  = {1'b0,exe_dst_r[7:0]}  - {1'b0,exe_data_r[7:0]};
               
               exe_p_r[`P_N] <= exe_data_word_r ? exe_result[15]     : exe_result[7];
               exe_p_r[`P_Z] <= exe_data_word_r ? ~|exe_result[15:0] : ~|exe_result[7:0];
@@ -2054,14 +2089,6 @@ end
 
 assign pipeline_advance = sa1_clock_en & ~|exe_waitcnt_r & EXE_STATE[clog2(ST_EXE_WAIT)] & step_r;
 assign op_complete = 1;
-
-// Multipliers
-//sa1_fmult sa1_fmult(
-//  .clk(CLK),
-//  .a(exe_fmult_srca_r[15:0]),
-//  .b(exe_fmult_srcb_r[15:0]),
-//  .p(exe_fmult_out)
-//);
 
 // performance counter
 reg cycle_wait_r;
