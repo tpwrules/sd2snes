@@ -1805,7 +1805,7 @@ always @(posedge CLK) begin
             // TODO: apply correct latency
             exe_dbr_r <= exe_operand_r[7:0];
           
-            if ((exe_load_r | |exe_a_r) & ~exe_store_r /* & ~INT*/) begin
+            if ((exe_load_r | ~&exe_a_r) & ~exe_store_r) begin
               exe_mmc_rd_r   <= 1;
               exe_mmc_wr_r   <= 0;
               exe_mmc_addr_r <= {exe_operand_r[15:8], exe_x_r}; // use intermediate X
@@ -1824,7 +1824,7 @@ always @(posedge CLK) begin
               exe_mmc_addr_r <= {exe_operand_r[7:0], exe_y_r}; // use intermediate X
               exe_mmc_byte_total_r <= 0;
               
-              exe_load_r     <= |exe_a_r /*& ~INT*/;
+              exe_load_r     <= ~&exe_a_r /*& ~INT*/;
               exe_store_r    <= 0;
               
               exe_y_r        <= exe_y_r + (exe_opcode_r[4] ? 1 : -1);
