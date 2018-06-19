@@ -280,7 +280,8 @@ reg [7:0] config_r[CONFIG_REGISTERS-1:0]; initial for (i = 0; i < CONFIG_REGISTE
 
 always @(posedge CLK) begin
   if (RST) begin
-    for (i = 0; i < CONFIG_REGISTERS; i = i + 1) config_r[i] <= 8'h00;
+    // carry these through a reset
+    //for (i = 0; i < CONFIG_REGISTERS; i = i + 1) config_r[i] <= 8'h00;
   end
   else if (reg_we_in && (reg_group_in == 8'h03)) begin
     if (reg_index_in < CONFIG_REGISTERS) config_r[reg_index_in] <= (config_r[reg_index_in] & reg_invmask_in) | (reg_value_in & ~reg_invmask_in);
@@ -915,7 +916,7 @@ always @(posedge CLK) begin
     exe_waitcnt_r <= 0;
     waitcnt_zero_r <= 0;
     
-    stepcnt_r <= 0;
+    //stepcnt_r <= 0;
     step_r <= 0;
   end
   else begin
@@ -1403,6 +1404,7 @@ reg        exe_data_word_r; initial exe_data_word_r = 0;
 reg [15:0] exe_nextpc_r; initial exe_nextpc_r = 0;
 reg [15:0] exe_nextpc_addr_r; initial exe_nextpc_addr_r = 0;
 reg [15:0] exe_add_post_r; initial exe_add_post_r = 0;
+reg        exe_dst_p_r; initial exe_dst_p_r = 0;
 reg [23:0] exe_target_r; initial exe_target_r = 0;
 reg [15:0] exe_mod_r; initial exe_mod_r = 0;
 
@@ -1619,6 +1621,7 @@ always @(posedge CLK) begin
         exe_data_r[15:0] <= exe_dec_add_imm ? exe_operand_r[15:0] : REGS[exe_dec_src];
         
         exe_add_post_r <= (exe_dec_add_mod == `MOD_YPT ? Y_r[15:0] : 0);
+        exe_dst_p_r <= exe_dec_dst == `REG_P;
 
         exe_nextpc_r <= exe_nextpc_addr_r;
 
@@ -1752,8 +1755,10 @@ always @(posedge CLK) begin
             endcase
             
             // ok to write this even for P as it will just be the same values
-            exe_p_r[`P_N] <= exe_data_word_r ? exe_data_r[15]      : exe_data_r[7];
-            exe_p_r[`P_Z] <= exe_data_word_r ? ~|exe_data_r[15:0] : ~|exe_data_r[7:0];            
+            if (~exe_dst_p_r) begin
+              exe_p_r[`P_N] <= exe_data_word_r ? exe_data_r[15]      : exe_data_r[7];
+              exe_p_r[`P_Z] <= exe_data_word_r ? ~|exe_data_r[15:0] : ~|exe_data_r[7:0];
+            end
             
             if (exe_dec_add_stk) exe_s_r <= S_r + (exe_data_word_r ? 2 : 1);
           end
@@ -1762,8 +1767,12 @@ always @(posedge CLK) begin
               // BIT
               exe_result = exe_dst_r & exe_data_r;
 
-              exe_p_r[`P_V] <= exe_data_word_r ? exe_data_r[14]      : exe_data_r[6];
-              exe_p_r[`P_N] <= exe_data_word_r ? exe_data_r[15]      : exe_data_r[7];
+              // BIT with immediate operand doesn't set N or V
+              if (~exe_dec_add_imm) begin
+                exe_p_r[`P_V] <= exe_data_word_r ? exe_data_r[14]      : exe_data_r[6];
+                exe_p_r[`P_N] <= exe_data_word_r ? exe_data_r[15]      : exe_data_r[7];
+              end
+              
               exe_p_r[`P_Z] <= exe_data_word_r ? ~|exe_result[15:0] : ~|exe_result[7:0];
             end
             else begin
@@ -1952,7 +1961,8 @@ always @(posedge CLK) begin
             endcase
             
             exe_mmc_data_r[15:0] <= exe_result[15:0];
-            exe_p_r[`P_Z] <= exe_data_word_r ? ~|exe_result[15:0] : ~|exe_result[7:0];            
+            // TSB/TRB are unique in that the Z flag is only set based on the logical and of the memory location and A
+            exe_p_r[`P_Z] <= exe_data_word_r ? ~|(exe_data_r[15:0] & exe_operand_r[15:0]) : ~|(exe_data_r[7:0] & exe_operand_r[7:0]);            
           end
         endcase
 
