@@ -280,8 +280,7 @@ reg [7:0] config_r[CONFIG_REGISTERS-1:0]; initial for (i = 0; i < CONFIG_REGISTE
 
 always @(posedge CLK) begin
   if (RST) begin
-    // carry these through a reset
-    //for (i = 0; i < CONFIG_REGISTERS; i = i + 1) config_r[i] <= 8'h00;
+    for (i = 0; i < CONFIG_REGISTERS; i = i + 1) config_r[i] <= 8'h00;
   end
   else if (reg_we_in && (reg_group_in == 8'h03)) begin
     if (reg_index_in < CONFIG_REGISTERS) config_r[reg_index_in] <= (config_r[reg_index_in] & reg_invmask_in) | (reg_value_in & ~reg_invmask_in);
@@ -1109,7 +1108,6 @@ always @(posedge CLK) begin
           end
           else if (`IS_SA1_PRAM(exe_mmc_addr) & ROM_BUS_RDY) begin
             rom_bus_rrq_r  <= ~exe_mmc_wr_r;
-            rom_bus_wrq_r  <=  exe_mmc_wr_r;
             rom_bus_addr_r <= `MAP_PRAM(exe_mmc_addr);
             rom_bus_data_r <= exe_mmc_data_r[7:0];
             rom_bus_word_r <= 0;
@@ -1663,23 +1661,23 @@ always @(posedge CLK) begin
             // TODO: deal with D bit
             exe_result[16] = 0;
             case (exe_opcode_r[7:5])
-              0: exe_result[15:0] = exe_a_r | exe_data_r; // ORA
-              1: exe_result[15:0] = exe_a_r & exe_data_r; // AND
-              2: exe_result[15:0] = exe_a_r ^ exe_data_r; // EOR
-              3: exe_result[16:0] = exe_data_word_r ? {1'b0,exe_a_r[15:0]} + {1'b0,exe_data_r[15:0]} + P_r[`P_C] : {9'h000,exe_a_r[7:0]} + {9'h000,exe_data_r[7:0]} + P_r[`P_C]; // ADC
+              0: exe_result[15:0] = exe_src_r | exe_data_r; // ORA
+              1: exe_result[15:0] = exe_src_r & exe_data_r; // AND
+              2: exe_result[15:0] = exe_src_r ^ exe_data_r; // EOR
+              3: exe_result[16:0] = exe_data_word_r ? {1'b0,exe_src_r[15:0]} + {1'b0,exe_data_r[15:0]} + P_r[`P_C] : {9'h000,exe_src_r[7:0]} + {9'h000,exe_data_r[7:0]} + P_r[`P_C]; // ADC
               //4: // STA
               5: exe_result[15:0] = exe_data_r; // LDA
               //6: // CMP
-              7: exe_result[16:0] = exe_data_word_r ? {1'b0,exe_a_r[15:0]} + ~{1'b0,exe_data_r[15:0]} + P_r[`P_C] : {9'h000,exe_a_r[7:0]} + {9'h000,~exe_data_r[7:0]} + P_r[`P_C];// SBC
+              7: exe_result[16:0] = exe_data_word_r ? {1'b0,exe_src_r[15:0]} + ~{1'b0,exe_data_r[15:0]} + P_r[`P_C] : {9'h000,exe_src_r[7:0]} + {9'h000,~exe_data_r[7:0]} + P_r[`P_C];// SBC
               default: exe_result[15:0] = 0;
             endcase
               
-            exe_a_r <= {exe_data_word_r ? exe_result[15:8] : exe_a_r[15:8], exe_result[7:0]};
+            exe_a_r <= {exe_data_word_r ? exe_result[15:8] : exe_src_r[15:8], exe_result[7:0]};
             exe_p_r[`P_N] <= exe_data_word_r ? exe_result[15]     : exe_result[7];
             exe_p_r[`P_Z] <= exe_data_word_r ? ~|exe_result[15:0] : ~|exe_result[7:0];
               
             if (&exe_opcode_r[6:5]) begin
-              exe_p_r[`P_V] <= exe_data_word_r ? (~(A_r[15] ^ exe_data_r[15]) & (A_r[15] ^ exe_result[15])) : (~(A_r[7] ^ exe_data_r[7]) & (A_r[7] ^ exe_result[7]));
+              exe_p_r[`P_V] <= exe_data_word_r ? (~(exe_src_r[15] ^ exe_data_r[15]) & (exe_src_r[15] ^ exe_result[15])) : (~(exe_src_r[7] ^ exe_data_r[7]) & (exe_src_r[7] ^ exe_result[7]));
               // SBC sets carry when no borrow required...
               exe_p_r[`P_C] <= exe_opcode_r[7] ^ (exe_data_word_r ? exe_result[16] : exe_result[8]);
             end
@@ -1699,7 +1697,7 @@ always @(posedge CLK) begin
             endcase
             
             if (~exe_store_r) begin
-              exe_a_r <= {exe_data_word_r ? exe_result[15:8] : exe_a_r[15:8], exe_result[7:0]};
+              exe_a_r <= {exe_data_word_r ? exe_result[15:8] : exe_src_r[15:8], exe_result[7:0]};
             end
             
             // data for store
@@ -1945,7 +1943,7 @@ always @(posedge CLK) begin
               end            
             end
             else begin
-              exe_result[15:0] = {exe_a_r[7:0],exe_a_r[15:8]};
+              exe_result[15:0] = {exe_src_r[7:0],exe_src_r[15:8]};
               
               // register output
               exe_a_r[15:0] <= exe_result[15:0];
@@ -1956,13 +1954,13 @@ always @(posedge CLK) begin
           end
           `GRP_TST: begin
             case (exe_opcode_r[4])
-              0: exe_result = exe_data_r[15:0] | exe_operand_r[15:0];
-              1: exe_result = exe_data_r[15:0] & ~exe_operand_r[15:0];
+              0: exe_result = exe_data_r[15:0] | exe_src_r[15:0];
+              1: exe_result = exe_data_r[15:0] & ~exe_src_r[15:0];
             endcase
             
             exe_mmc_data_r[15:0] <= exe_result[15:0];
             // TSB/TRB are unique in that the Z flag is only set based on the logical and of the memory location and A
-            exe_p_r[`P_Z] <= exe_data_word_r ? ~|(exe_data_r[15:0] & exe_operand_r[15:0]) : ~|(exe_data_r[7:0] & exe_operand_r[7:0]);            
+            exe_p_r[`P_Z] <= exe_data_word_r ? ~|(exe_data_r[15:0] & exe_src_r[15:0]) : ~|(exe_data_r[7:0] & exe_src_r[7:0]);
           end
         endcase
 
