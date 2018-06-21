@@ -1686,9 +1686,9 @@ always @(posedge CLK) begin
             exe_result[16] = 0;
             case (exe_opcode_r[7:5])
               0: exe_result[16:0] = {exe_data_r[15:0],1'b0}; // ASL
-              1: exe_result[16:0] = exe_data_word_r ? {exe_data_r[15:0],exe_data_r[15]}             : {8'h00,exe_data_r[7:0],exe_data_r[7]}; // ROL
+              1: exe_result[16:0] = exe_data_word_r ? {exe_data_r[15:0],P_r[`P_C]}             : {8'h00,exe_data_r[7:0],P_r[`P_C]}; // ROL
               2: exe_result[16:0] = exe_data_word_r ? {exe_data_r[0],1'b0,exe_data_r[15:1]}         : {8'h00,exe_data_r[0],1'b0,exe_data_r[7:1]}; // LSR
-              3: exe_result[16:0] = exe_data_word_r ? {exe_data_r[0],exe_data_r[0],exe_data_r[15:1]} : {8'h00,exe_data_r[0],exe_data_r[0],exe_data_r[7:1]}; // ROR
+              3: exe_result[16:0] = exe_data_word_r ? {exe_data_r[0],P_r[`P_C],exe_data_r[15:1]} : {8'h00,exe_data_r[0],P_r[`P_C],exe_data_r[7:1]}; // ROR
               //4: // STX,STY
               //5: // -
               6: exe_result[15:0] = exe_data_word_r ? (exe_data_r[15:0]-1) : (exe_data_r[7:0]-1); // DEC
