@@ -1629,8 +1629,8 @@ always @(posedge CLK) begin
       ST_EXE_ADDRESS_END: begin
         if (MMC_STATE[clog2(ST_MMC_EXE_END)]) begin
           exe_mmc_rd_r <= 0;
-          // TODO: figure out why we get old data
-          exe_addr_r[23:16] <= exe_dec_add_long ? mmc_data_r[23:16] : (&exe_opcode_r[3:2]) ? exe_addr_r[23:16] : DBR_r;
+          // [3:2] catches the two JMP/JSR indirects which use PBR.  All other indirects are long (full 24b address) or use DBR.
+          exe_addr_r[23:16] <= exe_dec_add_long ? mmc_data_r[23:16] : (&exe_opcode_r[3:2]) ? PBR_r : DBR_r;
           exe_addr_r[15:0] <= mmc_data_r[15:0] + exe_add_post_r;
         
           EXE_STATE <= ST_EXE_EXECUTE;
@@ -1887,7 +1887,7 @@ always @(posedge CLK) begin
           `GRP_SPC: begin
             // BRK, COP, STP, WAI, RTI
 
-            if (~exe_store_r) begin
+            if (exe_opcode_r[7]^exe_opcode_r[6]) begin
               // RTI
               exe_pbr_r    <= E_r ? exe_pbr_r : mmc_data_r[31:24];
               exe_target_r <= mmc_data_r[23:8];
@@ -1901,7 +1901,7 @@ always @(posedge CLK) begin
                 exe_y_r[15:8] <= 0;
               end
             end
-            else if (exe_opcode_r[4]^exe_opcode_r[1]) begin
+            else if (exe_opcode_r[6]) begin
               // STP,WAI
               exe_active_r <= 0;
               exe_wai_r <= exe_opcode_r[0];

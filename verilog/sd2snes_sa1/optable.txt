@@ -63,7 +63,7 @@
 0x3D AND AbsoluteIndexedX                      3     4    M     A     A     1     0     0     PRI   0     D     O16   X     0     0     0
 0x3E ROL AbsoluteIndexedX                      3     7    M     I     I     1     1     0     RMW   0     D     O16   X     0     0     0
 0x3F AND AbsoluteLongIndexedX                  4     5    M     A     A     1     0     0     PRI   0     O     O16   X     0     1     0
-0x40 RTI StackRTI                              1     6    B     I     I     1     0     1     JMP   0     Z     SPL   I     0     0     1
+0x40 RTI StackRTI                              1     6    B     I     I     1     0     1     SPC   0     Z     SPL   I     0     0     1
 0x41 EOR DirectPageIndexedIndirectX            2     6    M     A     A     1     1     0     PRI   0     Z     DPR   X     1     0     0
 0x42 WDM Implied                               2     1    B     I     I     0     0     0     NOP   0     Z     O16   I     0     0     0
 0x43 EOR StackRelative                         2     4    M     A     A     1     1     0     PRI   0     Z     SPR   I     0     0     0
@@ -107,7 +107,7 @@
 0x69 ADC Immediate                             2     2    M     A     A     0     0     0     PRI   1     Z     O16   I     0     0     0
 0x6A ROR Accumulator                           1     2    M     A     A     0     0     0     RMW   0     Z     O16   I     0     0     0
 0x6B RTL StackRTL                              1     6    B     I     I     1     0     1     JMP   0     Z     SPL   I     0     1     1
-0x6C JMP AbsoluteIndirect                      3     5    W     I     I     0     0     1     JMP   0     Z     O16   I     1     0     0
+0x6C JMP AbsoluteIndirect                      3     5    W     I     I     0     0     1     JMP   0     P     O16   I     1     0     0
 0x6D ADC Absolute                              3     4    M     A     A     1     0     0     PRI   0     D     O16   I     0     0     0
 0x6E ROR Absolute                              3     6    M     I     I     1     1     0     RMW   0     D     O16   I     0     0     0
 0x6F ADC AbsoluteLong                          4     5    M     A     A     1     0     0     PRI   0     O     O16   I     0     1     0
