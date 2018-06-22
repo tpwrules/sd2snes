@@ -89,6 +89,34 @@ module sa1(
 );
 
 //-------------------------------------------------------------------
+// NOTES
+//-------------------------------------------------------------------
+// This is a cycle-approximate implementation of the sa1 chip.  The sa1
+// is a 65c816 core running at ~10.74 MHz.  It can serve as an off-load
+// engine/accelerator or a peer to the host snes cpu.
+//
+// There are base 65c816 as well as custom features available to the sa1
+// with varying levels of implementation.  Several features have been left
+// out in order to make development easier and fit basic functionality on
+// the fpga.
+// 
+// [x] full native 65c816 instruction set. (not fully debugged)
+// [x] host and slave mmio support for reset and other basic functionality
+// [_] host and slave access to bram (cart ram) and iram.
+// [_] emulation support.  (known holes in emulation state execution)
+// [_] dma/normal
+// [_] dma/cc
+// [_] host interrupts
+// [_] sa1 interrupts
+// [_] counters
+// [_] bcd mode/math
+// [_] rom address mapping
+// [x] ram address mapping
+// [x] multiply/divide
+// [_] mac support for multiply
+// [_] full mdr support
+
+//-------------------------------------------------------------------
 // DEFINES
 //-------------------------------------------------------------------
 
@@ -280,7 +308,7 @@ reg [7:0] config_r[CONFIG_REGISTERS-1:0]; initial for (i = 0; i < CONFIG_REGISTE
 
 always @(posedge CLK) begin
   if (RST) begin
-    for (i = 0; i < CONFIG_REGISTERS; i = i + 1) config_r[i] <= 8'h00;
+    //for (i = 0; i < CONFIG_REGISTERS; i = i + 1) config_r[i] <= 8'h00;
   end
   else if (reg_we_in && (reg_group_in == 8'h03)) begin
     if (reg_index_in < CONFIG_REGISTERS) config_r[reg_index_in] <= (config_r[reg_index_in] & reg_invmask_in) | (reg_value_in & ~reg_invmask_in);
@@ -513,8 +541,6 @@ end
 //-------------------------------------------------------------------
 // PIPELINE IO
 //-------------------------------------------------------------------
-
-reg waitcnt_zero_r; initial waitcnt_zero_r = 0;
 wire waitcnt_zero;
 
 // mmc interface
@@ -601,6 +627,7 @@ always @(posedge CLK) begin
     // TODO: reset all register state
     
     data_enable_r <= 0;
+    data_out_r <= 0;
     data_flop_r <= 0;
     
     snes_writebuf_val_r <= 0;
@@ -900,22 +927,13 @@ reg [23:0] exe_fetch_addr_r; initial exe_fetch_addr_r = 0;
 //-------------------------------------------------------------------
 // COMMON PIPELINE
 //-------------------------------------------------------------------
-
-//reg [3:0] fetch_waitcnt_r; initial fetch_waitcnt_r = 0;
 reg [3:0] exe_waitcnt_r; initial exe_waitcnt_r = 0;
-
-//reg       i2c_waitcnt_val_r; initial i2c_waitcnt_val_r = 0;
-//reg [3:0] i2c_waitcnt_r;
-
-reg [3:0] e2c_waitcnt_r;
+reg [3:0] e2c_waitcnt_r; initial e2c_waitcnt_r = 0;
 
 always @(posedge CLK) begin
   if (RST) begin
-    //fetch_waitcnt_r <= 0;
     exe_waitcnt_r <= 0;
-    waitcnt_zero_r <= 0;
     
-    //stepcnt_r <= 0;
     step_r <= 0;
   end
   else begin
@@ -928,8 +946,6 @@ always @(posedge CLK) begin
     if (pipeline_advance & (op_complete | CONFIG_CONTROL_MATCHPARTINST)) stepcnt_r <= CONFIG_STEP_COUNT;
   end
 end
-
-assign waitcnt_zero = /*~|fetch_waitcnt_r & */~|exe_waitcnt_r;
 
 //-------------------------------------------------------------------
 // IRAM
@@ -1479,15 +1495,15 @@ always @(posedge CLK) begin
     exe_nextpc_addr_r <= 0;
     exe_add_post_r <= 0;
     
-    exe_a_r       <= 0;
-    exe_x_r       <= 0;
-    exe_y_r       <= 0;
-    exe_s_r       <= 1;
-    exe_d_r       <= 0;
-    exe_dbr_r     <= 0;
-    exe_p_r       <= 8'h34;
-    exe_e_r       <= 1;
-    exe_wai_r     <= 0;
+//    exe_a_r       <= 0;
+//    exe_x_r       <= 0;
+//    exe_y_r       <= 0;
+//    exe_s_r       <= 1;
+//    exe_d_r       <= 0;
+//    exe_dbr_r     <= 0;
+//    exe_p_r       <= 8'h34;
+//    exe_e_r       <= 1;
+//    exe_wai_r     <= 0;
 
     exe_mmc_rd_r  <= 0;
     exe_mmc_wr_r  <= 0;
@@ -1686,9 +1702,9 @@ always @(posedge CLK) begin
             exe_result[16] = 0;
             case (exe_opcode_r[7:5])
               0: exe_result[16:0] = {exe_data_r[15:0],1'b0}; // ASL
-              1: exe_result[16:0] = exe_data_word_r ? {exe_data_r[15:0],P_r[`P_C]}             : {8'h00,exe_data_r[7:0],P_r[`P_C]}; // ROL
+              1: exe_result[16:0] = exe_data_word_r ? {exe_data_r[15:0],P_r[`P_C]}                  : {8'h00,exe_data_r[7:0],P_r[`P_C]}; // ROL
               2: exe_result[16:0] = exe_data_word_r ? {exe_data_r[0],1'b0,exe_data_r[15:1]}         : {8'h00,exe_data_r[0],1'b0,exe_data_r[7:1]}; // LSR
-              3: exe_result[16:0] = exe_data_word_r ? {exe_data_r[0],P_r[`P_C],exe_data_r[15:1]} : {8'h00,exe_data_r[0],P_r[`P_C],exe_data_r[7:1]}; // ROR
+              3: exe_result[16:0] = exe_data_word_r ? {exe_data_r[0],P_r[`P_C],exe_data_r[15:1]}    : {8'h00,exe_data_r[0],P_r[`P_C],exe_data_r[7:1]}; // ROR
               //4: // STX,STY
               //5: // -
               6: exe_result[15:0] = exe_data_word_r ? (exe_data_r[15:0]-1) : (exe_data_r[7:0]-1); // DEC
@@ -1742,9 +1758,9 @@ always @(posedge CLK) begin
           `GRP_PLL: begin
             case (exe_dec_dst)
               //`REG_Z: if (P_r[`P_M]) exe_a_r[7:0] <= 0;               else exe_a_r[15:0] <= 0;
-              `REG_A: if (P_r[`P_M]) exe_a_r[7:0] <= exe_data_r[7:0]; else exe_a_r[15:0] <= exe_data_r[15:0];
-              `REG_X: if (P_r[`P_X]) exe_x_r[7:0] <= exe_data_r[7:0]; else exe_x_r[15:0] <= exe_data_r[15:0];
-              `REG_Y: if (P_r[`P_X]) exe_y_r[7:0] <= exe_data_r[7:0]; else exe_y_r[15:0] <= exe_data_r[15:0];
+              `REG_A: if (exe_data_word_r) exe_a_r[15:0] <= exe_data_r[15:0]; else exe_a_r[7:0] <= exe_data_r[7:0];
+              `REG_X: if (exe_data_word_r) exe_x_r[15:0] <= exe_data_r[15:0]; else exe_x_r[7:0] <= exe_data_r[7:0];
+              `REG_Y: if (exe_data_word_r) exe_y_r[15:0] <= exe_data_r[15:0]; else exe_y_r[7:0] <= exe_data_r[7:0];
               `REG_S: exe_s_r <= exe_data_r[15:0];
               `REG_D: exe_d_r <= exe_data_r[15:0];
               `REG_B: exe_dbr_r <= exe_data_r[7:0];
