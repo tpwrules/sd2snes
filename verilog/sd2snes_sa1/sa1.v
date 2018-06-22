@@ -1812,31 +1812,21 @@ always @(posedge CLK) begin
             // TODO: apply correct latency
             exe_dbr_r <= exe_operand_r[7:0];
           
-            if ((exe_load_r | ~&exe_a_r) & ~exe_store_r) begin
-              exe_mmc_rd_r   <= 1;
-              exe_mmc_wr_r   <= 0;
-              exe_mmc_addr_r <= {exe_operand_r[15:8], exe_x_r}; // use intermediate X
-              exe_mmc_byte_total_r <= 0;
-              
-              exe_load_r     <= 1;
-              exe_store_r    <= 1;
-              
-              exe_x_r        <= exe_x_r + (exe_opcode_r[4] ? 1 : -1);
-              // predecrement and guard check
-              exe_a_r        <= exe_a_r - 1;
+            if (exe_load_r) begin
+              exe_mmc_addr_r <= {exe_operand_r[15:8], exe_src_r[15:0]};
             end
             else begin
-              exe_mmc_rd_r   <= 0;
-              exe_mmc_wr_r   <= 1;
-              exe_mmc_addr_r <= {exe_operand_r[7:0], exe_y_r}; // use intermediate X
-              exe_mmc_byte_total_r <= 0;
-              
-              exe_load_r     <= ~&exe_a_r /*& ~INT*/;
-              exe_store_r    <= 0;
-              
-              exe_y_r        <= exe_y_r + (exe_opcode_r[4] ? 1 : -1);
+              exe_mmc_addr_r <= {exe_operand_r[7:0],  exe_dst_r[15:0]};              
             end
             
+            exe_x_r             <= exe_src_r + (exe_opcode_r[4] ? 1 : -1);
+            exe_y_r             <= exe_dst_r + (exe_opcode_r[4] ? 1 : -1);
+            exe_a_r             <= A_r - 1;
+            exe_control_r       <= |A_r;
+            exe_target_r        <= {PBR_r,PC_r};
+            
+            exe_mmc_data_r[7:0] <= exe_data_r[7:0];
+
             // END takes care of exit
             EXE_STATE <= ST_EXE_EXECUTE_END;
           end
@@ -1875,9 +1865,9 @@ always @(posedge CLK) begin
               exe_result[15:0] = ((exe_opcode_r[4] & ~exe_opcode_r[5]) | (~exe_opcode_r[4] & (exe_opcode_r[6] ^ exe_opcode_r[1]))) ? exe_src_r[15:0] + 1 :  (exe_src_r[15:0] - 1);
               
               // register output
-              if      (exe_opcode_r[4])                   exe_a_r[7:0]   <= exe_result[15:0];
-              else if (exe_opcode_r[5] ^ exe_opcode_r[1]) exe_x_r[15:0]  <= exe_result[15:0];
-              else                                        exe_y_r[15:0]  <= exe_result[15:0];
+              if      (exe_opcode_r[4])                   exe_a_r[15:0] <= exe_result[15:0];
+              else if (exe_opcode_r[5] ^ exe_opcode_r[1]) exe_x_r[15:0] <= exe_result[15:0];
+              else                                        exe_y_r[15:0] <= exe_result[15:0];
 
               // condition codes
               exe_p_r[`P_N] <= exe_result[15];
@@ -1992,8 +1982,6 @@ always @(posedge CLK) begin
           exe_operand_r <= 0;
           exe_mmc_long_r <= 0;
           exe_mmc_dpe_r <= 0;
-          
-          exe_src_r     <= 16'h0BAD;
           
           // write register state
           A_r           <= exe_a_r;
