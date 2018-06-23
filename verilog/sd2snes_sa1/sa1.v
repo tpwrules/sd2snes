@@ -106,7 +106,8 @@ module sa1(
 // [_] emulation support.  (known holes in emulation state execution)
 // [_] dma/normal
 // [_] dma/cc
-// [_] host interrupts
+// [x] host interrupts
+// [_] host interrupt vectors
 // [_] sa1 interrupts
 // [_] counters
 // [_] bcd mode/math
@@ -529,16 +530,6 @@ assign sw46 = BMAP_r[`BMAP_SW46];
 assign cbm  = BMAP_r[`BMAP_CBM];
 
 //-------------------------------------------------------------------
-// Latency
-//-------------------------------------------------------------------
-// TODO: decide if we need variable latency modeling
-//reg [3:0] lat_fetch_r;
-
-always @(posedge CLK) begin
-  //lat_fetch_r <= 2-1; // half speed
-end
-
-//-------------------------------------------------------------------
 // PIPELINE IO
 //-------------------------------------------------------------------
 wire waitcnt_zero;
@@ -774,17 +765,17 @@ always @(posedge CLK) begin
           
           if (~SIE_r[`SIE_CPU_IRQEN] & snes_writebuf_data_r[`SIE_CPU_IRQEN] & SFR_r[`SFR_CPU_IRQFL]) begin
             SIC_r[`SIC_CPU_IRQCL] <= 0;
-            // TODO: trigger IRQ
           end
           
           if (~SIE_r[`SIE_DMA_IRQEN] & snes_writebuf_data_r[`SIE_DMA_IRQEN] & SFR_r[`SFR_DMA_IRQFL]) begin
             SIC_r[`SIC_DMA_IRQCL] <= 0;
-            // TODO: trigger IRQ
           end
         end
         ADDR_SIC   : begin  // 8'h02,
           {SIC_r[`SIC_DMA_IRQCL],SIC_r[`SIC_CPU_IRQCL]} <= {snes_writebuf_data_r[`SIC_DMA_IRQCL],snes_writebuf_data_r[`SIC_CPU_IRQCL]};
-          // TODO: reset IRQ if FL is 0 after write or is currently 0 if no write
+          
+          if (snes_writebuf_data_r[`SIC_DMA_IRQCL]) SFR_r[`SFR_DMA_IRQFL] <= 0;
+          if (snes_writebuf_data_r[`SIC_CPU_IRQCL]) SFR_r[`SFR_CPU_IRQFL] <= 0;
         end
         ADDR_CRV   : CRV_r[7:0]  <= snes_writebuf_data_r;  // 8'h03, // $2
         ADDR_CRV+1 : CRV_r[15:8] <= snes_writebuf_data_r;  // 8'h03, // $2
@@ -799,7 +790,6 @@ always @(posedge CLK) begin
             SFR_r[`SFR_CPU_IRQFL] <= 1;
             if (SIE_r[`SIE_CPU_IRQEN]) begin
               SIC_r[`SIC_CPU_IRQCL] <= 0;
-              // TODO: trigger IRQ
             end
           end
         end
@@ -895,21 +885,76 @@ always @(posedge CLK) begin
     else if (snes_readbuf_val_r) begin
       // TODO: clear interrupt and other side affects
     end
-    //else if (pipeline_advance & op_complete) begin
-    //  // TODO: special (non-rf) writes)
-    //end
-
-    //if (pipeline_advance) begin
-    //  if (op_complete) begin
-    //    // TODO: register writes
-    //  end
-    //end
   end
 end
 
 //-------------------------------------------------------------------
 // COMMON EXE STATE
 //-------------------------------------------------------------------
+`define GRP_PRI     0
+`define GRP_RMW     1
+`define GRP_CBR     2
+`define GRP_JMP     3
+`define GRP_PHS     4
+`define GRP_PLL     5
+`define GRP_CMP     6
+`define GRP_STS     7
+`define GRP_MOV     8
+`define GRP_TXR     9
+`define GRP_SPC     10
+`define GRP_SMP     11
+`define GRP_STK     12
+`define GRP_XCH     13
+`define GRP_TST     14
+
+`define ADD_O16     0
+`define ADD_DPR     1
+`define ADD_PCR     2
+`define ADD_SPL     3
+`define ADD_SMI     4
+`define ADD_SPR     5
+
+`define BNK_PBR     0
+`define BNK_DBR     1
+`define BNK_ZRO     2
+`define BNK_O24     3
+
+`define MOD_X16     0
+`define MOD_Y16     1
+`define MOD_YPT     2
+`define MOD_INV     3
+
+`define ADD_STK     31:31
+`define ADD_LNG     30:30
+`define ADD_IND     29:29
+`define ADD_IMM     28:28
+`define ADD_MOD     27:26
+`define ADD_ADD     25:23
+`define ADD_BNK     22:21
+`define DEC_GROUP   20:17
+`define DEC_SIZE    16:15
+`define DEC_LATENCY 14:11
+`define DEC_PRC     10:9
+`define DEC_SRC      8:6
+`define DEC_DST      5:3
+`define DEC_LOAD     2:2
+`define DEC_STORE    1:1
+`define DEC_CONTROL  0:0
+
+`define PRC_B        0
+`define PRC_M        1
+`define PRC_X        2
+`define PRC_W        3
+
+`define REG_Z        0
+`define REG_A        1
+`define REG_X        2
+`define REG_Y        3
+`define REG_S        4
+`define REG_D        5
+`define REG_B        6
+`define REG_P        7
+
 parameter
   ST_EXE_IDLE        = 8'b00000001,
   ST_EXE_FETCH       = 8'b00000010,
@@ -921,8 +966,30 @@ parameter
   ST_EXE_WAIT        = 8'b10000000,
   ST_EXE_ALL         = 8'b11111111
   ;
+
 reg [7:0]  EXE_STATE; initial EXE_STATE = ST_EXE_IDLE;
 reg [23:0] exe_fetch_addr_r; initial exe_fetch_addr_r = 0;
+reg [31:0] exe_decode_r; initial exe_decode_r = 0;
+
+wire       exe_dec_add_stk  = exe_decode_r[`ADD_STK];
+wire       exe_dec_add_imm  = exe_decode_r[`ADD_IMM];
+wire [1:0] exe_dec_add_bank = exe_decode_r[`ADD_BNK];
+wire [2:0] exe_dec_add_base = exe_decode_r[`ADD_ADD];
+wire [1:0] exe_dec_add_mod  = exe_decode_r[`ADD_MOD];
+wire       exe_dec_add_indirect = exe_decode_r[`ADD_IND];
+wire       exe_dec_add_long = exe_decode_r[`ADD_LNG];
+wire [3:0] exe_dec_grp      = exe_decode_r[`DEC_GROUP];
+//wire [6:0] exe_dec_inst  = exe_decode_r[`DEC_OPCODE];
+wire [1:0] exe_dec_size  = exe_decode_r[`DEC_SIZE];
+wire [3:0] exe_dec_lat   = exe_decode_r[`DEC_LATENCY];
+wire [1:0] exe_dec_prc   = exe_decode_r[`DEC_PRC];
+wire [2:0] exe_dec_src   = exe_decode_r[`DEC_SRC];
+wire [2:0] exe_dec_dst   = exe_decode_r[`DEC_DST];
+wire       exe_dec_load  = exe_decode_r[`DEC_LOAD];
+wire       exe_dec_store = exe_decode_r[`DEC_STORE];
+wire       exe_dec_ctl   = exe_decode_r[`DEC_CONTROL];
+
+reg        exe_wai_r; initial exe_wai_r = 0;
 
 //-------------------------------------------------------------------
 // COMMON PIPELINE
@@ -1296,70 +1363,6 @@ assign sa1_mmio_read  = ~|sa1_mmio_read_r & ~snes_readbuf_active_r & MMC_STATE[c
 // DECODER
 //-------------------------------------------------------------------
 
-`define GRP_PRI     0
-`define GRP_RMW     1
-`define GRP_CBR     2
-`define GRP_JMP     3
-`define GRP_PHS     4
-`define GRP_PLL     5
-`define GRP_CMP     6
-`define GRP_STS     7
-`define GRP_MOV     8
-`define GRP_TXR     9
-`define GRP_SPC     10
-`define GRP_SMP     11
-`define GRP_STK     12
-`define GRP_XCH     13
-`define GRP_TST     14
-
-`define ADD_O16     0
-`define ADD_DPR     1
-`define ADD_PCR     2
-`define ADD_SPL     3
-`define ADD_SMI     4
-`define ADD_SPR     5
-
-`define BNK_PBR     0
-`define BNK_DBR     1
-`define BNK_ZRO     2
-`define BNK_O24     3
-
-`define MOD_X16     0
-`define MOD_Y16     1
-`define MOD_YPT     2
-`define MOD_INV     3
-
-`define ADD_STK     31:31
-`define ADD_LNG     30:30
-`define ADD_IND     29:29
-`define ADD_IMM     28:28
-`define ADD_MOD     27:26
-`define ADD_ADD     25:23
-`define ADD_BNK     22:21
-`define DEC_GROUP   20:17
-`define DEC_SIZE    16:15
-`define DEC_LATENCY 14:11
-`define DEC_PRC     10:9
-`define DEC_SRC      8:6
-`define DEC_DST      5:3
-`define DEC_LOAD     2:2
-`define DEC_STORE    1:1
-`define DEC_CONTROL  0:0
-
-`define PRC_B        0
-`define PRC_M        1
-`define PRC_X        2
-`define PRC_W        3
-
-`define REG_Z        0
-`define REG_A        1
-`define REG_X        2
-`define REG_Y        3
-`define REG_S        4
-`define REG_D        5
-`define REG_B        6
-`define REG_P        7
-
 reg [15:0] REG[7:0];
 reg [15:0] REGS[7:0];
 
@@ -1396,6 +1399,74 @@ dec_table dec (
 );
 
 //-------------------------------------------------------------------
+// Interrupt Controller
+//-------------------------------------------------------------------
+// The interrupt controller handles sa1 irq and nmi interrupts.
+// Interrupts can be observed at cycle boundaries and can't be
+// interrupted with the exception of a nmi interrupting a irq.
+
+// TODO: make this a more general state machine?
+reg        int_pending_r; initial int_pending_r = 0;
+reg        int_nmi_r; initial int_nmi_r = 0;
+reg [15:0] int_vector_r; initial int_vector_r = 0;
+
+//sa1_irq_r       <= (CIE_r[`CIE_SA1_IRQEN] & CFR_r[`CFR_SA1_IRQFL]) | (CIE_r[`CIE_TMR_IRQEN] & CFR_r[`CFR_TMR_IRQFL]) | (CIE_r[`CIE_DMA_IRQEN] & CFR_r[`CFR_DMA_IRQFL]);
+//sa1_nmi_r       <= (CIE_r[`CIE_SA1_NMIEN] & CFR_r[`CFR_SA1_NMIFL]);
+
+// lots of races to handle:
+// - RTI needs to clear nmi interrupt
+// - WAI write from execute and clear from interrupt edge (while in WAI state).  Should have common support in mmc for interrupt active.
+// - Set/Clear interrupt flag in register state.  Probably move from register stage to here.
+always @(posedge CLK) begin
+  if (RST) begin
+    int_pending_r <= 0;
+    int_nmi_r     <= 0;
+    
+    WAI_r         <= 0;
+  end
+  else begin
+    if ((EXE_STATE[clog2(ST_EXE_WAIT)] & pipeline_advance) | WAI_r) begin
+      // check current pending.  taking an interrupt will block nmi and avoid duplicate irq.
+      // TODO: this flag needs to control idle, fetch, and execute.
+      if (int_pending_r) begin
+        int_pending_r <= 0;
+      end
+      else if (exe_dec_grp == `GRP_SPC && exe_dec_add_stk && !exe_dec_store) begin
+        // clear current nmi on rti.  this is either already zero or must be a nmi so unconditionally clear
+        int_nmi_r <= 0;
+      end
+      // check NMI
+      else if (CIE_r[`CIE_SA1_NMIEN] & CFR_r[`CFR_SA1_NMIFL] & ~int_nmi_r) begin
+        int_pending_r <= 1;
+        int_nmi_r     <= 1;
+        int_vector_r  <= CNV_r;
+      end
+      // check IRQ
+      else if (~P_r[`P_I]) begin
+        // TODO: timer
+        // TODO: dma
+        // register        
+        if (CIE_r[`CIE_SA1_IRQEN] & CFR_r[`CFR_SA1_IRQFL]) begin
+          int_pending_r <= 1;
+          int_nmi_r     <= 0;
+          int_vector_r  <= CIV_r;
+        end
+      end
+    end
+    
+    // WAI set/clear
+    if (WAI_r & int_pending_r) begin
+      // will always get cleared on a non-sa1 cycle.
+      WAI_r <= 0;
+    end
+    else if (EXE_STATE[clog2(ST_EXE_WAIT)] & pipeline_advance & exe_wai_r) begin
+      WAI_r <= 1;
+    end
+  end
+end
+
+
+//-------------------------------------------------------------------
 // EXECUTION PIPELINE
 //-------------------------------------------------------------------
 
@@ -1406,7 +1477,6 @@ reg [23:0] exe_mmc_addr_r; initial exe_mmc_addr_r = 0;
 reg [1:0]  exe_opsize_r; initial exe_opsize_r = 0;
 reg [7:0]  exe_opcode_r; initial exe_opcode_r = 0;
 reg [23:0] exe_operand_r; initial exe_operand_r = 0;
-reg [31:0] exe_decode_r; initial exe_decode_r = 0;
 
 reg [15:0] exe_src_r; initial exe_src_r = 16'h0BAD;
 reg [15:0] exe_dst_r; initial exe_dst_r = 16'h0BAD;
@@ -1431,27 +1501,8 @@ reg [7:0]  exe_dbr_r; initial exe_dbr_r = 0;
 reg [7:0]  exe_pbr_r; initial exe_pbr_r = 0;
 reg [7:0]  exe_p_r; initial exe_p_r = 0;
 reg        exe_e_r; initial exe_e_r = 1;
-reg        exe_wai_r; initial exe_wai_r = 0;
 
 reg        exe_active_r; initial exe_active_r = 0;
-
-wire       exe_dec_add_stk  = exe_decode_r[`ADD_STK];
-wire       exe_dec_add_imm  = exe_decode_r[`ADD_IMM];
-wire [1:0] exe_dec_add_bank = exe_decode_r[`ADD_BNK];
-wire [2:0] exe_dec_add_base = exe_decode_r[`ADD_ADD];
-wire [1:0] exe_dec_add_mod  = exe_decode_r[`ADD_MOD];
-wire       exe_dec_add_indirect = exe_decode_r[`ADD_IND];
-wire       exe_dec_add_long = exe_decode_r[`ADD_LNG];
-wire [3:0] exe_dec_grp      = exe_decode_r[`DEC_GROUP];
-//wire [6:0] exe_dec_inst  = exe_decode_r[`DEC_OPCODE];
-wire [1:0] exe_dec_size  = exe_decode_r[`DEC_SIZE];
-wire [3:0] exe_dec_lat   = exe_decode_r[`DEC_LATENCY];
-wire [1:0] exe_dec_prc   = exe_decode_r[`DEC_PRC];
-wire [2:0] exe_dec_src   = exe_decode_r[`DEC_SRC];
-wire [2:0] exe_dec_dst   = exe_decode_r[`DEC_DST];
-wire       exe_dec_load  = exe_decode_r[`DEC_LOAD];
-wire       exe_dec_store = exe_decode_r[`DEC_STORE];
-wire       exe_dec_ctl   = exe_decode_r[`DEC_CONTROL];
 
 wire       exe_dpe       = ~|D_r[7:0] & E_r;
 wire       exe_data_word = |({~P_r[`P_X],~P_r[`P_M]}&dec_data[`DEC_PRC]) | &dec_data[`DEC_PRC];
@@ -1475,7 +1526,6 @@ always @(posedge CLK) begin
     DBR_r         <= 0;
     P_r           <= 8'h34;
     E_r           <= 1;
-    WAI_r         <= 0;
 
     exe_fetch_addr_r <= 0;
     exe_addr_r       <= 0;
@@ -1916,12 +1966,14 @@ always @(posedge CLK) begin
               // TODO: add NMI/INT support here, too.
               // COP/BRK
               if (exe_load_r) begin
-                exe_mmc_addr_r <= {16'h00FF,3'h7,E_r,E_r,1'b1,~exe_opcode_r[1],1'b0};
+                if (~int_pending_r) exe_mmc_addr_r <= {16'h00FF,3'h7,E_r,E_r,1'b1,~exe_opcode_r[1],1'b0};
+                else                exe_mmc_addr_r <= {8'h00,int_vector_r};
               end
               else begin
                 exe_target_r <= {8'h00,exe_data_r[15:0]};
                 exe_s_r <= S_r - {~E_r,E_r,E_r};
                 exe_p_r[`P_I] <= 1;
+                exe_p_r[`P_D] <= 0;
 
                 exe_mmc_addr_r <= S_r + {1'b1,E_r};
                 exe_mmc_data_r <= {PBR_r,exe_nextpc_r,P_r};
@@ -2008,13 +2060,11 @@ always @(posedge CLK) begin
           DBR_r         <= exe_dbr_r;
           P_r           <= exe_p_r;
           E_r           <= exe_e_r;
-          WAI_r         <= exe_wai_r;
+          //WAI_r         <= exe_wai_r;
           
           // reset internal PCs to help with debugging
           exe_nextpc_r   <= 0;
 
-          // TODO: add interrupt support to go back to EXECUTE and look like a special BRK/COP
-          // Should just work if we are already at the PC of the instruction to return to.
           EXE_STATE <= (exe_active_r & ~CCNT_r[`CCNT_SA1_RESB]) ? ST_EXE_FETCH : ST_EXE_IDLE;
         end
       end
@@ -2344,7 +2394,10 @@ assign PGM_DATA    = pgmdata_out;
 assign DATA_ENABLE = data_enable_r;
 assign DATA_OUT    = data_out_r;
 
-assign IRQ         = 1'b0;
+reg cpu_irq_r; initial cpu_irq_r = 0;
+always @(posedge CLK) cpu_irq_r <= (SIE_r[`SIE_DMA_IRQEN] & SFR_r[`SFR_DMA_IRQFL]) | (SIE_r[`SIE_CPU_IRQEN] & SFR_r[`SFR_CPU_IRQFL]);
+
+assign IRQ         = cpu_irq_r;
 
 assign BMAPS_SBM   = BMAPS_r[`BMAPS_SBM];
 
