@@ -449,11 +449,11 @@ reg [15:0]  vcounter_r; initial vcounter_r = 0;
 `define CCNT_SA1_RDYB 6
 `define CCNT_SA1_IRQ  7
   
-`define SIE_CPU_IRQEN 5
-`define SIE_DMA_IRQEN 7
+`define SIE_DMA_IRQEN 5
+`define SIE_CPU_IRQEN 7
 
-`define SIC_CPU_IRQCL 5
-`define SIC_DMA_IRQCL 7
+`define SIC_DMA_IRQCL 5
+`define SIC_CPU_IRQCL 7
 
 `define SCNT_CMEG     3:0
 `define SCNT_NVSW     4
@@ -991,6 +991,8 @@ wire       exe_dec_ctl   = exe_decode_r[`DEC_CONTROL];
 
 reg        exe_wai_r; initial exe_wai_r = 0;
 
+wire       exe_mmc_int;
+
 //-------------------------------------------------------------------
 // COMMON PIPELINE
 //-------------------------------------------------------------------
@@ -1147,7 +1149,7 @@ always @(posedge CLK) begin
             rom_bus_word_r <= 1;
 
             mmc_busy_r <= 1;
-            MMC_STATE <= exe_mmc_wr_r ? ST_MMC_INV : ST_MMC_ROM;
+            MMC_STATE <= (exe_mmc_wr_r | exe_mmc_int) ? ST_MMC_INV : ST_MMC_ROM;
 
             mmc_state_end_r <= ST_MMC_EXE_END;
           end
@@ -1323,7 +1325,8 @@ always @(posedge CLK) begin
         end
       end
       ST_MMC_INV: begin
-        mmc_data_r <= {MDR_r,MDR_r,MDR_r,MDR_r};
+        // interrupt returns BRK instruction
+        mmc_data_r <= {MDR_r,MDR_r,MDR_r,(exe_mmc_int ? 8'h00 : MDR_r)};
         MMC_STATE <= mmc_state_end_r;
       end
       ST_MMC_EXE_END,
@@ -1465,6 +1468,7 @@ always @(posedge CLK) begin
   end
 end
 
+assign exe_mmc_int = int_pending_r;
 
 //-------------------------------------------------------------------
 // EXECUTION PIPELINE
@@ -1734,7 +1738,8 @@ always @(posedge CLK) begin
               //4: // STA
               5: exe_result[15:0] = exe_data_r; // LDA
               //6: // CMP
-              7: exe_result[16:0] = exe_data_word_r ? {1'b0,exe_src_r[15:0]} + ~{1'b0,exe_data_r[15:0]} + P_r[`P_C] : {9'h000,exe_src_r[7:0]} + {9'h000,~exe_data_r[7:0]} + P_r[`P_C];// SBC
+              //7: exe_result[16:0] = exe_data_word_r ? {1'b0,exe_src_r[15:0]} + ~{1'b0,exe_data_r[15:0]} + P_r[`P_C] : {9'h000,exe_src_r[7:0]} + ~{9'h000,exe_data_r[7:0]} + P_r[`P_C];// SBC
+              7: exe_result[16:0] = exe_data_word_r ? {1'b0,exe_src_r[15:0]} + {1'b0,~exe_data_r[15:0]} + P_r[`P_C] : {9'h000,exe_src_r[7:0]} + {9'h000,~exe_data_r[7:0]} + P_r[`P_C];// SBC
               default: exe_result[15:0] = 0;
             endcase
               
@@ -1745,7 +1750,8 @@ always @(posedge CLK) begin
             if (&exe_opcode_r[6:5]) begin
               exe_p_r[`P_V] <= exe_data_word_r ? (~(exe_src_r[15] ^ exe_data_r[15]) & (exe_src_r[15] ^ exe_result[15])) : (~(exe_src_r[7] ^ exe_data_r[7]) & (exe_src_r[7] ^ exe_result[7]));
               // SBC sets carry when no borrow required...
-              exe_p_r[`P_C] <= exe_opcode_r[7] ^ (exe_data_word_r ? exe_result[16] : exe_result[8]);
+              //exe_p_r[`P_C] <= exe_opcode_r[7] ^ (exe_data_word_r ? exe_result[16] : exe_result[8]);
+              exe_p_r[`P_C] <= exe_data_word_r ? exe_result[16] : exe_result[8];
             end
           end
           `GRP_RMW: begin
@@ -1976,7 +1982,7 @@ always @(posedge CLK) begin
                 exe_p_r[`P_D] <= 0;
 
                 exe_mmc_addr_r <= S_r + {1'b1,E_r};
-                exe_mmc_data_r <= {PBR_r,exe_nextpc_r,P_r};
+                exe_mmc_data_r <= {PBR_r,(int_pending_r ? PC_r : exe_nextpc_r),P_r};
                 exe_mmc_byte_total_r <= {1'b1,E_r};
               end
             end
@@ -2120,7 +2126,7 @@ always @(posedge CLK) begin
     brk_data_wr_addr <= 0;//(  (stb_ram_wr_r   && (stb_addr_r   == brk_addr_r))
                           //|| (bmf_ram_wr_r   && (bmf_addr_r   == brk_addr_r))
                           //);
-    brk_stop         <= EXE_STATE[clog2(ST_EXE_EXECUTE)] && (exe_opcode_r == 8'hDB || exe_opcode_r == 8'hCB);
+    brk_stop         <= EXE_STATE[clog2(ST_EXE_EXECUTE)] && (exe_opcode_r == 8'hDB || exe_opcode_r == 8'hCB || int_pending_r);
     brk_error        <= EXE_STATE[clog2(ST_EXE_EXECUTE)] && (exe_opcode_r == 8'h00);
     
   
