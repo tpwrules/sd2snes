@@ -102,19 +102,19 @@ module sa1(
 // 
 // [x] full native 65c816 instruction set. (not fully debugged)
 // [x] host and slave mmio support for reset and other basic functionality
-// [_] host and slave access to bram (cart ram) and iram.
+// [x] host and slave access to bram (cart ram) and iram.
 // [_] emulation support.  (known holes in emulation state execution)
 // [_] dma/normal
 // [_] dma/cc
 // [x] host interrupts
 // [_] host interrupt vectors
-// [_] sa1 interrupts
+// [x] sa1 interrupts (untested)
 // [_] counters
 // [_] bcd mode/math
 // [_] rom address mapping
 // [x] ram address mapping
 // [x] multiply/divide
-// [_] mac support for multiply
+// [x] mac support for multiply
 // [_] full mdr support
 
 //-------------------------------------------------------------------
@@ -550,40 +550,6 @@ reg        vdp_mmc_rd_r; initial vdp_mmc_rd_r = 0;
 reg [23:0] vdp_mmc_addr_r;
 
 //-------------------------------------------------------------------
-// Math
-//-------------------------------------------------------------------
-wire [31:0] mult_out;
-wire [15:0] divq_out;
-wire [15:0] divr_out;
-wire        div_by_zero;
-
-sa1_mult mult(
-  .clk(CLK),
-  .a(MA_r),
-  .b(MB_r),
-  .p(mult_out)
-);
-
-sa1_div div(
-  .clk(CLK),
-  .dividend(MA_r),
-  .divisor(MB_r),
-  .quotient(divq_out),
-  .fractional(divr_out)
-);
-
-always @(posedge CLK) begin 
-  MR_r[39:32] <= 0;
-  
-  if (MCNT_r[`MCNT_MD]) begin
-    MR_r[31:0] <= |MB_r ? {divr_out,divq_out} : 0;
-  end
-  else begin
-    MR_r[31:0] <= mult_out;
-  end
-end
-
-//-------------------------------------------------------------------
 // REGISTER/MMIO ACCESS
 //-------------------------------------------------------------------
 reg        data_enable_r; initial data_enable_r = 0;
@@ -674,7 +640,7 @@ always @(posedge CLK) begin
     HCR_r  <= 0;
     VCR_r  <= 0;
     //MR_r   <= 0;
-    OF_r   <= 0;
+    //OF_r   <= 0;
     VDP_r  <= 0;
     VC_r   <= 0;
   end
@@ -866,7 +832,12 @@ always @(posedge CLK) begin
         ADDR_MA+1  : MA_r[15:8]          <= snes_writebuf_data_r;  // 8'h51, // $2
         ADDR_MB    : MB_r[7:0]           <= snes_writebuf_data_r;  // 8'h53, // $2
         // TODO: perform multiply
-        ADDR_MB+1  : MB_r[15:8]          <= snes_writebuf_data_r;  // 8'h53, // $2
+        ADDR_MB+1  : begin // 8'h53, // $2
+          MB_r <= 0;
+          if (MCNT_r[`MCNT_MD]) MA_r <= 0;
+          
+          //MB_r[15:8]          <= snes_writebuf_data_r;
+        end
         ADDR_VBD   : begin  // 8'h58,
           {VBD_r[`VBD_HL],VBD_r[`VBD_VB]} <= {snes_writebuf_data_r[`VBD_HL],snes_writebuf_data_r[`VBD_VB]};
           
@@ -884,6 +855,80 @@ always @(posedge CLK) begin
     end
     else if (snes_readbuf_val_r) begin
       // TODO: clear interrupt and other side affects
+    end
+  end
+end
+
+//-------------------------------------------------------------------
+// Math
+//-------------------------------------------------------------------
+wire [31:0] mult_out;
+wire [15:0] divq_out;
+wire [15:0] divr_out;
+wire        div_by_zero;
+
+reg  [1:0]  math_md_r; initial math_md_r = 0;
+reg  [15:0] math_ma_r; initial math_ma_r = 0;
+reg  [15:0] math_mb_r; initial math_mb_r = 0;
+
+reg         math_val_r; initial math_val_r = 0;
+
+sa1_mult mult(
+  .clk(CLK),
+  .a(math_ma_r),
+  .b(math_mb_r),
+  .p(mult_out)
+);
+
+sa1_div div(
+  .clk(CLK),
+  .dividend(math_ma_r),
+  .divisor(math_mb_r),
+  .quotient(divq_out),
+  .fractional(divr_out)
+);
+
+reg  [40:0] math_result;
+
+always @(posedge CLK) begin   
+  if (RST) begin
+    math_md_r <= 0;
+    math_ma_r <= 0;
+    math_mb_r <= 0;
+    
+    MR_r      <= 0;
+    OF_r      <= 0;
+  end
+  else begin
+    if (snes_writebuf_val_r) begin
+      if (~math_val_r) begin
+        if (snes_writebuf_addr_r[7:0] == ADDR_MB+1) begin
+          // flop all inputs
+          math_md_r <= MCNT_r[1:0];
+          math_ma_r <= MA_r;
+          math_mb_r <= {snes_writebuf_data_r,MB_r[7:0]};
+        
+          math_val_r <= 1;
+        end
+      end
+    end
+    else begin
+      math_val_r <= 0;
+    end
+  
+    if      (math_md_r[`MCNT_ACM]) begin
+      math_result[40:0] = {1'b0,MR_r} + {17'h000,mult_out};
+      MR_r <= math_result[39:0];
+      // set overflow
+      OF_r <= math_result[40];
+    end
+    else if (math_md_r[`MCNT_MD]) begin
+      MR_r[39:32] <= 0;
+      MR_r[31:0] <= |math_mb_r ? {divr_out,divq_out} : 0;
+    end
+    else begin
+      MR_r[39:32] <= 0;
+      MR_r[31:0] <= mult_out;
     end
   end
 end
