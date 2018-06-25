@@ -1186,7 +1186,7 @@ always @(posedge CLK) begin
         if (vdp_mmc_rd_r) begin
         end
         // TODO: assign priority conditions
-        else if ((dma_mmc_rd_r | dma_mmc_wr_r) & 0) begin
+        else if ((dma_mmc_rd_r | dma_mmc_wr_r)) begin
           mmc_byte_total_r<= 0;
           mmc_dpe_r       <= 0;
           mmc_wr_r        <= dma_mmc_wr_r;
