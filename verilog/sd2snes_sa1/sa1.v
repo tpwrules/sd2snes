@@ -111,7 +111,7 @@ module sa1(
 // [_] dma/normal
 // [_] dma/cc
 // [x] host interrupts
-// [_] host interrupt vectors
+// [x] host interrupt vectors
 // [x] sa1 interrupts (untested)
 // [_] counters
 // [_] bcd mode/math
@@ -127,7 +127,8 @@ module sa1(
 
 `define DEBUG
 //`define DEBUG_EXT
-`define DEBUG_MMC
+//`define DEBUG_MMC
+//`define DEBUG_EXE
 
 // address map tests
 `define IS_ROM(a)  ((&a[23:22]) | (~a[22] & a[15]))                                     // 00-3F/80-BF:8000-FFFF, C0-FF:0000-FFFF
@@ -549,6 +550,7 @@ reg [31:0] exe_mmc_data_r;
 reg        dma_mmc_rd_r; initial dma_mmc_rd_r = 0;
 reg        dma_mmc_wr_r; initial dma_mmc_wr_r = 0;
 reg [23:0] dma_mmc_addr_r;
+reg [7:0]  dma_mmc_data_r;
 
 reg        vdp_mmc_rd_r; initial vdp_mmc_rd_r = 0;
 reg [23:0] vdp_mmc_addr_r;
@@ -630,7 +632,7 @@ always @(posedge CLK) begin
     CDMA_r <= 0;
     SDA_r  <= 0;
     DDA_r  <= 0;
-    DTC_r  <= 0;
+    //DTC_r  <= 0;
     BBF_r  <= 0;
     for (i = 0; i < 8; i = i + 1) BRF_r[i] <= 0;
     MCNT_r <= 0;
@@ -639,8 +641,9 @@ always @(posedge CLK) begin
     VBD_r  <= 0;
     VDA_r  <= 0;
     
-    SFR_r  <= 0;
-    CFR_r  <= 0;
+    // DMA bit handled by DMA state machine
+    {SFR_r[7:6],SFR_r[4:0]} <= 0;
+    {CFR_r[7:6],CFR_r[4:0]} <= 0;
     HCR_r  <= 0;
     VCR_r  <= 0;
     //MR_r   <= 0;
@@ -744,7 +747,7 @@ always @(posedge CLK) begin
         ADDR_SIC   : begin  // 8'h02,
           {SIC_r[`SIC_DMA_IRQCL],SIC_r[`SIC_CPU_IRQCL]} <= {snes_writebuf_data_r[`SIC_DMA_IRQCL],snes_writebuf_data_r[`SIC_CPU_IRQCL]};
           
-          if (snes_writebuf_data_r[`SIC_DMA_IRQCL]) SFR_r[`SFR_DMA_IRQFL] <= 0;
+          //if (snes_writebuf_data_r[`SIC_DMA_IRQCL]) SFR_r[`SFR_DMA_IRQFL] <= 0;
           if (snes_writebuf_data_r[`SIC_CPU_IRQCL]) SFR_r[`SFR_CPU_IRQFL] <= 0;
         end
         ADDR_CRV   : CRV_r[7:0]  <= snes_writebuf_data_r;  // 8'h03, // $2
@@ -776,7 +779,7 @@ always @(posedge CLK) begin
           
           if (snes_writebuf_data_r[`CIC_SA1_IRQCL]) CFR_r[`CFR_SA1_IRQFL] <= 0;
           if (snes_writebuf_data_r[`CIC_TMR_IRQCL]) CFR_r[`CFR_TMR_IRQFL] <= 0;
-          if (snes_writebuf_data_r[`CIC_DMA_IRQCL]) CFR_r[`CFR_DMA_IRQFL] <= 0;
+          //if (snes_writebuf_data_r[`CIC_DMA_IRQCL]) CFR_r[`CFR_DMA_IRQFL] <= 0;
           if (snes_writebuf_data_r[`CIC_SA1_NMICL]) CFR_r[`CFR_SA1_NMIFL] <= 0;
         end
         ADDR_SNV   : SNV_r[7:0]          <= snes_writebuf_data_r;  // 8'h0C, // $2
@@ -810,8 +813,8 @@ always @(posedge CLK) begin
         ADDR_DDA   : DDA_r[7:0]          <= snes_writebuf_data_r;  // 8'h35, // $3
         ADDR_DDA+1 : DDA_r[15:8]         <= snes_writebuf_data_r;  // 8'h35, // $3
         ADDR_DDA+2 : DDA_r[23:16]        <= snes_writebuf_data_r;  // 8'h35, // $3
-        ADDR_DTC   : DTC_r[7:0]          <= snes_writebuf_data_r;  // 8'h38, // $2
-        ADDR_DTC+1 : DTC_r[15:8]         <= snes_writebuf_data_r;  // 8'h38, // $2
+        //ADDR_DTC   : DTC_r[7:0]          <= snes_writebuf_data_r;  // 8'h38, // $2
+        //ADDR_DTC+1 : DTC_r[15:8]         <= snes_writebuf_data_r;  // 8'h38, // $2
         ADDR_BBF   : BBF_r[`BBF_BBF]     <= snes_writebuf_data_r[`BBF_BBF];  // 8'h3F,
         ADDR_BRF+0 : BRF_r[0][7:0]       <= snes_writebuf_data_r;  // 8'h40,
         ADDR_BRF+1 : BRF_r[0][15:8]      <= snes_writebuf_data_r;  // 8'h41,
@@ -913,6 +916,9 @@ always @(posedge CLK) begin
           math_mb_r <= {snes_writebuf_data_r,MB_r[7:0]};
         
           math_val_r <= 1;
+        end
+        else if (snes_writebuf_addr_r[7:0] == ADDR_MCNT) begin
+          if (snes_writebuf_data_r[`MCNT_ACM]) MR_r <= 0;
         end
       end
     end
@@ -1157,8 +1163,7 @@ reg        ram_bus_word_r;
 reg        mmc_iram_state_r;
 
 // mmio
-
-reg mmc_busy_r; initial mmc_busy_r = 0;
+// -
 
 wire [23:0] exe_mmc_addr;
 
@@ -1166,7 +1171,6 @@ always @(posedge CLK) begin
   if (RST) begin
     MMC_STATE <= ST_MMC_IDLE;
     MDR_r <= 0;
-    mmc_busy_r <= 0;
     mmc_long_r <= 0;
   end
   else begin
@@ -1183,7 +1187,53 @@ always @(posedge CLK) begin
         end
         // TODO: assign priority conditions
         else if ((dma_mmc_rd_r | dma_mmc_wr_r) & 0) begin
-          
+          mmc_byte_total_r<= 0;
+          mmc_dpe_r       <= 0;
+          mmc_wr_r        <= dma_mmc_wr_r;
+          mmc_long_r      <= 0;
+          mmc_data_r[7:0] <= dma_mmc_data_r;
+
+          // NOTE: could move this decode to DMA
+          if      (`IS_ROM(dma_mmc_addr_r) & ROM_BUS_RDY) begin
+            rom_bus_rrq_r  <= ~dma_mmc_wr_r;
+            rom_bus_addr_r <= `MAP_ROM(dma_mmc_addr_r);
+            rom_bus_word_r <= 1;
+            mmc_addr_r     <= `MAP_ROM(dma_mmc_addr_r);
+
+            MMC_STATE      <= dma_mmc_wr_r ? ST_MMC_INV : ST_MMC_ROM;
+          end
+          else if (`IS_BRAM(dma_mmc_addr_r) & ROM_BUS_RDY) begin
+            rom_bus_rrq_r  <= ~dma_mmc_wr_r;
+            rom_bus_wrq_r  <=  dma_mmc_wr_r;
+            rom_bus_addr_r <= `MAP_BRAM(dma_mmc_addr_r);
+            rom_bus_data_r <= dma_mmc_data_r[7:0];
+            rom_bus_word_r <= 0;
+
+            mmc_addr_r     <= `MAP_BRAM(dma_mmc_addr_r);
+            MMC_STATE      <= ST_MMC_BRAM;
+          end
+          else if (`IS_SA1_IRAM(dma_mmc_addr_r)) begin
+            mmc_iram_state_r <= 0;
+            mmc_addr_r     <= `MAP_IRAM(dma_mmc_addr_r);
+            MMC_STATE      <= ST_MMC_IRAM;
+          end
+//          else if (`IS_SA1_PRAM(exe_mmc_addr) & ROM_BUS_RDY) begin
+//            rom_bus_rrq_r  <= ~exe_mmc_wr_r;
+//            rom_bus_addr_r <= `MAP_PRAM(exe_mmc_addr);
+//            rom_bus_data_r <= exe_mmc_data_r[7:0];
+//            rom_bus_word_r <= 0;
+//            
+//            mmc_addr_r     <= `MAP_PRAM(exe_mmc_addr);
+//            mmc_busy_r <= 1;
+//            MMC_STATE <= exe_mmc_wr_r ? ST_MMC_INV : ST_MMC_BRAM;
+//          end
+          else begin
+            rom_bus_rrq_r <= 0;
+            rom_bus_wrq_r <= 0;
+            MMC_STATE <= ST_MMC_INV;
+          end
+
+          mmc_state_end_r <= ST_MMC_DMA_END;
         end
         // TODO: try to save cycles in fetch.  may be necessary in other exe stages, too.
         else if (EXE_STATE[clog2(ST_EXE_FETCH)]) begin
@@ -1197,7 +1247,6 @@ always @(posedge CLK) begin
             rom_bus_addr_r <= `MAP_ROM(exe_fetch_addr_r);
             rom_bus_word_r <= 1;
 
-            mmc_busy_r <= 1;
             MMC_STATE <= (exe_mmc_wr_r | exe_mmc_int) ? ST_MMC_INV : ST_MMC_ROM;
 
             mmc_state_end_r <= ST_MMC_EXE_END;
@@ -1217,7 +1266,6 @@ always @(posedge CLK) begin
             rom_bus_word_r <= 1;
             mmc_addr_r     <= `MAP_ROM(exe_mmc_addr);
 
-            mmc_busy_r <= 1;
             MMC_STATE <= exe_mmc_wr_r ? ST_MMC_INV : ST_MMC_ROM;
           end
           else if (`IS_BRAM(exe_mmc_addr) & ROM_BUS_RDY) begin
@@ -1228,7 +1276,6 @@ always @(posedge CLK) begin
             rom_bus_word_r <= 0;
 
             mmc_addr_r     <= `MAP_BRAM(exe_mmc_addr);
-            mmc_busy_r <= 1;
             MMC_STATE <= ST_MMC_BRAM;
           end
           else if (`IS_SA1_IRAM(exe_mmc_addr)) begin
@@ -1247,7 +1294,6 @@ always @(posedge CLK) begin
             rom_bus_word_r <= 0;
             
             mmc_addr_r     <= `MAP_PRAM(exe_mmc_addr);
-            mmc_busy_r <= 1;
             MMC_STATE <= exe_mmc_wr_r ? ST_MMC_INV : ST_MMC_BRAM;
           end
           else begin
@@ -1381,7 +1427,6 @@ always @(posedge CLK) begin
       ST_MMC_EXE_END,
       ST_MMC_DMA_END: begin
         MMC_STATE <= ST_MMC_IDLE;
-        mmc_busy_r <= 0;
       end
     endcase
   end
@@ -1410,6 +1455,158 @@ assign sa1_mmio_addr  = mmc_addr_r[7:0];
 assign sa1_mmio_data  = mmc_data_r[7:0];
 assign sa1_mmio_write = ~SNES_WR_end & ~snes_writebuf_iram_r & ~snes_writebuf_val_r & MMC_STATE[clog2(ST_MMC_MMIO)] & mmc_wr_r;
 assign sa1_mmio_read  = ~|sa1_mmio_read_r & ~snes_readbuf_active_r & MMC_STATE[clog2(ST_MMC_MMIO)] & ~mmc_wr_r;
+
+//-------------------------------------------------------------------
+// DMA Pipeline
+//-------------------------------------------------------------------
+// The DMA controller supports 2 general modes of operation: normal
+// and character conversion (CC).  CC can be broken down into type1
+// (fully automatic) and type2 (semi-automatic).  In an attempt to
+// get this to fit in the fpga, as much code as re-used as possible.
+// The main differences between the 2 modes are addressing/dataswizzle
+// and triggers.
+
+parameter
+  ST_DMA_IDLE      = 8'b00000001,
+  ST_DMA_READ      = 8'b00000010,
+  ST_DMA_READ_END  = 8'b00000100,
+  ST_DMA_WRITE     = 8'b00001000,
+  ST_DMA_WRITE_END = 8'b00010000,
+  ST_DMA_BRF_WRITE = 8'b00100000,
+  ST_DMA_END       = 8'b10000000,
+  ST_DMA_ALL       = 8'b11111111
+  ;
+  
+reg [7:0]  DMA_STATE; initial DMA_STATE = ST_DMA_IDLE;
+
+reg [7:0]  dma_data_r; initial dma_data_r = 0;
+
+reg        dma_trigger_normal_r; initial dma_trigger_normal_r = 0;
+reg        dma_trigger_type1_r; initial dma_trigger_type1_r = 0;
+reg        dma_trigger_type2_r; initial dma_trigger_type2_r = 0;
+
+reg [3:0]  dma_t2_line_r; initial dma_t2_line_r = 0;
+reg [2:0]  dma_t2_byte_r; initial dma_t2_byte_r = 0;
+reg [2:0]  dma_t2_comp_r; initial dma_t2_comp_r = 0;
+
+always @(posedge CLK) begin
+  if (RST) begin
+    DMA_STATE <= ST_DMA_IDLE;
+    
+    dma_mmc_rd_r <= 0;
+    dma_mmc_wr_r <= 0;
+    
+    dma_trigger_normal_r <= 0;
+    dma_trigger_type1_r  <= 0;
+    dma_trigger_type2_r  <= 0;
+
+    dma_t2_line_r <= 0;
+    
+    SFR_r[`SFR_DMA_IRQFL] <= 0;
+    CFR_r[`CFR_DMA_IRQFL] <= 0;
+  end
+  else begin
+    // watch for triggers
+    dma_trigger_normal_r <= (   DCNT_r[`DCNT_DMAEN]
+                            && ~DCNT_r[`DCNT_CDEN]
+                            && (  (~DCNT_r[1] && ~DCNT_r[`DCNT_DD]) // iram
+                               || (~DCNT_r[0] &&  DCNT_r[`DCNT_DD]) // bram
+                               )
+                            && (  (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == (ADDR_DDA+1) && ~DCNT_r[`DCNT_DD]) // iram
+                               || (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == (ADDR_DDA+2) &&  DCNT_r[`DCNT_DD]) // bram
+                               )
+                            );
+    // TODO: snes read triggers a dma operation.
+    dma_trigger_type1_r  <= 0;
+    dma_trigger_type2_r  <= (   DCNT_r[`DCNT_DMAEN]
+                            &&  DCNT_r[`DCNT_CDEN]
+                            && ~DCNT_r[`DCNT_CDSEL]
+                            && (  (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_BRF7)
+                               || (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_BRFF)
+                               )
+                            );
+    dma_t2_comp_r <= {CDMA_r[0],CDMA_r[1],1'b0};
+  
+    case (DMA_STATE)
+      ST_DMA_IDLE: begin
+        // normal
+        if      (dma_trigger_normal_r) DMA_STATE <= ST_DMA_READ;
+        else if (dma_trigger_type2_r)  DMA_STATE <= ST_DMA_BRF_WRITE;
+
+        // clear interrupt
+        if (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_CIC  &&  snes_writebuf_data_r[`CIC_DMA_IRQCL]) CFR_r[`CFR_DMA_IRQFL] <= 0;
+        if (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_SIC  &&  snes_writebuf_data_r[`SIC_DMA_IRQCL]) SFR_r[`SFR_DMA_IRQFL] <= 0;
+        if (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_DCNT && ~snes_writebuf_data_r[`DCNT_DMAEN])    dma_t2_line_r         <= 0;
+        
+        if (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_DTC+0) DTC_r[7:0]  <= snes_writebuf_data_r;
+        if (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_DTC+1) DTC_r[15:0] <= snes_writebuf_data_r;
+      end
+      ST_DMA_READ: begin
+        dma_mmc_rd_r   <= |DTC_r;
+        dma_mmc_addr_r <= {(SDA_r[23:11] & {13{~DCNT_r[1]}}),SDA_r[10:0]};
+        DMA_STATE <= |DTC_r ? ST_DMA_READ_END : ST_DMA_END;
+      end
+      ST_DMA_READ_END: begin
+        if (MMC_STATE[clog2(ST_MMC_DMA_END)]) begin
+          dma_mmc_rd_r <= 0;
+          dma_data_r <= mmc_data_r[7:0];
+          DMA_STATE <= ST_DMA_WRITE;
+        end
+      end
+      ST_DMA_WRITE: begin
+        dma_mmc_wr_r   <= 1;
+        dma_mmc_addr_r <= {(DDA_r[23:11] & {13{DCNT_r[`DCNT_DD]}}),DDA_r[10:0]};
+        dma_mmc_data_r <= dma_data_r;
+        DMA_STATE <= ST_DMA_WRITE_END;
+      end
+      ST_DMA_BRF_WRITE: begin
+        // compose BRF to iram write
+        dma_mmc_wr_r   <= 1;
+        dma_mmc_addr_r <= {13'h0000,
+                           DDA_r[10:7],
+                           (|CDMA_r[`CDMA_DMACB] ? DDA_r[6]                                        : dma_t2_line_r[3]),
+                           (CDMA_r[1]            ? DDA_r[5]         : CDMA_r[0] ? dma_t2_line_r[3] : dma_t2_byte_r[2]),
+                           (CDMA_r[1]            ? dma_t2_line_r[3] :             dma_t2_byte_r[1]                   ),
+                           dma_t2_line_r[2:0],
+                           dma_t2_byte_r[0]
+                          };
+        dma_t2_byte_r  <= dma_t2_byte_r + 1;
+        
+        dma_mmc_data_r <= {BRF_r[{dma_t2_line_r[3],3'h7}][dma_t2_byte_r[2:0]],
+                           BRF_r[{dma_t2_line_r[3],3'h6}][dma_t2_byte_r[2:0]],
+                           BRF_r[{dma_t2_line_r[3],3'h5}][dma_t2_byte_r[2:0]],
+                           BRF_r[{dma_t2_line_r[3],3'h4}][dma_t2_byte_r[2:0]],
+                           BRF_r[{dma_t2_line_r[3],3'h3}][dma_t2_byte_r[2:0]],
+                           BRF_r[{dma_t2_line_r[3],3'h2}][dma_t2_byte_r[2:0]],
+                           BRF_r[{dma_t2_line_r[3],3'h1}][dma_t2_byte_r[2:0]],
+                           BRF_r[{dma_t2_line_r[3],3'h0}][dma_t2_byte_r[2:0]]};
+        
+        DMA_STATE <= ST_DMA_WRITE_END;
+      end
+      ST_DMA_WRITE_END: begin
+        if (MMC_STATE[clog2(ST_MMC_DMA_END)]) begin
+          dma_mmc_wr_r <= 0;
+          
+          if (DCNT_r[`DCNT_CDEN]) begin
+            dma_t2_line_r  <= dma_t2_line_r + 1;
+
+            DMA_STATE <= (dma_t2_byte_r == dma_t2_comp_r) ? ST_DMA_IDLE : ST_DMA_BRF_WRITE;
+          end
+          else begin
+            DMA_STATE <= ST_DMA_READ;
+            DTC_r     <= DTC_r - 1;
+          end
+        end
+      end
+      ST_DMA_END: begin
+        // only normal gets here
+        CFR_r[`CFR_DMA_IRQFL] <= 1;
+        // TODO: clear IRQCL?  will be hard to do with different state machines writing it.  Seems like all the CL signals don't need to be stately.
+        DMA_STATE <= ST_DMA_IDLE;
+      end
+    endcase
+  end
+end
 
 //-------------------------------------------------------------------
 // DECODER
@@ -2301,13 +2498,13 @@ always @(posedge CLK) begin
         ADDR_VDA+1 ,
         ADDR_VDA+2 : pgmpre_out[0] <= dbg_reg_dout;
 
+`ifdef DEBUG_EXT
         8'h60+ADDR_SFR   : pgmpre_out[0] <= SFR_r;
         8'h60+ADDR_CFR   : pgmpre_out[0] <= CFR_r;
         8'h60+ADDR_HCR   : pgmpre_out[0] <= HCR_r[7:0]; // $2
         8'h60+ADDR_HCR+1 : pgmpre_out[0] <= HCR_r[15:8]; // $2
         8'h60+ADDR_VCR   : pgmpre_out[0] <= VCR_r[7:0]; // $2
         8'h60+ADDR_VCR+1 : pgmpre_out[0] <= VCR_r[15:8]; // $2
-`ifdef DEBUG_EXT
         8'h60+ADDR_MR    : pgmpre_out[0] <= MR_r[7:0]; // $5
         8'h60+ADDR_MR+1  : pgmpre_out[0] <= MR_r[15:8]; // $5
         8'h60+ADDR_MR+2  : pgmpre_out[0] <= MR_r[23:16]; // $5
@@ -2316,8 +2513,8 @@ always @(posedge CLK) begin
         8'h60+ADDR_OF    : pgmpre_out[0] <= OF_r;
         8'h60+ADDR_VDP   : pgmpre_out[0] <= VDP_r[7:0]; // $2
         8'h60+ADDR_VDP+1 : pgmpre_out[0] <= VDP_r[15:8]; // $2
-`endif
         8'h60+ADDR_VC    : pgmpre_out[0] <= VC_r;      
+`endif
         
         // 80-9F ARCH STATE
         8'h80      : pgmpre_out[0] <= A_r[7:0];  
@@ -2381,6 +2578,7 @@ always @(posedge CLK) begin
         8'hC8           : pgmpre_out[0] <= exe_addr_r[23:16];
         8'hC9           : pgmpre_out[0] <= exe_data_r[7:0];
         8'hCA           : pgmpre_out[0] <= exe_data_r[15:8];
+`ifdef DEBUG_EXE
         8'hCB           : pgmpre_out[0] <= exe_control_r;
         8'hCC           : pgmpre_out[0] <= exe_nextpc_r[7:0];
         8'hCD           : pgmpre_out[0] <= exe_nextpc_r[15:8];
@@ -2402,6 +2600,7 @@ always @(posedge CLK) begin
         8'hDB           : pgmpre_out[0] <= exe_dec_add_indirect;
         8'hDC           : pgmpre_out[0] <= exe_dec_add_long;
         //8'hDD           : pgmpre_out[0] <= exe_dec_add_stk;
+`endif
         8'hDD           : pgmpre_out[0] <= exe_target_r[7:0];
         8'hDE           : pgmpre_out[0] <= exe_target_r[15:8];
         8'hDF           : pgmpre_out[0] <= exe_target_r[23:16];
@@ -2409,6 +2608,7 @@ always @(posedge CLK) begin
         //8'hC5           : pgmpre_out[0] <= exe_opindex_r;
         
         // E0-EF ???
+`ifdef DEBUG_EXT
         8'hE0           : pgmpre_out[0] <= debug_inst_addr_prev_r[ 7: 0];
         8'hE1           : pgmpre_out[0] <= debug_inst_addr_prev_r[15: 8];
         8'hE2           : pgmpre_out[0] <= debug_inst_addr_prev_r[23:16];
@@ -2430,6 +2630,7 @@ always @(posedge CLK) begin
         8'hFB           : pgmpre_out[0] <= sa1_cycle_cnt_r[23:16];
         8'hFC           : pgmpre_out[0] <= sa1_cycle_cnt_r[15: 8];
         8'hFD           : pgmpre_out[0] <= sa1_cycle_cnt_r[ 7: 0];
+`endif
 
         default         : pgmpre_out[0] <= 8'hFF;
       endcase
