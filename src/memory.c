@@ -271,6 +271,28 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
     }
   }
   file_close();
+
+  if (romprops.has_sa1 && romprops.romsize_bytes <= 0x600000) {
+    // mirror file @ $800000 with +1 offset for misaligned accesses
+    count = 0;
+    set_mcu_addr(0x800000);
+    file_res = 0;
+    file_open(filename, FA_READ);
+    ff_sd_offload=1;
+    sd_offload_tgt=0;
+    f_lseek(&file_handle, romprops.offset + 1);
+    for(;;) {
+      ff_sd_offload=1;
+      sd_offload_tgt=0;
+      bytes_read = file_read();
+      if (file_res || !bytes_read) break;
+      if(!(count++ % 512)) {
+        uart_putc('.');
+      }
+    }
+    file_close();
+  }
+  
   printf("rom header map: %02x; mapper id: %d\n", romprops.header.map, romprops.mapper_id);
   ticks_total=getticks()-ticksstart;
   printf("%u ticks total\n", ticks_total);
@@ -331,6 +353,7 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   printf("gsu=%x gsu_sram=%x\n", romprops.has_gsu, romprops.has_gsu_sram);
   if(flags & LOADROM_WITH_SRAM) {
     if(romprops.ramsize_bytes) {
+      // powerslide relies on the init value to be 00.
       sram_memset(SRAM_SAVE_ADDR, romprops.ramsize_bytes, romprops.has_gsu ? 0x00 : 0xFF);
 	  if (!romprops.has_gsu || romprops.has_gsu_sram) migrate_and_load_srm(filename, SRAM_SAVE_ADDR);
       /* file not found error is ok (SRM file might not exist yet) */

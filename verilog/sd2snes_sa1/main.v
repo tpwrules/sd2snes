@@ -118,6 +118,9 @@ wire [7:0] SA1_PGM_DATA;
 wire [7:0] SA1_SNES_DATA_IN;
 wire [7:0] SA1_SNES_DATA_OUT;
 
+wire [15:0] SA1_SNV;
+wire [15:0] SA1_SIV;
+
 //wire [14:0] bsx_regs;
 //wire [7:0] BSX_SNES_DATA_IN;
 //wire [7:0] BSX_SNES_DATA_OUT;
@@ -483,6 +486,10 @@ sa1 snes_sa1 (
 `endif
 
   .BMAPS_SBM(SA1_BMAPS_SBM),
+  .SNV(SA1_SNV),
+  .SIV(SA1_SIV),
+  .SCNT_NVSW(SA1_SCNT_NVSW),
+  .SCNT_IVSW(SA1_SCNT_IVSW),
 
   // ACTIVE interface
   //.ACTIVE(SA1_ACTIVE),
@@ -738,6 +745,12 @@ always @(posedge CLK2) begin
   end
 end
 
+reg nmi_match; initial nmi_match = 0;
+reg irq_match; initial irq_match = 0;
+
+always @(posedge CLK2) nmi_match <= {SNES_ADDR[23:1],1'b0} == 24'h00FFEA;
+always @(posedge CLK2) irq_match <= {SNES_ADDR[23:1],1'b0} == 24'h00FFEE;
+
 assign SNES_DATA = (r213f_enable & ~SNES_PARD & ~r213f_forceread) ? r213fr
                    :(~SNES_READ ^ (r213f_forceread & r213f_enable & ~SNES_PARD))
                                 ? ( msu_enable ? MSU_SNES_DATA_OUT
@@ -747,6 +760,8 @@ assign SNES_DATA = (r213f_enable & ~SNES_PARD & ~r213f_forceread) ? r213fr
 `ifdef CSRAM                                  
                                   : (ROM_HIT & IS_SAVERAM) ? RAM_DATA
 `endif
+                                  : (SA1_SCNT_NVSW & nmi_match) ? (SNES_ADDR[0] ? SA1_SNV[15:8] : SA1_SNV[7:0])
+                                  : (SA1_SCNT_IVSW & irq_match) ? (SNES_ADDR[0] ? SA1_SIV[15:8] : SA1_SIV[7:0])
                                   : (ROM_ADDR0 ? ROM_DATA[7:0] : ROM_DATA[15:8])
                                   ) : 8'bZ;
 

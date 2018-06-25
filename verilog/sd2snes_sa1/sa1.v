@@ -66,6 +66,10 @@ module sa1(
 
   // address map
   output [4:0]  BMAPS_SBM,
+  output [15:0] SNV,
+  output [15:0] SIV,
+  output        SCNT_NVSW,
+  output        SCNT_IVSW,
 
   output        IRQ,
 
@@ -1189,7 +1193,7 @@ always @(posedge CLK) begin
           mmc_long_r <= exe_mmc_long_r;
 
           if (`IS_ROM(exe_fetch_addr_r) & ROM_BUS_RDY) begin
-            rom_bus_rrq_r <= 1;
+            rom_bus_rrq_r <= ~(exe_mmc_wr_r | exe_mmc_int);
             rom_bus_addr_r <= `MAP_ROM(exe_fetch_addr_r);
             rom_bus_word_r <= 1;
 
@@ -1329,7 +1333,7 @@ always @(posedge CLK) begin
               0: mmc_data_r[ 7: 0] <= iram_dout[7:0];
               1: mmc_data_r[15: 8] <= iram_dout[7:0];
               2: mmc_data_r[23:16] <= iram_dout[7:0];
-              3: mmc_data_r[31:23] <= iram_dout[7:0];
+              3: mmc_data_r[31:24] <= iram_dout[7:0];
             endcase
           end
           else begin
@@ -1996,12 +2000,11 @@ always @(posedge CLK) begin
 
             if (exe_opcode_r[7]^exe_opcode_r[6]) begin
               // RTI
-              exe_pbr_r    <= E_r ? exe_pbr_r : mmc_data_r[31:24];
-              exe_target_r <= mmc_data_r[23:8];
-              exe_p_r      <= mmc_data_r[7:0];
+              exe_target_r <= {(E_r ? exe_pbr_r : exe_data_r[31:24]),exe_data_r[23:8]};
+              exe_p_r      <= exe_data_r[7:0];
               exe_s_r <= S_r + {~E_r,E_r,E_r};
               
-              exe_mmc_byte_total_r <= {1'b1,E_r};
+              exe_mmc_byte_total_r <= {1'b1,~E_r};
               
               if (mmc_data_r[`P_X]) begin
                 exe_x_r[15:8] <= 0;
@@ -2014,21 +2017,21 @@ always @(posedge CLK) begin
               exe_wai_r <= exe_opcode_r[0];
             end
             else begin
-              // TODO: add NMI/INT support here, too.
               // COP/BRK
               if (exe_load_r) begin
-                if (~int_pending_r) exe_mmc_addr_r <= {16'h00FF,3'h7,E_r,E_r,1'b1,~exe_opcode_r[1],1'b0};
-                else                exe_mmc_addr_r <= {8'h00,int_vector_r};
+                // interrupt will read BRK vector from memory
+                exe_mmc_addr_r <= {16'h00FF,3'h7,E_r,E_r,1'b1,~exe_opcode_r[1],1'b0};
               end
               else begin
-                exe_target_r <= {8'h00,exe_data_r[15:0]};
+                if (~int_pending_r) exe_target_r <= {8'h00,exe_data_r[15:0]};
+                else                exe_target_r <= {8'h00,int_vector_r};
                 exe_s_r <= S_r - {~E_r,E_r,E_r};
                 exe_p_r[`P_I] <= 1;
                 exe_p_r[`P_D] <= 0;
 
-                exe_mmc_addr_r <= S_r + {1'b1,E_r};
-                exe_mmc_data_r <= {PBR_r,(int_pending_r ? PC_r : exe_nextpc_r),P_r};
-                exe_mmc_byte_total_r <= {1'b1,E_r};
+                exe_mmc_addr_r <= {8'h00,S_r - {1'b1,~E_r}};
+                exe_mmc_data_r <= {PBR_r,(int_pending_r ? PC_r[15:0] : exe_nextpc_r[15:0]),P_r};
+                exe_mmc_byte_total_r <= {1'b1,~E_r};
               end
             end
           end
@@ -2451,5 +2454,9 @@ always @(posedge CLK) cpu_irq_r <= (SIE_r[`SIE_DMA_IRQEN] & SFR_r[`SFR_DMA_IRQFL
 assign IRQ         = cpu_irq_r;
 
 assign BMAPS_SBM   = BMAPS_r[`BMAPS_SBM];
+assign SNV         = SNV_r;
+assign SIV         = SIV_r;
+assign SCNT_NVSW   = SCNT_r[`SCNT_NVSW];
+assign SCNT_IVSW   = SCNT_r[`SCNT_IVSW];
 
 endmodule
