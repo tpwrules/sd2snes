@@ -632,7 +632,7 @@ always @(posedge CLK) begin
     CDMA_r <= 0;
     SDA_r  <= 0;
     DDA_r  <= 0;
-    //DTC_r  <= 0;
+    DTC_r  <= 0;
     BBF_r  <= 0;
     for (i = 0; i < 8; i = i + 1) BRF_r[i] <= 0;
     MCNT_r <= 0;
@@ -813,8 +813,8 @@ always @(posedge CLK) begin
         ADDR_DDA   : DDA_r[7:0]          <= snes_writebuf_data_r;  // 8'h35, // $3
         ADDR_DDA+1 : DDA_r[15:8]         <= snes_writebuf_data_r;  // 8'h35, // $3
         ADDR_DDA+2 : DDA_r[23:16]        <= snes_writebuf_data_r;  // 8'h35, // $3
-        //ADDR_DTC   : DTC_r[7:0]          <= snes_writebuf_data_r;  // 8'h38, // $2
-        //ADDR_DTC+1 : DTC_r[15:8]         <= snes_writebuf_data_r;  // 8'h38, // $2
+        ADDR_DTC   : DTC_r[7:0]          <= snes_writebuf_data_r;  // 8'h38, // $2
+        ADDR_DTC+1 : DTC_r[15:8]         <= snes_writebuf_data_r;  // 8'h38, // $2
         ADDR_BBF   : BBF_r[`BBF_BBF]     <= snes_writebuf_data_r[`BBF_BBF];  // 8'h3F,
         ADDR_BRF+0 : BRF_r[0][7:0]       <= snes_writebuf_data_r;  // 8'h40,
         ADDR_BRF+1 : BRF_r[0][15:8]      <= snes_writebuf_data_r;  // 8'h41,
@@ -1465,33 +1465,50 @@ assign sa1_mmio_read  = ~|sa1_mmio_read_r & ~snes_readbuf_active_r & MMC_STATE[c
 // get this to fit in the fpga, as much code as re-used as possible.
 // The main differences between the 2 modes are addressing/dataswizzle
 // and triggers.
-
+//
+// normal - no character conversion.  can trigger interrupt.  dtc holds count.  triggered by dda write.
+// type1  - bram->iram character conversion.  planar to pixel.  8x8 character.  triggered by snes reads.
+// type2  - brf->iram character conversion.  pixel to planar. 8 pixels in lower or upper brf.  triggered by brf writes.
+//
+// TODO:
+// - type1
+// - check interrupt mechanism
+// - stall execute pipe for type1/type2 while busy.  type2 will be fast.  type1 will require up to 8x8 bram reads and 8x8 iram writes.
 parameter
-  ST_DMA_IDLE      = 8'b00000001,
-  ST_DMA_READ      = 8'b00000010,
-  ST_DMA_READ_END  = 8'b00000100,
-  ST_DMA_WRITE     = 8'b00001000,
-  ST_DMA_WRITE_END = 8'b00010000,
-  ST_DMA_BRF_WRITE = 8'b00100000,
-  ST_DMA_END       = 8'b10000000,
-  ST_DMA_ALL       = 8'b11111111
-  ;
+  ST_DMA_IDLE        = 8'b00000001,
+  ST_DMA_NORMAL_READ = 8'b00000010,
+  ST_DMA_TYPE1_READ  = 8'b00000100,
+  ST_DMA_TYPE2_READ  = 8'b00001000,
+  ST_DMA_READ_END    = 8'b00010000,
+  ST_DMA_TYPE1_WRITE = 8'b00100000,
+  ST_DMA_WRITE       = 8'b01000000,
+  ST_DMA_WRITE_END   = 8'b10000000,
+  ST_DMA_ALL         = 8'b11111111;
   
 reg [7:0]  DMA_STATE; initial DMA_STATE = ST_DMA_IDLE;
+reg [7:0]  dma_next_readstate_r; initial dma_next_readstate_r = 0;
+reg [7:0]  dma_next_writestate_r; initial dma_next_writestate_r = 0;
 
+reg [23:0] dma_write_addr_r; initial dma_write_addr_r = 0;
 reg [7:0]  dma_data_r; initial dma_data_r = 0;
 
 reg        dma_trigger_normal_r; initial dma_trigger_normal_r = 0;
 reg        dma_trigger_type1_r; initial dma_trigger_type1_r = 0;
 reg        dma_trigger_type2_r; initial dma_trigger_type2_r = 0;
 
-reg [3:0]  dma_t2_line_r; initial dma_t2_line_r = 0;
-reg [2:0]  dma_t2_byte_r; initial dma_t2_byte_r = 0;
-reg [2:0]  dma_t2_comp_r; initial dma_t2_comp_r = 0;
+reg [3:0]  dma_line_r; initial dma_line_r = 0;
+reg [2:0]  dma_byte_r; initial dma_byte_r = 0;
+reg [2:0]  dma_comp_r; initial dma_comp_r = 0;
+
+reg [15:0] dma_dtc_r; initial dma_dtc_r = 0;
+reg [23:0] dma_sda_r; initial dma_sda_r = 0;
+reg [23:0] dma_dda_r; initial dma_dda_r = 0;
 
 always @(posedge CLK) begin
   if (RST) begin
-    DMA_STATE <= ST_DMA_IDLE;
+    DMA_STATE             <= ST_DMA_IDLE;
+    dma_next_readstate_r  <= ST_DMA_IDLE;
+    dma_next_writestate_r <= ST_DMA_IDLE;
     
     dma_mmc_rd_r <= 0;
     dma_mmc_wr_r <= 0;
@@ -1500,7 +1517,7 @@ always @(posedge CLK) begin
     dma_trigger_type1_r  <= 0;
     dma_trigger_type2_r  <= 0;
 
-    dma_t2_line_r <= 0;
+    dma_line_r <= 0;
     
     SFR_r[`SFR_DMA_IRQFL] <= 0;
     CFR_r[`CFR_DMA_IRQFL] <= 0;
@@ -1516,7 +1533,7 @@ always @(posedge CLK) begin
                                || (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == (ADDR_DDA+2) &&  DCNT_r[`DCNT_DD]) // bram
                                )
                             );
-    // TODO: snes read triggers a dma operation.
+    // TODO: snes read triggers dma operation.
     dma_trigger_type1_r  <= 0;
     dma_trigger_type2_r  <= (   DCNT_r[`DCNT_DMAEN]
                             &&  DCNT_r[`DCNT_CDEN]
@@ -1525,61 +1542,120 @@ always @(posedge CLK) begin
                                || (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_BRFF)
                                )
                             );
-    dma_t2_comp_r <= {CDMA_r[0],CDMA_r[1],1'b0};
+    dma_comp_r <= {~|CDMA_r,~CDMA_r[1],1'b1};
   
     case (DMA_STATE)
       ST_DMA_IDLE: begin
-        // normal
-        if      (dma_trigger_normal_r) DMA_STATE <= ST_DMA_READ;
-        else if (dma_trigger_type2_r)  DMA_STATE <= ST_DMA_BRF_WRITE;
+        if      (dma_trigger_normal_r) DMA_STATE <= ST_DMA_NORMAL_READ;
+        else if (dma_trigger_type1_r)  DMA_STATE <= ST_DMA_TYPE1_READ;
+        else if (dma_trigger_type2_r)  DMA_STATE <= ST_DMA_TYPE2_READ;
 
         // clear interrupt
         if (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_CIC  &&  snes_writebuf_data_r[`CIC_DMA_IRQCL]) CFR_r[`CFR_DMA_IRQFL] <= 0;
         if (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_SIC  &&  snes_writebuf_data_r[`SIC_DMA_IRQCL]) SFR_r[`SFR_DMA_IRQFL] <= 0;
-        if (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_DCNT && ~snes_writebuf_data_r[`DCNT_DMAEN])    dma_t2_line_r         <= 0;
+        if (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_DCNT && ~snes_writebuf_data_r[`DCNT_DMAEN])    dma_line_r            <= 0;
         
-        if (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_DTC+0) DTC_r[7:0]  <= snes_writebuf_data_r;
-        if (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_DTC+1) DTC_r[15:0] <= snes_writebuf_data_r;
+        dma_dtc_r <= DTC_r;
+        dma_sda_r <= SDA_r;
+        dma_dda_r <= DDA_r;
+        
+        dma_byte_r <= 0;
+        // TODO: zero line on end
       end
-      ST_DMA_READ: begin
-        dma_mmc_rd_r   <= |DTC_r;
-        dma_mmc_addr_r <= {(SDA_r[23:11] & {13{~DCNT_r[1]}}),SDA_r[10:0]};
-        DMA_STATE <= |DTC_r ? ST_DMA_READ_END : ST_DMA_END;
+      // normal
+      ST_DMA_NORMAL_READ: begin
+        if (|dma_dtc_r) begin
+          dma_mmc_rd_r <= 1;
+          
+          dma_dtc_r <= dma_dtc_r - 1;
+          dma_sda_r <= dma_sda_r + 1;
+          dma_dda_r <= dma_dda_r + 1;
+
+          DMA_STATE <= ST_DMA_READ_END;
+        end
+        else begin
+          CFR_r[`CFR_DMA_IRQFL] <= 1;
+
+          DMA_STATE <= ST_DMA_IDLE;
+        end
+        
+        dma_mmc_addr_r   <= {(dma_sda_r[23:11] & {13{~DCNT_r[1]}}),      dma_sda_r[10:0]};
+        dma_write_addr_r <= {(dma_dda_r[23:11] & {13{DCNT_r[`DCNT_DD]}}),dma_dda_r[10:0]};
+        
+        dma_next_readstate_r  <= ST_DMA_WRITE;
+        dma_next_writestate_r <= ST_DMA_NORMAL_READ;
+      end
+
+      // type1
+      ST_DMA_TYPE1_READ: begin
+        // todo only do the read if valid byte
+        dma_mmc_rd_r <= 1;
+      
+        // todo calculate address
+        dma_mmc_addr_r <= 0;
+      
+        // todo perform shift
+      
+        dma_byte_r <= dma_byte_r + 1;
+        
+        // todo: check if we need to move to write stage
+        dma_next_readstate_r <= ST_DMA_TYPE1_READ;
+        
+        DMA_STATE <= ST_DMA_READ_END;
+      end
+      ST_DMA_TYPE1_WRITE: begin
+        dma_mmc_wr_r <= 1;
+        
+        // todo: calculate address.  Probably due this in a common function.
+        dma_write_addr_r <= 0;
+        dma_data_r <= 0;
+        
+        // todo pack data and perform bpp writes
+        dma_next_writestate_r <= (dma_byte_r == dma_comp_r) ? ST_DMA_IDLE : ST_DMA_TYPE1_WRITE;
+
+        DMA_STATE <= ST_DMA_WRITE;
+      end
+      
+      // type2
+      ST_DMA_TYPE2_READ: begin
+        // compose BRF to iram write
+        dma_write_addr_r <= {13'h0000,
+                             DDA_r[10:7],
+                             (|CDMA_r[`CDMA_DMACB] ? DDA_r[6]                                  : dma_line_r[3]),
+                             (CDMA_r[1]            ? DDA_r[5]      : CDMA_r[0] ? dma_line_r[3] : dma_byte_r[2]),
+                             (CDMA_r[1]            ? dma_line_r[3] :             dma_byte_r[1]                ),
+                             dma_line_r[2:0],
+                             dma_byte_r[0]
+                            };
+
+        dma_byte_r  <= dma_byte_r + 1;
+        
+        dma_data_r <= {BRF_r[{dma_line_r[3],3'h7}][dma_byte_r[2:0]],
+                       BRF_r[{dma_line_r[3],3'h6}][dma_byte_r[2:0]],
+                       BRF_r[{dma_line_r[3],3'h5}][dma_byte_r[2:0]],
+                       BRF_r[{dma_line_r[3],3'h4}][dma_byte_r[2:0]],
+                       BRF_r[{dma_line_r[3],3'h3}][dma_byte_r[2:0]],
+                       BRF_r[{dma_line_r[3],3'h2}][dma_byte_r[2:0]],
+                       BRF_r[{dma_line_r[3],3'h1}][dma_byte_r[2:0]],
+                       BRF_r[{dma_line_r[3],3'h0}][dma_byte_r[2:0]]};
+
+        if (dma_byte_r == dma_comp_r) dma_line_r <= dma_line_r + 1;
+        dma_next_writestate_r <= (dma_byte_r == dma_comp_r) ? ST_DMA_IDLE : ST_DMA_TYPE2_READ;
+        
+        DMA_STATE <= ST_DMA_WRITE;
       end
       ST_DMA_READ_END: begin
         if (MMC_STATE[clog2(ST_MMC_DMA_END)]) begin
           dma_mmc_rd_r <= 0;
           dma_data_r <= mmc_data_r[7:0];
-          DMA_STATE <= ST_DMA_WRITE;
+          
+          DMA_STATE <= dma_next_readstate_r;
         end
       end
       ST_DMA_WRITE: begin
         dma_mmc_wr_r   <= 1;
-        dma_mmc_addr_r <= {(DDA_r[23:11] & {13{DCNT_r[`DCNT_DD]}}),DDA_r[10:0]};
+        dma_mmc_addr_r <= dma_write_addr_r;
         dma_mmc_data_r <= dma_data_r;
-        DMA_STATE <= ST_DMA_WRITE_END;
-      end
-      ST_DMA_BRF_WRITE: begin
-        // compose BRF to iram write
-        dma_mmc_wr_r   <= 1;
-        dma_mmc_addr_r <= {13'h0000,
-                           DDA_r[10:7],
-                           (|CDMA_r[`CDMA_DMACB] ? DDA_r[6]                                        : dma_t2_line_r[3]),
-                           (CDMA_r[1]            ? DDA_r[5]         : CDMA_r[0] ? dma_t2_line_r[3] : dma_t2_byte_r[2]),
-                           (CDMA_r[1]            ? dma_t2_line_r[3] :             dma_t2_byte_r[1]                   ),
-                           dma_t2_line_r[2:0],
-                           dma_t2_byte_r[0]
-                          };
-        dma_t2_byte_r  <= dma_t2_byte_r + 1;
-        
-        dma_mmc_data_r <= {BRF_r[{dma_t2_line_r[3],3'h7}][dma_t2_byte_r[2:0]],
-                           BRF_r[{dma_t2_line_r[3],3'h6}][dma_t2_byte_r[2:0]],
-                           BRF_r[{dma_t2_line_r[3],3'h5}][dma_t2_byte_r[2:0]],
-                           BRF_r[{dma_t2_line_r[3],3'h4}][dma_t2_byte_r[2:0]],
-                           BRF_r[{dma_t2_line_r[3],3'h3}][dma_t2_byte_r[2:0]],
-                           BRF_r[{dma_t2_line_r[3],3'h2}][dma_t2_byte_r[2:0]],
-                           BRF_r[{dma_t2_line_r[3],3'h1}][dma_t2_byte_r[2:0]],
-                           BRF_r[{dma_t2_line_r[3],3'h0}][dma_t2_byte_r[2:0]]};
         
         DMA_STATE <= ST_DMA_WRITE_END;
       end
@@ -1587,22 +1663,8 @@ always @(posedge CLK) begin
         if (MMC_STATE[clog2(ST_MMC_DMA_END)]) begin
           dma_mmc_wr_r <= 0;
           
-          if (DCNT_r[`DCNT_CDEN]) begin
-            dma_t2_line_r  <= dma_t2_line_r + 1;
-
-            DMA_STATE <= (dma_t2_byte_r == dma_t2_comp_r) ? ST_DMA_IDLE : ST_DMA_BRF_WRITE;
-          end
-          else begin
-            DMA_STATE <= ST_DMA_READ;
-            DTC_r     <= DTC_r - 1;
-          end
+          DMA_STATE <= dma_next_writestate_r;
         end
-      end
-      ST_DMA_END: begin
-        // only normal gets here
-        CFR_r[`CFR_DMA_IRQFL] <= 1;
-        // TODO: clear IRQCL?  will be hard to do with different state machines writing it.  Seems like all the CL signals don't need to be stately.
-        DMA_STATE <= ST_DMA_IDLE;
       end
     endcase
   end
