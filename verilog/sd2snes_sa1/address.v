@@ -33,6 +33,7 @@ module address(
   input [23:0] ROM_MASK,
   output msu_enable,
   input [4:0] sa1_bmaps_sbm,
+  input  sa1_dma_cc1_en,
 //  output srtc_enable,
 //  output use_bsx,
 //  output bsx_tristate,
@@ -70,6 +71,7 @@ assign IS_SAVERAM = SAVERAM_MASK[0]
                         &  SNES_ADDR[22]
                         & ~SNES_ADDR[21]
                         & ~SNES_ADDR[20]
+                        & ~sa1_dma_cc1_en
                         )
                         // 00-3F/80-BF:6000-7FFF
                       | ( ~SNES_ADDR[22]
@@ -100,6 +102,6 @@ assign return_vector_enable = (SNES_ADDR == 24'h002A5A);
 assign branch1_enable = (SNES_ADDR == 24'h002A13);
 assign branch2_enable = (SNES_ADDR == 24'h002A4D);
 // 00-3F/80-BF:2200-23FF sa1 registers. 00-3F/80-BF:3000-37FF iram.
-assign sa1_enable = !SNES_ADDR[22] && ({SNES_ADDR[15:9],1'h0} == 8'h22 || {SNES_ADDR[15:11],3'h0} == 8'h30);
+assign sa1_enable = (!SNES_ADDR[22] && ({SNES_ADDR[15:9],1'h0} == 8'h22 || {SNES_ADDR[15:11],3'h0} == 8'h30)) || (SNES_ADDR[23:20] == 4'h4 && sa1_dma_cc1_en);
 
 endmodule

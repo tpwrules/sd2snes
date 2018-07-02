@@ -490,6 +490,7 @@ sa1 snes_sa1 (
   .SIV(SA1_SIV),
   .SCNT_NVSW(SA1_SCNT_NVSW),
   .SCNT_IVSW(SA1_SCNT_IVSW),
+  .DMA_CC1_EN(SA1_DMA_CC1_EN),
 
   // ACTIVE interface
   //.ACTIVE(SA1_ACTIVE),
@@ -660,6 +661,7 @@ address snes_addr(
   .msu_enable(msu_enable),
   // sa1
   .sa1_bmaps_sbm(SA1_BMAPS_SBM),
+  .sa1_dma_cc1_en(SA1_DMA_CC1_EN),
 //  //BS-X
 //  .use_bsx(use_bsx),
 //  .bsx_regs(bsx_regs),
