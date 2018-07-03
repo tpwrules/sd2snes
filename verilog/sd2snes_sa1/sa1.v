@@ -126,14 +126,14 @@ module sa1(
 // DEFINES
 //-------------------------------------------------------------------
 
-`define DEBUG
+//`define DEBUG
 //`define DEBUG_EXT
 //`define DEBUG_MMC
 //`define DEBUG_EXE
 //`define DEBUG_DMA
 
 `define DMA_ENABLE
-//`define DMA_TYPE2_ENABLE
+`define DMA_TYPE2_ENABLE
 
 // address mapping
 wire       sw46;
@@ -1346,7 +1346,8 @@ always @(posedge CLK) begin
         rom_bus_wrq_r <= 0;
 
         if (~rom_bus_rrq_r & ~rom_bus_wrq_r & ROM_BUS_RDY) begin
-          mmc_byte_r <= mmc_byte_r + 1;
+          // FIXME: don't increment byte to avoid storing extra
+          if (~mmc_pram_r) mmc_byte_r <= mmc_byte_r + 1;
 
           if (mmc_pram_r) begin
             if (~mmc_wr_r) begin
@@ -1550,12 +1551,14 @@ reg [10:0] dma_cc1_addr_wr_r; // current write address
 reg        dma_cc1_upper_r; initial dma_cc1_upper_r = 0;
 reg        dma_cc1_rd_r; initial dma_cc1_rd_r = 0;
 
+reg        dma_cc2_line3_r; initial dma_cc2_line3_r = 0;
+
 reg        dma_trigger_normal_r; initial dma_trigger_normal_r = 0;
 reg        dma_start_type1_r; initial dma_start_type1_r = 0;
 reg        dma_trigger_type1_r; initial dma_trigger_type1_r = 0;
 reg        dma_trigger_type2_r; initial dma_trigger_type2_r = 0;
 
-reg [3:0]  dma_line_r; initial dma_line_r = 0;
+reg [2:0]  dma_line_r; initial dma_line_r = 0;
 reg [2:0]  dma_byte_r; initial dma_byte_r = 0;
 reg [2:0]  dma_comp_r; initial dma_comp_r = 0;
 
@@ -1671,19 +1674,16 @@ always @(posedge CLK) begin
 
     if (dbg_dma_cc1_trigger_r == 1 && ~DMA_STATE[clog2(ST_DMA_IDLE)]) dbg_dma_cc1_nonzero_write_r <= dbg_dma_cc1_nonzero_write_r + 1;
 
+    if (snes_writebuf_val_r) begin
+      if      (snes_writebuf_addr_r[7:0] == ADDR_BRF7) dma_cc2_line3_r <= 0;
+      else if (snes_writebuf_addr_r[7:0] == ADDR_BRFF) dma_cc2_line3_r <= 1;
+    end
+
     case (DMA_STATE)
       ST_DMA_IDLE: begin
-        if      (dma_trigger_normal_r)                     DMA_STATE <= ST_DMA_NORMAL_READ;
-        else if (dma_start_type1_r | dma_trigger_type1_r)  DMA_STATE <= ST_DMA_TYPE1_READ;
-        else if (dma_trigger_type2_r)                      DMA_STATE <= ST_DMA_TYPE2_READ;
-
         // clear interrupt
         if (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_CIC  &&  snes_writebuf_data_r[`CIC_DMA_IRQCL]) CFR_r[`CFR_DMA_IRQFL] <= 0;
         if (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_SIC  &&  snes_writebuf_data_r[`SIC_DMA_IRQCL]) SFR_r[`SFR_DMA_IRQFL] <= 0;
-        if (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_DCNT && ~snes_writebuf_data_r[`DCNT_DMAEN]) begin
-          dma_line_r         <= 0;
-          dma_cc1_char_num_r <= 0;
-        end
         
         dma_dtc_r <= DTC_r;
         dma_dsa_r <= DSA_r;
@@ -1693,13 +1693,19 @@ always @(posedge CLK) begin
         
         // will be 1 when we transition to idle after the first character.
         dma_cc1_int_r <= dma_start_type1_r;
-        
-        if      (dma_start_type1_r) begin
+
+        if      (dma_trigger_normal_r) begin
+          DMA_STATE <= ST_DMA_NORMAL_READ;
+        end
+        else if (dma_start_type1_r) begin
           dma_cc1_addr_base_r <= DSA_r + dma_cc1_bpp_r;
           dma_cc1_addr_rd_r   <= DSA_r;
           dma_cc1_addr_wr_r   <= DDA_r[10:0];
-          dma_cc1_char_num_r  <= (dma_cc1_char_num_r + 1) & dma_cc1_size_mask_r;
+          dma_cc1_char_num_r  <= {4'b0000,dma_cc1_size_mask_r[0]};
+          dma_line_r          <= 0;
           dbg_dma_cc1_start_r <= dbg_dma_cc1_start_r + 1;
+          
+          DMA_STATE <= ST_DMA_TYPE1_READ;
         end
         else if (dma_trigger_type1_r) begin
           // either we are in the same row and increment the base by the width of a character in bytes or take the current address
@@ -1710,6 +1716,13 @@ always @(posedge CLK) begin
           dma_cc1_addr_wr_r[6:4] <= dma_cc1_addr_wr_r[6:4] ^ dma_cc1_bpp_r[3:1];
           dma_cc1_char_num_r  <= (dma_cc1_char_num_r + 1) & dma_cc1_size_mask_r;
           dbg_dma_cc1_trigger_r <= dbg_dma_cc1_trigger_r + 1;
+          
+          DMA_STATE <= ST_DMA_TYPE1_READ;
+        end
+        else if (dma_trigger_type2_r) begin
+          dma_cc2_line3_r <= 
+        
+          DMA_STATE <= ST_DMA_TYPE2_READ;
         end
       end
       // normal
@@ -1786,33 +1799,33 @@ always @(posedge CLK) begin
 `ifdef DMA_TYPE2_ENABLE
       // type2
       ST_DMA_TYPE2_READ: begin
-        dma_write_r <= 1;
+        dma_mmc_wr_r <= 1;
 
         // compose BRF to iram write
-        dma_write_addr_r <= {13'h0000,
-                             DDA_r[10:7],
-                             (|CDMA_r[`CDMA_DMACB] ? DDA_r[6]                                  : dma_line_r[3]),
-                             (CDMA_r[1]            ? DDA_r[5]      : CDMA_r[0] ? dma_line_r[3] : dma_byte_r[2]),
-                             (CDMA_r[1]            ? dma_line_r[3] :             dma_byte_r[1]                ),
-                             dma_line_r[2:0],
-                             dma_byte_r[0]
-                            };
+        dma_mmc_addr_r <= {13'h0000,
+                           DDA_r[10:7],
+                           (|CDMA_r[`CDMA_DMACB] ? DDA_r[6]                                        : dma_cc2_line3_r),
+                           (CDMA_r[1]            ? DDA_r[5]         : CDMA_r[0] ? dma_cc2_line3_r  : dma_byte_r[2]  ),
+                           (CDMA_r[1]            ? dma_cc2_line3_r  :             dma_byte_r[1]                     ),
+                           dma_line_r[2:0],
+                           dma_byte_r[0]
+                          };
 
-        dma_data_r <= {BRF_r[{dma_line_r[3],3'h0}][dma_byte_r[2:0]],
-                       BRF_r[{dma_line_r[3],3'h1}][dma_byte_r[2:0]],
-                       BRF_r[{dma_line_r[3],3'h2}][dma_byte_r[2:0]],
-                       BRF_r[{dma_line_r[3],3'h3}][dma_byte_r[2:0]],
-                       BRF_r[{dma_line_r[3],3'h4}][dma_byte_r[2:0]],
-                       BRF_r[{dma_line_r[3],3'h5}][dma_byte_r[2:0]],
-                       BRF_r[{dma_line_r[3],3'h6}][dma_byte_r[2:0]],
-                       BRF_r[{dma_line_r[3],3'h7}][dma_byte_r[2:0]]};
+        dma_mmc_data_r <= {BRF_r[{dma_cc2_line3_r,3'h0}][dma_byte_r[2:0]],
+                           BRF_r[{dma_cc2_line3_r,3'h1}][dma_byte_r[2:0]],
+                           BRF_r[{dma_cc2_line3_r,3'h2}][dma_byte_r[2:0]],
+                           BRF_r[{dma_cc2_line3_r,3'h3}][dma_byte_r[2:0]],
+                           BRF_r[{dma_cc2_line3_r,3'h4}][dma_byte_r[2:0]],
+                           BRF_r[{dma_cc2_line3_r,3'h5}][dma_byte_r[2:0]],
+                           BRF_r[{dma_cc2_line3_r,3'h6}][dma_byte_r[2:0]],
+                           BRF_r[{dma_cc2_line3_r,3'h7}][dma_byte_r[2:0]]};
 
         dma_byte_r <= dma_byte_r + 1;
 
-        if (dma_byte_r == dma_comp_r) dma_line_r <= dma_line_r + 1;
-        dma_next_writestate_r <= (dma_byte_r == dma_comp_r) ? ST_DMA_IDLE : ST_DMA_TYPE2_READ;
+        if (&dma_byte_r) dma_line_r[2:0] <= dma_line_r[2:0] + 1;
+        dma_next_writestate_r <= &dma_byte_r ? ST_DMA_IDLE : ST_DMA_TYPE2_READ;
         
-        DMA_STATE <= ST_DMA_WRITE;
+        DMA_STATE <= ST_DMA_WRITE_END;
       end
 `endif
       ST_DMA_READ_END: begin
@@ -2084,7 +2097,6 @@ always @(posedge CLK) begin
           {PBR_r,PC_r} <= {8'h00,CRV_r};
           exe_fetch_addr_r <= {8'h00,CRV_r};
           exe_mmc_byte_total_r <= 1;
-          e2c_waitcnt_r  <= 1;
           exe_data_word_r <= 0;
           exe_mmc_long_r <= 0;
           exe_mmc_dpe_r <= 0;
@@ -2093,9 +2105,8 @@ always @(posedge CLK) begin
 
           EXE_STATE <= ST_EXE_FETCH;
         end
-        else begin
-          e2c_waitcnt_r  <= 0;
-        end
+
+        e2c_waitcnt_r  <= 0;
       end
       
       // FETCH
@@ -2143,7 +2154,7 @@ always @(posedge CLK) begin
             exe_wai_r          <= WAI_r;
 
             // TODO: hide the -1 in the decoder
-            e2c_waitcnt_r <= dec_data[`DEC_LATENCY] - 1;
+            e2c_waitcnt_r <= SPEED ? 0 : (dec_data[`DEC_LATENCY] - 1);
             
             // `define ADD_MOD     27:26
             exe_mod_r <= dec_data[27] ? 16'h0000 : dec_data[26] ? Y_r[15:0] : X_r[15:0];
