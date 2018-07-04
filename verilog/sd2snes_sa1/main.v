@@ -120,6 +120,7 @@ wire [7:0] SA1_SNES_DATA_OUT;
 
 wire [15:0] SA1_SNV;
 wire [15:0] SA1_SIV;
+wire [11:0] SA1_XXB;
 
 //wire [14:0] bsx_regs;
 //wire [7:0] BSX_SNES_DATA_IN;
@@ -491,6 +492,7 @@ sa1 snes_sa1 (
   .SCNT_NVSW(SA1_SCNT_NVSW),
   .SCNT_IVSW(SA1_SCNT_IVSW),
   .DMA_CC1_EN(SA1_DMA_CC1_EN),
+  .XXB_OUT(SA1_XXB),
 
   // ACTIVE interface
   //.ACTIVE(SA1_ACTIVE),
@@ -662,6 +664,7 @@ address snes_addr(
   // sa1
   .sa1_bmaps_sbm(SA1_BMAPS_SBM),
   .sa1_dma_cc1_en(SA1_DMA_CC1_EN),
+  .sa1_xxb(SA1_XXB),
 //  //BS-X
 //  .use_bsx(use_bsx),
 //  .bsx_regs(bsx_regs),

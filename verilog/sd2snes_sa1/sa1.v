@@ -71,6 +71,7 @@ module sa1(
   output        SCNT_NVSW,
   output        SCNT_IVSW,
   output        DMA_CC1_EN,
+  output [11:0] XXB_OUT,
 
   output        IRQ,
 
@@ -108,7 +109,7 @@ module sa1(
 // [x] full native 65c816 instruction set. (not fully debugged)
 // [x] host and slave mmio support for reset and other basic functionality
 // [x] host and slave access to bram (cart ram) and iram.
-// [_] emulation support.  (known holes in emulation state execution)
+// [_] emulation mode support.  (known holes in emulation state execution)
 // [x] dma/normal
 // [x] dma/cc
 // [x] host interrupts
@@ -116,7 +117,7 @@ module sa1(
 // [x] sa1 interrupts (untested)
 // [_] counters
 // [_] bcd mode/math
-// [_] rom address mapping
+// [x] rom address mapping
 // [x] ram address mapping
 // [x] multiply/divide
 // [x] mac support for multiply
@@ -126,7 +127,7 @@ module sa1(
 // DEFINES
 //-------------------------------------------------------------------
 
-//`define DEBUG
+`define DEBUG
 //`define DEBUG_EXT
 //`define DEBUG_MMC
 //`define DEBUG_EXE
@@ -139,6 +140,7 @@ module sa1(
 wire       sw46;
 wire [6:0] cbm;
 wire       bbf;
+reg  [2:0] xxb[3:0];
 
 // address map tests
 `define IS_ROM(a)  ((&a[23:22]) | (~a[22] & a[15]))                                              // 00-3F/80-BF:8000-FFFF, C0-FF:0000-FFFF
@@ -149,7 +151,7 @@ wire       bbf;
 `define IS_SA1_PRAM(a) ((sw46 & ~a[22] & ~a[15] & &a[14:13]) | (~a[23] & a[22] & a[21] & ~a[20])) // 00-3F/80-BF:6000-7FFF, 60-6F:0000-FFFF
 
 // TODO: add MMC support to both here and addr module
-`define MAP_ROM(a)  ((a[22] ? {2'b00, a[21:0]} : {3'b000, a[21:16], a[14:0]}) & ROM_MASK)
+`define MAP_ROM(a)  ((a[22] ? {1'b0, xxb[a[21:20]], a[19:0]} : {1'b0, xxb[{a[23],a[21]}], a[20:16], a[14:0]}) & ROM_MASK)
 // TODO: handle CBM projection
 `define MAP_BRAM(a) (24'hE00000 | ((a[22] ? a[19:0] : {cbm[4:0],a[12:0]}) & SAVERAM_MASK))
 `define MAP_IRAM(a) (a[10:0])
@@ -541,6 +543,13 @@ reg [15:0]  vcounter_r; initial vcounter_r = 0;
 assign sw46 = BMAP_r[`BMAP_SW46];
 assign cbm  = BMAP_r[`BMAP_CBM];
 assign bbf  = BBF_r[`BBF_BBF];
+
+always @(*) begin
+  xxb[0] = CXB_r[`CXB_CB];
+  xxb[1] = DXB_r[`DXB_DB];
+  xxb[2] = EXB_r[`EXB_EB];
+  xxb[3] = FXB_r[`FXB_FB];
+end
 
 //-------------------------------------------------------------------
 // PIPELINE IO
@@ -1545,7 +1554,8 @@ reg [3:0]  dma_cc1_bpp_r; // both bits per pixel and bytes per 8x8 character row
 reg [8:0]  dma_cc1_bpl_r; // bytes per line
 reg [4:0]  dma_cc1_size_mask_r; // characters per line
 reg [4:0]  dma_cc1_char_num_r; initial dma_cc1_char_num_r = 0;
-reg [23:0] dma_cc1_addr_base_r;
+reg [23:0] dma_cc1_addr_char_base_r;
+reg [23:0] dma_cc1_addr_row_base_r;
 reg [23:0] dma_cc1_addr_rd_r; // current read address
 reg [10:0] dma_cc1_addr_wr_r; // current write address
 reg        dma_cc1_upper_r; initial dma_cc1_upper_r = 0;
@@ -1698,7 +1708,8 @@ always @(posedge CLK) begin
           DMA_STATE <= ST_DMA_NORMAL_READ;
         end
         else if (dma_start_type1_r) begin
-          dma_cc1_addr_base_r <= DSA_r + dma_cc1_bpp_r;
+          dma_cc1_addr_char_base_r <= |dma_cc1_size_mask_r ? (DSA_r + dma_cc1_bpp_r) : (DSA_r + {dma_cc1_bpl_r,3'b000});
+          dma_cc1_addr_row_base_r  <= DSA_r;
           dma_cc1_addr_rd_r   <= DSA_r;
           dma_cc1_addr_wr_r   <= DDA_r[10:0];
           dma_cc1_char_num_r  <= {4'b0000,dma_cc1_size_mask_r[0]};
@@ -1710,8 +1721,11 @@ always @(posedge CLK) begin
         else if (dma_trigger_type1_r) begin
           // either we are in the same row and increment the base by the width of a character in bytes or take the current address
           // which has incremented beyond the start of the next character by bpl-2*bpp
-          dma_cc1_addr_base_r <= (dma_cc1_char_num_r == dma_cc1_size_mask_r) ? (dma_cc1_addr_rd_r - dma_cc1_bpl_r + {dma_cc1_bpp_r,1'b0}) : (dma_cc1_addr_base_r + dma_cc1_bpp_r);
-          dma_cc1_addr_rd_r   <= |dma_cc1_size_mask_r ? dma_cc1_addr_base_r : dma_cc1_addr_rd_r;
+          //dma_cc1_addr_base_r <= (dma_cc1_char_num_r == dma_cc1_size_mask_r) ? (dma_cc1_addr_rd_r - dma_cc1_bpl_r + {dma_cc1_bpp_r,1'b0}) : (dma_cc1_addr_base_r + dma_cc1_bpp_r);
+          //dma_cc1_addr_rd_r   <= |dma_cc1_size_mask_r ? dma_cc1_addr_base_r : dma_cc1_addr_rd_r;
+          dma_cc1_addr_row_base_r  <= |dma_cc1_char_num_r ? dma_cc1_addr_row_base_r : dma_cc1_addr_char_base_r;
+          dma_cc1_addr_char_base_r <= (dma_cc1_char_num_r == dma_cc1_size_mask_r) ? (dma_cc1_addr_row_base_r + {dma_cc1_bpl_r,3'b000}) : (dma_cc1_addr_char_base_r + dma_cc1_bpp_r);
+          dma_cc1_addr_rd_r        <= dma_cc1_addr_char_base_r;
           // toggle double buffer
           dma_cc1_addr_wr_r[6:4] <= dma_cc1_addr_wr_r[6:4] ^ dma_cc1_bpp_r[3:1];
           dma_cc1_char_num_r  <= (dma_cc1_char_num_r + 1) & dma_cc1_size_mask_r;
@@ -2918,7 +2932,6 @@ always @(posedge CLK) begin
         //8'hC5           : pgmpre_out[0] <= exe_opindex_r;
         
         // E0-EF ???
-`ifdef DEBUG_EXT
         8'hE0           : pgmpre_out[0] <= debug_inst_addr_prev_r[ 7: 0];
         8'hE1           : pgmpre_out[0] <= debug_inst_addr_prev_r[15: 8];
         8'hE2           : pgmpre_out[0] <= debug_inst_addr_prev_r[23:16];
@@ -2935,6 +2948,7 @@ always @(posedge CLK) begin
         8'hF8           : pgmpre_out[0] <= stepcnt_r;
         8'hF9           : pgmpre_out[0] <= sa1_clock_en;
         
+`ifdef DEBUG_EXT
         // big endian to make debugging easier
         8'hFA           : pgmpre_out[0] <= sa1_cycle_cnt_r[31:24];
         8'hFB           : pgmpre_out[0] <= sa1_cycle_cnt_r[23:16];
@@ -2970,5 +2984,6 @@ assign SIV         = SIV_r;
 assign SCNT_NVSW   = SCNT_r[`SCNT_NVSW];
 assign SCNT_IVSW   = SCNT_r[`SCNT_IVSW];
 assign DMA_CC1_EN  = dma_cc1_en_r;
+assign XXB_OUT     = {xxb[3], xxb[2], xxb[1], xxb[0]};
 
 endmodule
