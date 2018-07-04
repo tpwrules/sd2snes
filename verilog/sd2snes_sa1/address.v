@@ -35,6 +35,7 @@ module address(
   input [4:0] sa1_bmaps_sbm,
   input  sa1_dma_cc1_en,
   input [11:0] sa1_xxb,
+  input [3:0] sa1_xxb_en,
 //  output srtc_enable,
 //  output use_bsx,
 //  output bsx_tristate,
@@ -63,6 +64,7 @@ wire [23:0] SRAM_SNES_ADDR;
 
 wire [2:0] xxb[3:0];
 assign {xxb[3], xxb[2], xxb[1], xxb[0]} = sa1_xxb;
+wire [3:0] xxb_en = sa1_xxb_en;
 
 assign IS_ROM = ( (~SNES_ADDR[22] & SNES_ADDR[15])
                 | (&SNES_ADDR[23:22]))
@@ -90,7 +92,7 @@ assign SRAM_SNES_ADDR = (IS_SAVERAM
                          // 40-4F:0000-FFFF or 00-3F/80-BF:6000-7FFF (first 8K mirror).  Mask handles mirroring.  60 is sa1-only
                          ? (24'hE00000 + ((SNES_ADDR[22] ? SNES_ADDR[19:0] : {sa1_bmaps_sbm,SNES_ADDR[12:0]}) & SAVERAM_MASK))
                          // C0-FF:0000-FFFF or 00-3F/80-BF:8000-FFFF
-                         : ((SNES_ADDR[22] ? {1'b0, xxb[SNES_ADDR[21:20]], SNES_ADDR[19:0]} : {1'b0, xxb[{SNES_ADDR[23],SNES_ADDR[21]}], SNES_ADDR[20:16], SNES_ADDR[14:0]}) & ROM_MASK)
+                         : ((SNES_ADDR[22] ? {1'b0, xxb[SNES_ADDR[21:20]], SNES_ADDR[19:0]} : {1'b0, xxb_en[{SNES_ADDR[23],SNES_ADDR[21]}] ? xxb[{SNES_ADDR[23],SNES_ADDR[21]}] : {1'b0,SNES_ADDR[23],SNES_ADDR[21]}, SNES_ADDR[20:16], SNES_ADDR[14:0]}) & ROM_MASK)
                          );
 
 assign ROM_ADDR = SRAM_SNES_ADDR;

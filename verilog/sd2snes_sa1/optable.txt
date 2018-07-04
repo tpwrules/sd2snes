@@ -97,7 +97,7 @@
 0x5F EOR AbsoluteLongIndexedX                  4     5    M     A     A     1     0     0     PRI   0     O     O16   X     0     1     0
 0x60 RTS StackRTS                              1     6    W     I     I     1     0     1     JMP   0     Z     SPL   I     0     0     1
 0x61 ADC DirectPageIndexedIndirectX            2     6    M     A     A     1     0     0     PRI   0     Z     DPR   X     1     0     0
-0x62 PER StackProgramCounterRelative           3     6    B     I     I     0     1     0     STK   0     Z     PCR   I     0     0     1
+0x62 PER StackProgramCounterRelative           3     6    W     I     I     0     1     0     STK   0     Z     SMI   I     0     0     1
 0x63 ADC StackRelative                         2     4    M     A     A     1     0     0     PRI   0     Z     SPR   I     0     0     0
 0x64 STZ DirectPage                            2     3    M     I     I     0     1     0     PHS   0     Z     DPR   I     0     0     0
 0x65 ADC DirectPage                            2     3    M     A     A     1     0     0     PRI   0     Z     DPR   I     0     0     0
@@ -211,7 +211,7 @@
 0xD1 CMP DirectPageIndirectIndexedY            2     5    M     I     A     1     0     0     CMP   0     Z     DPR   P     1     0     0
 0xD2 CMP DirectPageIndirect                    2     5    M     I     A     1     0     0     CMP   0     Z     DPR   I     1     0     0
 0xD3 CMP StackRelativeIndirectIndexedY         2     7    M     I     A     1     0     0     CMP   0     Z     SPR   P     1     1     0
-0xD4 PEI StackDirectPageIndirect               2     6    B     I     I     1     1     0     STK   0     Z     DPR   I     1     0     1
+0xD4 PEI StackDirectPageIndirect               2     6    W     I     I     1     1     0     STK   0     Z     DPR   I     0     0     1
 0xD5 CMP DirectPageIndexedX                    2     4    M     I     A     1     0     0     CMP   0     Z     DPR   X     0     0     0
 0xD6 DEC DirectPageIndexedX                    2     6    M     I     I     1     1     0     RMW   0     Z     DPR   X     0     0     0
 0xD7 CMP DirectPageIndirectLongIndexedY        2     6    M     I     A     1     0     0     CMP   0     Z     DPR   P     1     1     0

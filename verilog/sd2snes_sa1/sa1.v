@@ -72,6 +72,7 @@ module sa1(
   output        SCNT_IVSW,
   output        DMA_CC1_EN,
   output [11:0] XXB_OUT,
+  output [3:0]  XXB_EN_OUT,
 
   output        IRQ,
 
@@ -141,6 +142,7 @@ wire       sw46;
 wire [6:0] cbm;
 wire       bbf;
 reg  [2:0] xxb[3:0];
+wire [3:0] xxb_en;
 
 // address map tests
 `define IS_ROM(a)  ((&a[23:22]) | (~a[22] & a[15]))                                              // 00-3F/80-BF:8000-FFFF, C0-FF:0000-FFFF
@@ -151,7 +153,7 @@ reg  [2:0] xxb[3:0];
 `define IS_SA1_PRAM(a) ((sw46 & ~a[22] & ~a[15] & &a[14:13]) | (~a[23] & a[22] & a[21] & ~a[20])) // 00-3F/80-BF:6000-7FFF, 60-6F:0000-FFFF
 
 // TODO: add MMC support to both here and addr module
-`define MAP_ROM(a)  ((a[22] ? {1'b0, xxb[a[21:20]], a[19:0]} : {1'b0, xxb[{a[23],a[21]}], a[20:16], a[14:0]}) & ROM_MASK)
+`define MAP_ROM(a)  ((a[22] ? {1'b0, xxb[a[21:20]], a[19:0]} : {1'b0, xxb_en[{a[23],a[21]}] ? xxb[{a[23],a[21]}] : {1'b0,a[23],a[21]}, a[20:16], a[14:0]}) & ROM_MASK)
 // TODO: handle CBM projection
 `define MAP_BRAM(a) (24'hE00000 | ((a[22] ? a[19:0] : {cbm[4:0],a[12:0]}) & SAVERAM_MASK))
 `define MAP_IRAM(a) (a[10:0])
@@ -550,6 +552,7 @@ always @(*) begin
   xxb[2] = EXB_r[`EXB_EB];
   xxb[3] = FXB_r[`FXB_FB];
 end
+assign xxb_en = {FXB_r[`FXB_FBMODE], EXB_r[`EXB_EBMODE], DXB_r[`DXB_DBMODE], CXB_r[`CXB_CBMODE]};
 
 //-------------------------------------------------------------------
 // PIPELINE IO
@@ -2527,8 +2530,12 @@ always @(posedge CLK) begin
             end
           end
           `GRP_STK: begin
+            // PEA, PER, PEI
             // non-indirect will store data at stack address
-            // direct will first load, return here, and update data to be stored
+            // indirect will first load, return here, and update data to be stored
+            
+            // need to update the address for PEI.  The others already have the correct address.
+            if (~exe_load_r) exe_mmc_addr_r <= {8'h00,S_r-1};
             exe_mmc_data_r[15:0] <= exe_opcode_r[1] ? (exe_nextpc_r[15:0] + exe_operand_r[15:0]) : exe_opcode_r[5] ? exe_operand_r[15:0] : exe_data_r[15:0];
 
             exe_s_r <= S_r - 2;
@@ -2985,5 +2992,6 @@ assign SCNT_NVSW   = SCNT_r[`SCNT_NVSW];
 assign SCNT_IVSW   = SCNT_r[`SCNT_IVSW];
 assign DMA_CC1_EN  = dma_cc1_en_r;
 assign XXB_OUT     = {xxb[3], xxb[2], xxb[1], xxb[0]};
+assign XXB_EN_OUT  = xxb_en;
 
 endmodule
