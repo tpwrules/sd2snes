@@ -1275,6 +1275,7 @@ reg [7:0]  MMC_STATE; initial MMC_STATE = ST_MMC_IDLE;
 reg [7:0]  MDR_r;  initial MDR_r  = 0;
 reg [23:0] mmc_addr_r;
 reg [31:0] mmc_data_r; initial mmc_data_r = 0;
+reg [31:0] mmc_wrdata_r; initial mmc_wrdata_r = 0;
 reg        mmc_wr_r; initial mmc_wr_r = 0;
 reg        mmc_dpe_r; initial mmc_dpe_r = 0;
 reg [1:0]  mmc_byte_r; initial mmc_byte_r = 0;
@@ -1331,7 +1332,7 @@ always @(posedge CLK) begin
           mmc_dpe_r       <= 0;
           mmc_wr_r        <= dma_mmc_wr_r;
           mmc_long_r      <= 0;
-          mmc_data_r[7:0] <= dma_mmc_data_r;
+          mmc_wrdata_r[7:0] <= dma_mmc_data_r;
 
           // NOTE: could move this decode to DMA
           if      (dma_mmc_rom_r & ROM_BUS_RDY) begin
@@ -1365,32 +1366,31 @@ always @(posedge CLK) begin
 
           mmc_state_end_r <= ST_MMC_DMA_END;
         end
-        // save a cycle in fetch if we are going to rom.
-        else if (EXE_STATE[clog2(ST_EXE_FETCH)]) begin
-          mmc_byte_total_r <= exe_mmc_byte_total_r;
-          mmc_dpe_r <= exe_mmc_dpe_r;
-          mmc_wr_r <= 0;
-          mmc_long_r <= exe_mmc_long_r;
-
-          if (`IS_ROM(exe_fetch_addr_r) & ROM_BUS_RDY) begin
-            rom_bus_rrq_r <= ~(exe_mmc_wr_r | exe_mmc_int);
-            rom_bus_addr_r <= `MAP_ROM(exe_fetch_addr_r);
-            rom_bus_word_r <= 1;
-
-            MMC_STATE <= (exe_mmc_wr_r | exe_mmc_int) ? ST_MMC_INV : ST_MMC_ROM;
-
-            mmc_state_end_r <= ST_MMC_EXE_END;
-          end
-          
-        end
+//        // save a cycle in fetch if we are going to rom.
+//        else if (EXE_STATE[clog2(ST_EXE_FETCH)] & ~exe_mmc_int) begin
+//          mmc_byte_total_r <= exe_mmc_byte_total_r;
+//          mmc_dpe_r <= exe_mmc_dpe_r;
+//          mmc_wr_r <= 0;
+//          mmc_long_r <= exe_mmc_long_r;
+//
+//          if (`IS_ROM(exe_fetch_addr_r) & ROM_BUS_RDY) begin
+//            rom_bus_rrq_r <= ~exe_mmc_wr_r;
+//            rom_bus_addr_r <= `MAP_ROM(exe_fetch_addr_r);
+//            rom_bus_word_r <= 1;
+//
+//            MMC_STATE <= exe_mmc_wr_r ? ST_MMC_INV : ST_MMC_ROM;
+//          end
+//          
+//          mmc_state_end_r <= ST_MMC_EXE_END;
+//        end
         else if (exe_mmc_rd_r | exe_mmc_wr_r) begin
           mmc_byte_total_r <= exe_mmc_byte_total_r;
           mmc_dpe_r <= exe_mmc_dpe_r;
           mmc_wr_r <= exe_mmc_wr_r;
           mmc_long_r <= exe_mmc_long_r;
-          mmc_data_r <= exe_mmc_data_r;
+          mmc_wrdata_r <= exe_mmc_data_r;
 
-          if      (`IS_ROM(exe_mmc_addr) & ROM_BUS_RDY) begin
+          if (`IS_ROM(exe_mmc_addr) & ROM_BUS_RDY) begin
             rom_bus_rrq_r  <= ~exe_mmc_wr_r;
             rom_bus_addr_r <= `MAP_ROM(exe_mmc_addr);
             rom_bus_word_r <= 1;
@@ -1439,11 +1439,6 @@ always @(posedge CLK) begin
           
           mmc_state_end_r <= ST_MMC_EXE_END;
         end
-        // TODO: assign priority conditions
-        else if ((dma_mmc_rd_r | dma_mmc_wr_r) & 1) begin
-        
-        end
-        
       end
       ST_MMC_ROM: begin
         rom_bus_rrq_r <= 0;
@@ -1477,31 +1472,28 @@ always @(posedge CLK) begin
           // FIXME: don't increment byte to avoid storing extra
           if (~mmc_pram_r) mmc_byte_r <= mmc_byte_r + 1;
 
+          mmc_wrdata_r <= {mmc_wrdata_r[7:0],mmc_wrdata_r[31:24],mmc_wrdata_r[23:16],mmc_wrdata_r[15:8]};
+
           if (mmc_pram_r) begin
-            if (~mmc_wr_r) begin
-              // read data
-              case (mmc_pram_index_r)
-                //0: mmc_data_r[15:0] <= bbf ? {6'h00,ROM_BUS_RDDATA[3:2],6'h00,ROM_BUS_RDDATA[1:0]} : {4'h0,ROM_BUS_RDDATA[7:4],4'h0,ROM_BUS_RDDATA[3:0]};
-                //1: mmc_data_r[15:0] <= bbf ? {6'h00,ROM_BUS_RDDATA[5:4],6'h00,ROM_BUS_RDDATA[3:2]} : {4'h0,ROM_BUS_RDDATA[3:0],4'h0,ROM_BUS_RDDATA[7:4]};
-                //2: mmc_data_r[15:0] <= bbf ? {6'h00,ROM_BUS_RDDATA[7:6],6'h00,ROM_BUS_RDDATA[5:4]} : {4'h0,ROM_BUS_RDDATA[7:4],4'h0,ROM_BUS_RDDATA[3:0]};
-                //3: mmc_data_r[15:0] <= bbf ? {6'h00,ROM_BUS_RDDATA[1:0],6'h00,ROM_BUS_RDDATA[7:6]} : {4'h0,ROM_BUS_RDDATA[3:0],4'h0,ROM_BUS_RDDATA[7:4]};
-                0: mmc_data_r[7:0] <= bbf ? {6'h00,ROM_BUS_RDDATA[1:0]} : {4'h0,ROM_BUS_RDDATA[3:0]};
-                1: mmc_data_r[7:0] <= bbf ? {6'h00,ROM_BUS_RDDATA[3:2]} : {4'h0,ROM_BUS_RDDATA[7:4]};
-                2: mmc_data_r[7:0] <= bbf ? {6'h00,ROM_BUS_RDDATA[5:4]} : {4'h0,ROM_BUS_RDDATA[3:0]};
-                3: mmc_data_r[7:0] <= bbf ? {6'h00,ROM_BUS_RDDATA[7:6]} : {4'h0,ROM_BUS_RDDATA[7:4]};
-              endcase
-            end
+            // read data
+            case (mmc_pram_index_r)
+              //0: mmc_data_r[15:0] <= bbf ? {6'h00,ROM_BUS_RDDATA[3:2],6'h00,ROM_BUS_RDDATA[1:0]} : {4'h0,ROM_BUS_RDDATA[7:4],4'h0,ROM_BUS_RDDATA[3:0]};
+              //1: mmc_data_r[15:0] <= bbf ? {6'h00,ROM_BUS_RDDATA[5:4],6'h00,ROM_BUS_RDDATA[3:2]} : {4'h0,ROM_BUS_RDDATA[3:0],4'h0,ROM_BUS_RDDATA[7:4]};
+              //2: mmc_data_r[15:0] <= bbf ? {6'h00,ROM_BUS_RDDATA[7:6],6'h00,ROM_BUS_RDDATA[5:4]} : {4'h0,ROM_BUS_RDDATA[7:4],4'h0,ROM_BUS_RDDATA[3:0]};
+              //3: mmc_data_r[15:0] <= bbf ? {6'h00,ROM_BUS_RDDATA[1:0],6'h00,ROM_BUS_RDDATA[7:6]} : {4'h0,ROM_BUS_RDDATA[3:0],4'h0,ROM_BUS_RDDATA[7:4]};
+              0: mmc_data_r[7:0] <= bbf ? {6'h00,ROM_BUS_RDDATA[1:0]} : {4'h0,ROM_BUS_RDDATA[3:0]};
+              1: mmc_data_r[7:0] <= bbf ? {6'h00,ROM_BUS_RDDATA[3:2]} : {4'h0,ROM_BUS_RDDATA[7:4]};
+              2: mmc_data_r[7:0] <= bbf ? {6'h00,ROM_BUS_RDDATA[5:4]} : {4'h0,ROM_BUS_RDDATA[3:0]};
+              3: mmc_data_r[7:0] <= bbf ? {6'h00,ROM_BUS_RDDATA[7:6]} : {4'h0,ROM_BUS_RDDATA[7:4]};
+            endcase
           end
-          else if (~mmc_wr_r) begin
+          else begin
             case (mmc_byte_r)
               0: mmc_data_r[15: 0] <= ROM_BUS_RDDATA[15:0]; // short cut for DMA
               1: mmc_data_r[15: 8] <= ROM_BUS_RDDATA[7:0];
               2: mmc_data_r[23:16] <= ROM_BUS_RDDATA[7:0];
               3: mmc_data_r[31:24] <= ROM_BUS_RDDATA[7:0];
             endcase
-          end
-          else begin
-            mmc_data_r <= {mmc_data_r[7:0],mmc_data_r[31:24],mmc_data_r[23:16],mmc_data_r[15:8]};
           end
           
           if (mmc_pram_r & mmc_wr_r) begin
@@ -1512,10 +1504,10 @@ always @(posedge CLK) begin
             
             // TODO: assumes only one byte (value) is merged
             case (mmc_pram_index_r)
-              0: rom_bus_data_r[7:0] <= bbf ? {ROM_BUS_RDDATA[7:2],mmc_data_r[1:0]                    } : {ROM_BUS_RDDATA[7:4],mmc_data_r[3:0]};
-              1: rom_bus_data_r[7:0] <= bbf ? {ROM_BUS_RDDATA[7:4],mmc_data_r[1:0],ROM_BUS_RDDATA[1:0]} : {mmc_data_r[3:0],ROM_BUS_RDDATA[3:0]};
-              2: rom_bus_data_r[7:0] <= bbf ? {ROM_BUS_RDDATA[7:6],mmc_data_r[1:0],ROM_BUS_RDDATA[3:0]} : {ROM_BUS_RDDATA[7:4],mmc_data_r[3:0]};
-              3: rom_bus_data_r[7:0] <= bbf ? {mmc_data_r[1:0],ROM_BUS_RDDATA[5:0]                    } : {mmc_data_r[3:0],ROM_BUS_RDDATA[3:0]};
+              0: rom_bus_data_r[7:0] <= bbf ? {ROM_BUS_RDDATA[7:2],mmc_wrdata_r[1:0]                    } : {ROM_BUS_RDDATA[7:4],mmc_wrdata_r[3:0]};
+              1: rom_bus_data_r[7:0] <= bbf ? {ROM_BUS_RDDATA[7:4],mmc_wrdata_r[1:0],ROM_BUS_RDDATA[1:0]} : {mmc_wrdata_r[3:0],ROM_BUS_RDDATA[3:0]};
+              2: rom_bus_data_r[7:0] <= bbf ? {ROM_BUS_RDDATA[7:6],mmc_wrdata_r[1:0],ROM_BUS_RDDATA[3:0]} : {ROM_BUS_RDDATA[7:4],mmc_wrdata_r[3:0]};
+              3: rom_bus_data_r[7:0] <= bbf ? {mmc_wrdata_r[1:0],ROM_BUS_RDDATA[5:0]                    } : {mmc_wrdata_r[3:0],ROM_BUS_RDDATA[3:0]};
             endcase
           end
           else if (mmc_byte_r != mmc_byte_total_r) begin
@@ -1527,7 +1519,7 @@ always @(posedge CLK) begin
             else if (mmc_long_r) rom_bus_addr_r[23:0] <= rom_bus_addr_r[23:0] + 1;
             else                 rom_bus_addr_r[15:0] <= rom_bus_addr_r[15:0] + 1;
             
-            rom_bus_data_r <= mmc_data_r[15:8];
+            rom_bus_data_r <= mmc_wrdata_r[15:8];
           end
           else begin
             MMC_STATE <= mmc_state_end_r;
@@ -1540,17 +1532,14 @@ always @(posedge CLK) begin
         if (mmc_iram_state_r) begin
           mmc_byte_r <= mmc_byte_r + 1;
           
-          if (~mmc_wr_r) begin
-            case (mmc_byte_r)
-              0: mmc_data_r[ 7: 0] <= iram_dout[7:0];
-              1: mmc_data_r[15: 8] <= iram_dout[7:0];
-              2: mmc_data_r[23:16] <= iram_dout[7:0];
-              3: mmc_data_r[31:24] <= iram_dout[7:0];
-            endcase
-          end
-          else begin
-            mmc_data_r <= {mmc_data_r[7:0],mmc_data_r[31:24],mmc_data_r[23:16],mmc_data_r[15:8]};
-          end
+          case (mmc_byte_r)
+            0: mmc_data_r[ 7: 0] <= iram_dout[7:0];
+            1: mmc_data_r[15: 8] <= iram_dout[7:0];
+            2: mmc_data_r[23:16] <= iram_dout[7:0];
+            3: mmc_data_r[31:24] <= iram_dout[7:0];
+          endcase
+
+          mmc_wrdata_r <= {mmc_wrdata_r[7:0],mmc_wrdata_r[31:24],mmc_wrdata_r[23:16],mmc_wrdata_r[15:8]};
 
           if (mmc_byte_r != mmc_byte_total_r) begin
             if (mmc_dpe_r) mmc_addr_r[7:0]  <= mmc_addr_r[7:0] + 1;
@@ -1565,17 +1554,14 @@ always @(posedge CLK) begin
         if ((mmc_wr_r & sa1_mmio_write) | (~mmc_wr_r & sa1_mmio_read_r[1])) begin
           mmc_byte_r <= mmc_byte_r + 1;
 
-          if (~mmc_wr_r) begin
-            case (mmc_byte_r)
-              0: mmc_data_r[ 7: 0] <= data_out_r[7:0];
-              1: mmc_data_r[15: 8] <= data_out_r[7:0];
-              2: mmc_data_r[23:16] <= data_out_r[7:0];
-              3: mmc_data_r[31:23] <= data_out_r[7:0];
-            endcase
-          end
-          else begin
-            mmc_data_r <= {mmc_data_r[7:0],mmc_data_r[31:24],mmc_data_r[23:16],mmc_data_r[15:8]};
-          end
+          case (mmc_byte_r)
+            0: mmc_data_r[ 7: 0] <= data_out_r[7:0];
+            1: mmc_data_r[15: 8] <= data_out_r[7:0];
+            2: mmc_data_r[23:16] <= data_out_r[7:0];
+            3: mmc_data_r[31:23] <= data_out_r[7:0];
+          endcase
+
+          mmc_wrdata_r <= {mmc_wrdata_r[7:0],mmc_wrdata_r[31:24],mmc_wrdata_r[23:16],mmc_wrdata_r[15:8]};
           
           if (mmc_byte_r != mmc_byte_total_r) begin
             mmc_addr_r[7:0] <= mmc_addr_r[7:0] + 1;
@@ -1587,7 +1573,7 @@ always @(posedge CLK) begin
       end
       ST_MMC_INV: begin
         // interrupt returns BRK instruction
-        mmc_data_r <= {MDR_r,MDR_r,MDR_r,(exe_mmc_int ? 8'h00 : MDR_r)};
+        mmc_data_r <= {MDR_r,MDR_r,MDR_r,MDR_r};
         MMC_STATE <= mmc_state_end_r;
       end
       ST_MMC_EXE_END,
@@ -1615,10 +1601,10 @@ assign RAM_BUS_WRDATA = ram_bus_data_r;
 
 assign iram_wren = MMC_STATE[clog2(ST_MMC_IRAM)] & mmc_wr_r;
 assign iram_addr = mmc_addr_r[10:0];
-assign iram_din  = mmc_data_r[7:0];
+assign iram_din  = mmc_wrdata_r[7:0];
 
 assign sa1_mmio_addr  = mmc_addr_r[7:0];
-assign sa1_mmio_data  = mmc_data_r[7:0];
+assign sa1_mmio_data  = mmc_wrdata_r[7:0];
 assign sa1_mmio_write = ~SNES_WR_end & ~snes_writebuf_iram_r & ~snes_writebuf_val_r & MMC_STATE[clog2(ST_MMC_MMIO)] & mmc_wr_r;
 assign sa1_mmio_read  = ~|sa1_mmio_read_r & ~snes_readbuf_active_r & MMC_STATE[clog2(ST_MMC_MMIO)] & ~mmc_wr_r;
 
@@ -2063,7 +2049,7 @@ end
 
 // need to take from the input so we get a clock
 //wire [7:0]  dec_addr = MMC_STATE[clog2(ST_MMC_ROM)] ? ROM_BUS_RDDATA[7:0] : mmc_data_r[7:0];
-wire [7:0]  dec_addr = mmc_data[7:0];
+wire [7:0]  dec_addr = exe_mmc_int ? 8'h00 : mmc_data[7:0];
 wire [31:0] dec_data;
 
 dec_table dec (
@@ -2119,7 +2105,7 @@ always @(posedge CLK) begin
         // TODO: timer
         // TODO: dma
         // register        
-        if (CIE_r[`CIE_SA1_IRQEN] & CFR_r[`CFR_SA1_IRQFL]) begin
+        if ((CIE_r[`CIE_SA1_IRQEN] & CFR_r[`CFR_SA1_IRQFL]) | (CIE_r[`CIE_DMA_IRQEN] & CFR_r[`CFR_DMA_IRQFL])) begin
           int_pending_r <= 1;
           int_nmi_r     <= 0;
           int_vector_r  <= CIV_r;
@@ -2264,8 +2250,10 @@ always @(posedge CLK) begin
       
       // FETCH
       ST_EXE_FETCH: begin
-        exe_mmc_rd_r   <= 1;
+        exe_mmc_rd_r   <= ~int_pending_r;
         exe_mmc_byte_total_r <= 1;
+        exe_mmc_state_exe_end_r <= 0;
+        
         e2c_waitcnt_r  <= 0;
 
         EXE_STATE <= ST_EXE_FETCH_END;
@@ -2274,16 +2262,16 @@ always @(posedge CLK) begin
         // always stop the read at END
         if (MMC_STATE[clog2(ST_MMC_EXE_END)]) exe_mmc_rd_r <= 0;
         
-        exe_mmc_state_exe_end_r <= MMC_STATE[clog2(ST_MMC_EXE_END)];
+        exe_mmc_state_exe_end_r <= MMC_STATE[clog2(ST_MMC_EXE_END)] | int_pending_r;
       
         // TODO: decide if we want to skip a clock here from the ROM
         // The decode rom takes an additional clock.
         if (exe_mmc_state_exe_end_r) begin
-          exe_data_r <= mmc_data;
+          exe_data_r <= int_pending_r ? 8'h00 : mmc_data;
           // TODO: predecode and data flop
           
           if (~|exe_opsize_r) begin
-            exe_opcode_r       <= mmc_data[7:0];
+            exe_opcode_r       <= exe_mmc_int ? 8'h00 : mmc_data[7:0];
             exe_operand_r[7:0] <= mmc_data[15:8];
             // word size only affects immediate for fetch
             exe_opsize_r       <= dec_data[`DEC_SIZE] | (|({~P_r[`P_X],~P_r[`P_M]}&dec_data[`DEC_PRC]) & dec_data[`ADD_IMM]);
@@ -2427,9 +2415,8 @@ always @(posedge CLK) begin
             exe_p_r[`P_Z] <= exe_data_word_r ? ~|exe_result[15:0] : ~|exe_result[7:0];
               
             if (&exe_opcode_r[6:5]) begin
-              exe_p_r[`P_V] <= exe_data_word_r ? (~(exe_src_r[15] ^ exe_data_r[15]) & (exe_src_r[15] ^ exe_result[15])) : (~(exe_src_r[7] ^ exe_data_r[7]) & (exe_src_r[7] ^ exe_result[7]));
-              // SBC sets carry when no borrow required...
-              //exe_p_r[`P_C] <= exe_opcode_r[7] ^ (exe_data_word_r ? exe_result[16] : exe_result[8]);
+              // input data gets inverted for SBC
+              exe_p_r[`P_V] <= exe_data_word_r ? (~(exe_src_r[15] ^ exe_opcode_r[7] ^ exe_data_r[15]) & (exe_src_r[15] ^ exe_result[15])) : (~(exe_src_r[7] ^ exe_opcode_r[7] ^ exe_data_r[7]) & (exe_src_r[7] ^ exe_result[7]));
               exe_p_r[`P_C] <= exe_data_word_r ? exe_result[16] : exe_result[8];
             end
           end
