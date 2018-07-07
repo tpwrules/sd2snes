@@ -129,7 +129,7 @@ module sa1(
 //-------------------------------------------------------------------
 
 `define DEBUG
-//`define DEBUG_IRAM
+`define DEBUG_IRAM
 //`define DEBUG_EXT
 //`define DEBUG_MMC
 //`define DEBUG_EXE
@@ -906,6 +906,7 @@ reg  [15:0] math_ma_r; initial math_ma_r = 0;
 reg  [15:0] math_mb_r; initial math_mb_r = 0;
 
 reg         math_val_r; initial math_val_r = 0;
+reg         math_acm_r; initial math_acm_r = 0;
 
 sa1_mult mult(
   .clk(CLK),
@@ -926,6 +927,9 @@ reg  [40:0] math_result;
 
 always @(posedge CLK) begin   
   if (RST) begin
+    math_val_r <= 0;
+    math_acm_r <= 0;
+  
     math_md_r <= 0;
     math_ma_r <= 0;
     math_mb_r <= 0;
@@ -944,20 +948,25 @@ always @(posedge CLK) begin
         
           math_val_r <= 1;
         end
-        else if (snes_writebuf_addr_r[7:0] == ADDR_MCNT) begin
-          if (snes_writebuf_data_r[`MCNT_ACM]) MR_r <= 0;
-        end
       end
     end
     else begin
+      if (math_val_r) math_acm_r <= 1;
+      else            math_acm_r <= 0;
+    
       math_val_r <= 0;
     end
   
-    if      (math_md_r[`MCNT_ACM]) begin
-      math_result[40:0] = {1'b0,MR_r} + {17'h000,mult_out};
-      MR_r <= math_result[39:0];
-      // set overflow
-      OF_r <= math_result[40];
+    if      (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_MCNT) begin
+      if (snes_writebuf_data_r[`MCNT_ACM]) MR_r <= 0;
+    end
+    else if (math_md_r[`MCNT_ACM]) begin
+      if (math_acm_r) begin
+        math_result[40:0] = {1'b0,MR_r} + {17'h000,mult_out};
+        MR_r <= math_result[39:0];
+        // set overflow
+        OF_r <= math_result[40];
+      end
     end
     else if (math_md_r[`MCNT_MD]) begin
       MR_r[39:32] <= 0;
@@ -1162,7 +1171,80 @@ parameter
   ST_MMC_ROM_IDLE = 1'b0,
   ST_MMC_ROM_WAIT = 1'b1;
 
-reg MMC_ROM_STATE; initial MMC_ROM_STATE = ST_MMC_ROM_IDLE;
+reg        MMC_ROM_STATE; initial MMC_ROM_STATE = ST_MMC_ROM_IDLE;
+reg        mmc_rom_exe_end_r; initial mmc_rom_exe_end_r = 0;
+reg        mmc_rom_dma_end_r; initial mmc_rom_dma_end_r = 0;
+
+reg        mmc_rom_word_total_r;
+reg        mmc_rom_dpe_r;
+reg        mmc_rom_wr_r;
+reg        mmc_rom_long_r;
+reg [31:0] mmc_rom_rddata_r;
+
+always @(posedge CLK) begin
+  if (RST) begin
+    mmc_rom_exe_end_r <= 0;
+    mmc_rom_dma_end_r <= 0;
+  
+    MMC_ROM_STATE <= ST_MMC_ROM_IDLE;
+  end
+  else begin
+    case (MMC_ROM_STATE)
+      ST_MMC_ROM_IDLE: begin
+        mmc_rom_dma_end_r <= 0;
+        mmc_rom_exe_end_r <= 0;
+
+        // bus must be available here
+        if      (dma_mmc_rom_r) begin
+          rom_bus_rrq_r  <= ~dma_mmc_wr_r;
+          rom_bus_addr_r <= `MAP_ROM(dma_mmc_addr_r);
+          rom_bus_word_r <= 1;
+          
+          mmc_rom_word_total_r <= 0;
+          mmc_rom_dpe_r        <= 0;
+          mmc_rom_wr_r         <= 0;
+          mmc_rom_long_r       <= 0;
+        end
+        else if (exe_mmc_rom_r) begin
+          rom_bus_rrq_r  <= ~exe_mmc_wr_r;
+          rom_bus_addr_r <= `MAP_ROM(exe_mmc_addr_r);
+          rom_bus_word_r <= 1;
+          
+          mmc_rom_word_total_r <= exe_mmc_byte_total_r[1];
+          mmc_rom_dpe_r        <= exe_mmc_dpe_r;
+          mmc_rom_wr_r         <= exe_mmc_wr_r;
+          mmc_rom_long_r       <= exe_mmc_long_r;
+        end
+      end
+      ST_MMC_ROM_WAIT: begin
+        rom_bus_rrq_r <= 0;
+        
+        if (~rom_bus_rrq_r & ROM_BUS_RDY) begin
+          mmc_rom_word_r <= 1;
+
+          case (mmc_rom_byte_r)
+            0: mmc_data_r[15: 0] <= ROM_BUS_RDDATA[15:0];
+            1: mmc_data_r[31:16] <= ROM_BUS_RDDATA[15:0];
+          endcase
+          
+          if (mmc_rom_word_r != mmc_rom_word_total_r) begin
+            rom_bus_rrq_r <= 1;
+
+            // FIXME: we could cross into a new memory region...
+            if      (mmc_rom_dpe_r)  rom_bus_addr_r[7:0]  <= rom_bus_addr_r[7:0]  + 2;
+            else if (mmc_rom_long_r) rom_bus_addr_r[23:0] <= rom_bus_addr_r[23:0] + 2;
+            else                     rom_bus_addr_r[15:0] <= rom_bus_addr_r[15:0] + 2;
+          end
+          else begin
+            {mmc_rom_dma_end_r,mmc_rom_exe_end_r} <= {dma_mmc_rom_r,exe_mmc_rom_r};
+          
+            MMC_ROM_STATE <= ST_MMC_ROM_IDLE;
+          end
+        end
+      end
+    endcase
+  end
+end
 
 // bram/pram
 // - exe
@@ -1729,7 +1811,7 @@ always @(posedge CLK) begin
     if      (dma_trigger_type1_r)                                                                                 dma_cc1_active_r <= 1;
     else if (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_CDMA && snes_writebuf_data_r[`CDMA_CHDEND]) dma_cc1_active_r <= 0;
 
-    if      (dma_trigger_normal_r & dma_dcnt_r[`DCNT_DPRIO])                                                      dma_normal_pri_active_r <= 1;
+    if      ((dma_trigger_normal_r & dma_dcnt_r[`DCNT_DPRIO]) | dma_trigger_type2_r)                              dma_normal_pri_active_r <= 1;
     else if (DMA_STATE[clog2(ST_DMA_IDLE)])                                                                       dma_normal_pri_active_r <= 0;
 
     if (dbg_dma_cc1_trigger_r == 1 && ~DMA_STATE[clog2(ST_DMA_IDLE)]) dbg_dma_cc1_nonzero_write_r <= dbg_dma_cc1_nonzero_write_r + 1;
