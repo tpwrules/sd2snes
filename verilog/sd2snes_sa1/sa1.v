@@ -603,7 +603,7 @@ reg        idle_r; initial idle_r = 0;
 
 wire [7:0] snes_iram_out;
 
-wire [7:0] sa1_mmio_addr;
+wire [8:0] sa1_mmio_addr;
 wire [7:0] sa1_mmio_data;
 wire       sa1_mmio_write;
 wire       sa1_mmio_read;
@@ -739,14 +739,14 @@ always @(posedge CLK) begin
       snes_writebuf_val_r  <= sa1_mmio_write;
       snes_writebuf_iram_r <= 0;
       
-      snes_writebuf_addr_r <= sa1_mmio_addr;
+      snes_writebuf_addr_r <= {2'h0,sa1_mmio_addr};
       snes_writebuf_data_r <= sa1_mmio_data;
     end
             
     // FIXME: can we move the interrupt controller logic outside of the MMIO operations to reduce code size and complexity?
     // TODO: is it better to write the whole register, but only read correct subset?  May reduce fpga requirements.
     if (snes_writebuf_val_r) begin
-      case (snes_writebuf_addr_r[7:0])
+      case (snes_writebuf_addr_r[8:0])
         ADDR_CCNT  : begin  // 8'h00,
           CCNT_r <= snes_writebuf_data_r;
           
@@ -940,7 +940,7 @@ always @(posedge CLK) begin
   else begin
     if (snes_writebuf_val_r) begin
       if (~math_val_r) begin
-        if (snes_writebuf_addr_r[7:0] == ADDR_MB+1) begin
+        if (snes_writebuf_addr_r[8:0] == ADDR_MB+1) begin
           // flop all inputs
           math_md_r <= MCNT_r[1:0];
           math_ma_r <= MA_r;
@@ -957,7 +957,7 @@ always @(posedge CLK) begin
       math_val_r <= 0;
     end
   
-    if      (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_MCNT) begin
+    if      (snes_writebuf_val_r && snes_writebuf_addr_r[8:0] == ADDR_MCNT) begin
       if (snes_writebuf_data_r[`MCNT_ACM]) MR_r <= 0;
     end
     else if (math_md_r[`MCNT_ACM]) begin
@@ -1602,7 +1602,7 @@ assign iram_wren = MMC_STATE[clog2(ST_MMC_IRAM)] & mmc_wr_r;
 assign iram_addr = mmc_addr_r[10:0];
 assign iram_din  = mmc_wrdata_r[7:0];
 
-assign sa1_mmio_addr  = mmc_addr_r[7:0];
+assign sa1_mmio_addr  = mmc_addr_r[8:0];
 assign sa1_mmio_data  = mmc_wrdata_r[7:0];
 assign sa1_mmio_write = ~SNES_WR_end & ~snes_writebuf_iram_r & ~snes_writebuf_val_r & MMC_STATE[clog2(ST_MMC_MMIO)] & mmc_wr_r;
 assign sa1_mmio_read  = ~|sa1_mmio_read_r & ~snes_readbuf_active_r & MMC_STATE[clog2(ST_MMC_MMIO)] & ~mmc_wr_r;
@@ -1733,14 +1733,14 @@ always @(posedge CLK) begin
                             && (  (~dma_dcnt_r[1] && ~dma_dcnt_r[`DCNT_DD]) // iram
                                || (~dma_dcnt_r[0] &&  dma_dcnt_r[`DCNT_DD]) // bram
                                )
-                            && (  (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == (ADDR_DDA+1) && ~dma_dcnt_r[`DCNT_DD]) // iram
-                               || (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == (ADDR_DDA+2) &&  dma_dcnt_r[`DCNT_DD]) // bram
+                            && (  (snes_writebuf_val_r && snes_writebuf_addr_r[8:0] == (ADDR_DDA+1) && ~dma_dcnt_r[`DCNT_DD]) // iram
+                               || (snes_writebuf_val_r && snes_writebuf_addr_r[8:0] == (ADDR_DDA+2) &&  dma_dcnt_r[`DCNT_DD]) // bram
                                )
                             );
     dma_start_type1_r    <= (   dma_dcnt_r[`DCNT_DMAEN]
                             &&  dma_dcnt_r[`DCNT_CDEN]
                             &&  dma_dcnt_r[`DCNT_CDSEL]
-                            && (  (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == (ADDR_DDA+1))
+                            && (  (snes_writebuf_val_r && snes_writebuf_addr_r[8:0] == (ADDR_DDA+1))
                                )
                             );
     dma_trigger_type1_r  <= (   dma_cc1_en_r
@@ -1752,8 +1752,8 @@ always @(posedge CLK) begin
     dma_trigger_type2_r  <= (   dma_dcnt_r[`DCNT_DMAEN]
                             &&  dma_dcnt_r[`DCNT_CDEN]
                             && ~dma_dcnt_r[`DCNT_CDSEL]
-                            && (  (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_BRF7)
-                               || (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_BRFF)
+                            && (  (snes_writebuf_val_r && snes_writebuf_addr_r[8:0] == ADDR_BRF7)
+                               || (snes_writebuf_val_r && snes_writebuf_addr_r[8:0] == ADDR_BRFF)
                                )
                             );
 `else
@@ -1788,13 +1788,13 @@ always @(posedge CLK) begin
     dma_cc1_imask_r     <= {dma_comp_r,4'b1111};
   
     if      (DMA_STATE[clog2(ST_DMA_IDLE)] & dma_cc1_int_r)                                                        SFR_r[`SFR_DMA_IRQFL] <= 1;
-    else if (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_SIC && snes_writebuf_data_r[`SIC_DMA_IRQCL]) SFR_r[`SFR_DMA_IRQFL] <= 0;
+    else if (snes_writebuf_val_r && snes_writebuf_addr_r[8:0] == ADDR_SIC && snes_writebuf_data_r[`SIC_DMA_IRQCL]) SFR_r[`SFR_DMA_IRQFL] <= 0;
         
     if      (dma_start_type1_r)                                                                                   dma_cc1_en_r <= 1;
-    else if (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_CDMA && snes_writebuf_data_r[`CDMA_CHDEND]) dma_cc1_en_r <= 0;
+    else if (snes_writebuf_val_r && snes_writebuf_addr_r[8:0] == ADDR_CDMA && snes_writebuf_data_r[`CDMA_CHDEND]) dma_cc1_en_r <= 0;
     
     if      (dma_trigger_type1_r)                                                                                 dma_cc1_active_r <= 1;
-    else if (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_CDMA && snes_writebuf_data_r[`CDMA_CHDEND]) dma_cc1_active_r <= 0;
+    else if (snes_writebuf_val_r && snes_writebuf_addr_r[8:0] == ADDR_CDMA && snes_writebuf_data_r[`CDMA_CHDEND]) dma_cc1_active_r <= 0;
 
     if      ((dma_trigger_normal_r & dma_dcnt_r[`DCNT_DPRIO]) | dma_trigger_type2_r)                              dma_normal_pri_active_r <= 1;
     else if (DMA_STATE[clog2(ST_DMA_IDLE)])                                                                       dma_normal_pri_active_r <= 0;
@@ -1802,15 +1802,15 @@ always @(posedge CLK) begin
     if (dbg_dma_cc1_trigger_r == 1 && ~DMA_STATE[clog2(ST_DMA_IDLE)]) dbg_dma_cc1_nonzero_write_r <= dbg_dma_cc1_nonzero_write_r + 1;
 
     if (snes_writebuf_val_r) begin
-      if      (snes_writebuf_addr_r[7:0] == ADDR_BRF7) dma_cc2_line3_r <= 0;
-      else if (snes_writebuf_addr_r[7:0] == ADDR_BRFF) dma_cc2_line3_r <= 1;
+      if      (snes_writebuf_addr_r[8:0] == ADDR_BRF7) dma_cc2_line3_r <= 0;
+      else if (snes_writebuf_addr_r[8:0] == ADDR_BRFF) dma_cc2_line3_r <= 1;
     end
 
     case (DMA_STATE)
       ST_DMA_IDLE: begin
         // clear interrupt
-        if (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_CIC  &&  snes_writebuf_data_r[`CIC_DMA_IRQCL]) CFR_r[`CFR_DMA_IRQFL] <= 0;
-        if (snes_writebuf_val_r && snes_writebuf_addr_r[7:0] == ADDR_SIC  &&  snes_writebuf_data_r[`SIC_DMA_IRQCL]) SFR_r[`SFR_DMA_IRQFL] <= 0;
+        if (snes_writebuf_val_r && snes_writebuf_addr_r[8:0] == ADDR_CIC  &&  snes_writebuf_data_r[`CIC_DMA_IRQCL]) CFR_r[`CFR_DMA_IRQFL] <= 0;
+        if (snes_writebuf_val_r && snes_writebuf_addr_r[8:0] == ADDR_SIC  &&  snes_writebuf_data_r[`SIC_DMA_IRQCL]) SFR_r[`SFR_DMA_IRQFL] <= 0;
         
         dma_cdma_r <= CDMA_r;
         dma_dcnt_r <= DCNT_r;
@@ -2849,7 +2849,7 @@ dbg_state state (
   //.wea(~addr_in_r[7] & SNES_WR_end & `IS_MMIO(addr_in_r)), // input [0 : 0] wea
   //.addra(addr_in_r[6:0]), // input [6 : 0] addra
   //.dina(data_in_r), // input [7 : 0] dina
-  .wea(~snes_writebuf_addr_r[7] & snes_writebuf_val_r), // input [0 : 0] wea
+  .wea(~|snes_writebuf_addr_r[8:7] & snes_writebuf_val_r), // input [0 : 0] wea
   .addra(snes_writebuf_addr_r[6:0]), // input [6 : 0] addra
   .dina(snes_writebuf_data_r), // input [7 : 0] dina
 
