@@ -1079,8 +1079,7 @@ wire       exe_dec_load  = exe_decode_r[`DEC_LOAD];
 wire       exe_dec_store = exe_decode_r[`DEC_STORE];
 wire       exe_dec_ctl   = exe_decode_r[`DEC_CONTROL];
 
-reg        exe_wai_r; initial exe_wai_r = 0;
-
+wire       exe_wai;
 wire       exe_mmc_int;
 
 //-------------------------------------------------------------------
@@ -2068,7 +2067,10 @@ dec_table dec (
 // TODO: make this a more general state machine?
 reg        int_pending_r; initial int_pending_r = 0;
 reg        int_nmi_r; initial int_nmi_r = 0;
+reg        int_wai_r; initial int_wai_r = 0;
 reg [15:0] int_vector_r; initial int_vector_r = 0;
+
+wire       int_wai;
 
 //sa1_irq_r       <= (CIE_r[`CIE_SA1_IRQEN] & CFR_r[`CFR_SA1_IRQFL]) | (CIE_r[`CIE_TMR_IRQEN] & CFR_r[`CFR_TMR_IRQFL]) | (CIE_r[`CIE_DMA_IRQEN] & CFR_r[`CFR_DMA_IRQFL]);
 //sa1_nmi_r       <= (CIE_r[`CIE_SA1_NMIEN] & CFR_r[`CFR_SA1_NMIFL]);
@@ -2081,14 +2083,21 @@ always @(posedge CLK) begin
   if (RST) begin
     int_pending_r <= 0;
     int_nmi_r     <= 0;
+    int_wai_r     <= 0;
     
     WAI_r         <= 0;
   end
   else begin
-    if ((EXE_STATE[clog2(ST_EXE_WAIT)] & pipeline_advance) | WAI_r) begin
+    // WAI_r can only be set in EXE_WAIT for WAI
+    if (EXE_STATE[clog2(ST_EXE_WAIT)] & (pipeline_advance | (WAI_r & sa1_clock_en))) begin
       // check current pending.  taking an interrupt will block nmi and avoid duplicate irq.
       if (int_pending_r) begin
-        int_pending_r <= 0;
+        if (int_wai_r) begin
+          int_wai_r     <= 0;
+        end
+        else begin
+          int_pending_r <= 0;
+        end
       end
       else if (exe_dec_grp == `GRP_SPC && exe_dec_add_stk && !exe_dec_store) begin
         // clear current nmi on rti.  this is either already zero or must be a nmi so unconditionally clear
@@ -2098,32 +2107,34 @@ always @(posedge CLK) begin
       else if (CIE_r[`CIE_SA1_NMIEN] & CFR_r[`CFR_SA1_NMIFL] & ~int_nmi_r) begin
         int_pending_r <= 1;
         int_nmi_r     <= 1;
+        int_wai_r     <= WAI_r;
         int_vector_r  <= CNV_r;
       end
       // check IRQ
       else if (~P_r[`P_I]) begin
         // TODO: timer
-        // TODO: dma
         // register        
         if ((CIE_r[`CIE_SA1_IRQEN] & CFR_r[`CFR_SA1_IRQFL]) | (CIE_r[`CIE_DMA_IRQEN] & CFR_r[`CFR_DMA_IRQFL])) begin
           int_pending_r <= 1;
           int_nmi_r     <= 0;
+          int_wai_r     <= WAI_r;
           int_vector_r  <= CIV_r;
         end
       end
     end
     
     // WAI set/clear
-    if (WAI_r & int_pending_r) begin
+    if (WAI_r & int_wai_r) begin
       // will always get cleared on a non-sa1 cycle.
       WAI_r <= 0;
     end
-    else if (EXE_STATE[clog2(ST_EXE_WAIT)] & pipeline_advance & exe_wai_r) begin
+    else if (exe_wai) begin
       WAI_r <= 1;
     end
   end
 end
 
+assign exe_wai     = EXE_STATE[clog2(ST_EXE_EXECUTE)] & int_wai;
 assign exe_mmc_int = int_pending_r;
 
 //-------------------------------------------------------------------
@@ -2292,7 +2303,6 @@ always @(posedge CLK) begin
             exe_pbr_r          <= PBR_r;
             exe_p_r            <= P_r;
             exe_e_r            <= E_r;
-            exe_wai_r          <= WAI_r;
 
             // TODO: hide the -1 in the decoder
             e2c_waitcnt_r <= SPEED ? 0 : (dec_data[`DEC_LATENCY] - 1);
@@ -2640,8 +2650,7 @@ always @(posedge CLK) begin
             end
             else if (exe_opcode_r[6]) begin
               // STP,WAI
-              exe_active_r <= 0;
-              exe_wai_r <= exe_opcode_r[0];
+              exe_active_r <= ~exe_opcode_r[4];
             end
             else begin
               // COP/BRK
@@ -2757,6 +2766,8 @@ always @(posedge CLK) begin
   end
 end
 
+assign int_wai = (exe_opcode_r == 8'hCB);
+
 `ifdef DEBUG
 // breakpoints
 reg      brk_inst_rd_rom_m1;
@@ -2810,7 +2821,7 @@ always @(posedge CLK) begin
 end
 `endif
 
-assign pipeline_advance = sa1_clock_en & ~|exe_waitcnt_r & EXE_STATE[clog2(ST_EXE_WAIT)] & step_r & ~dma_cc1_active_r & ~dma_normal_pri_active_r;
+assign pipeline_advance = sa1_clock_en & ~|exe_waitcnt_r & EXE_STATE[clog2(ST_EXE_WAIT)] & step_r & ~dma_cc1_active_r & ~dma_normal_pri_active_r & ~WAI_r;
 assign op_complete = 1;
 
 // performance counter
