@@ -2486,14 +2486,17 @@ always @(posedge CLK) begin
               `REG_S: exe_s_r <= exe_data_r[15:0];
               `REG_D: exe_d_r <= exe_data_r[15:0];
               `REG_B: exe_dbr_r <= exe_data_r[7:0];
-              `REG_P: exe_p_r <= exe_data_r[7:0];
+              `REG_P: exe_p_r <= {exe_data_r[7:6],exe_data_r[5:4]|{2{E_r}},exe_data_r[3:0]};
               default: begin end
             endcase
             
-            // ok to write this even for P as it will just be the same values
             if (~exe_dst_p_r) begin
               exe_p_r[`P_N] <= exe_data_word_r ? exe_data_r[15]      : exe_data_r[7];
               exe_p_r[`P_Z] <= exe_data_word_r ? ~|exe_data_r[15:0] : ~|exe_data_r[7:0];
+            end
+            else if (exe_data_r[`P_X] | E_r) begin
+              exe_x_r[15:8] <= 0;
+              exe_y_r[15:8] <= 0;
             end
             
             if (exe_dec_add_stk) exe_s_r <= S_r + (exe_data_word_r ? 2 : 1);
@@ -2557,8 +2560,15 @@ always @(posedge CLK) begin
               exe_mmc_addr_r <= {exe_operand_r[7:0],  exe_dst_r[15:0]};              
             end
             
-            exe_x_r             <= exe_src_r + (exe_opcode_r[4] ? 1 : -1);
-            exe_y_r             <= exe_dst_r + (exe_opcode_r[4] ? 1 : -1);
+            // TODO: change this to use exe_data_word_r
+            if (P_r[`P_X]) begin
+              exe_x_r[7:0] <= exe_src_r[7:0] + (exe_opcode_r[4] ? 1 : -1);
+              exe_y_r[7:0] <= exe_dst_r[7:0] + (exe_opcode_r[4] ? 1 : -1);
+            end
+            else begin
+              exe_x_r[15:0] <= exe_src_r[15:0] + (exe_opcode_r[4] ? 1 : -1);
+              exe_y_r[15:0] <= exe_dst_r[15:0] + (exe_opcode_r[4] ? 1 : -1);
+            end
             exe_a_r             <= A_r - 1;
             exe_control_r       <= |A_r;
             exe_target_r        <= {PBR_r,PC_r};
@@ -2623,7 +2633,7 @@ always @(posedge CLK) begin
               
               exe_mmc_byte_total_r <= {1'b1,~E_r};
               
-              if (mmc_data[`P_X]) begin
+              if (exe_data_r[`P_X]) begin
                 exe_x_r[15:8] <= 0;
                 exe_y_r[15:8] <= 0;
               end
@@ -2789,12 +2799,8 @@ always @(posedge CLK) begin
     //brk_data_wr_byte <= pipeline_advance ? 0                                                              : brk_data_wr_ram_m1 ? (RAMWRBUF_r     == CONFIG_DATA_WATCH) : brk_data_wr_byte;
   
     brk_inst_rd_addr <= (debug_inst_addr_r == brk_addr_r);
-    brk_data_rd_addr <= 0;//(  (exe_ram_rd_r   && (exe_addr_r   == brk_addr_r) || (prf_rom_rd_r && (prf_addr_r   == brk_addr_r)))
-                          //|| (bmp_ram_rd_r   && (bmp_addr_r   == brk_addr_r)                                                  )
-                          //);
-    brk_data_wr_addr <= 0;//(  (stb_ram_wr_r   && (stb_addr_r   == brk_addr_r))
-                          //|| (bmf_ram_wr_r   && (bmf_addr_r   == brk_addr_r))
-                          //);
+    brk_data_rd_addr <= (exe_mmc_addr_r == brk_addr_r) && exe_mmc_rd_r;
+    brk_data_wr_addr <= (exe_mmc_addr_r == brk_addr_r) && exe_mmc_wr_r;
     brk_stop         <= EXE_STATE[clog2(ST_EXE_EXECUTE)] && (exe_opcode_r == 8'hDB || exe_opcode_r == 8'hCB || int_pending_r);
     brk_error        <= EXE_STATE[clog2(ST_EXE_EXECUTE)] && (exe_opcode_r == 8'h00);
     
