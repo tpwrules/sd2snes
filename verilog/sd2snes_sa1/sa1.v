@@ -130,12 +130,13 @@ module sa1(
 
 `define DEBUG
 `define DEBUG_IRAM
+`define DEBUG_MMIO
 //`define DEBUG_EXT
 //`define DEBUG_MMC
 //`define DEBUG_EXE
 //`define DEBUG_DMA
 
-`define DMA_ENABLE
+//`define DMA_ENABLE
 `define DMA_TYPE2_ENABLE
 
 // address mapping
@@ -153,9 +154,7 @@ wire [3:0] xxb_en;
 `define IS_MMIO(a) (~a[22] & ~a[15] & ~a[14] & a[13] & ~a[12] & ~a[11] & ~a[10] & a[9])          // 00-3F/80-BF:2200-23FF
 `define IS_SA1_PRAM(a) ((sw46 & ~a[22] & ~a[15] & &a[14:13]) | (~a[23] & a[22] & a[21] & ~a[20])) // 00-3F/80-BF:6000-7FFF, 60-6F:0000-FFFF
 
-// TODO: add MMC support to both here and addr module
 `define MAP_ROM(a)  ((a[22] ? {1'b0, xxb[a[21:20]], a[19:0]} : {1'b0, xxb_en[{a[23],a[21]}] ? xxb[{a[23],a[21]}] : {1'b0,a[23],a[21]}, a[20:16], a[14:0]}) & ROM_MASK)
-// TODO: handle CBM projection
 `define MAP_BRAM(a) (24'hE00000 | ((a[22] ? a[19:0] : {cbm[4:0],a[12:0]}) & SAVERAM_MASK))
 `define MAP_IRAM(a) (a[10:0])
 `define MAP_MMIO(a) (a[8:0])
@@ -1046,6 +1045,11 @@ end
 `define REG_B        6
 `define REG_P        7
 
+`define SZE_1        0
+`define SZE_2        1
+`define SZE_3        2
+`define SZE_4        3
+
 parameter
   ST_EXE_IDLE        = 8'b00000001,
   ST_EXE_FETCH       = 8'b00000010,
@@ -1081,6 +1085,9 @@ wire       exe_dec_ctl   = exe_decode_r[`DEC_CONTROL];
 
 wire       exe_wai;
 wire       exe_mmc_int;
+
+wire       exe_fetch_byte_val;
+wire [7:0] exe_fetch_byte;
 
 //-------------------------------------------------------------------
 // COMMON PIPELINE
@@ -1281,8 +1288,9 @@ reg [1:0]  mmc_byte_r; initial mmc_byte_r = 0;
 reg [1:0]  mmc_byte_total_r; initial mmc_byte_total_r = 0;
 reg        mmc_long_r; initial mmc_long_r = 0;
 reg        mmc_pram_r; initial mmc_pram_r = 0;
-reg [1:0] mmc_pram_index_r; initial mmc_pram_index_r = 0;
+reg [1:0]  mmc_pram_index_r; initial mmc_pram_index_r = 0;
 reg [7:0]  mmc_state_end_r;
+reg        mmc_rom_misaligned; initial mmc_rom_misaligned = 0;
 
 // rom
 reg rom_bus_rrq_r; initial rom_bus_rrq_r = 0;
@@ -1339,6 +1347,7 @@ always @(posedge CLK) begin
             rom_bus_addr_r <= `MAP_ROM(dma_mmc_addr_r);
             rom_bus_word_r <= 1;
             mmc_addr_r     <= `MAP_ROM(dma_mmc_addr_r);
+            mmc_rom_misaligned <= dma_mmc_addr_r[0];
 
             MMC_STATE      <= dma_mmc_wr_r ? ST_MMC_INV : ST_MMC_ROM;
           end
@@ -1394,6 +1403,7 @@ always @(posedge CLK) begin
             rom_bus_addr_r <= `MAP_ROM(exe_mmc_addr);
             rom_bus_word_r <= 1;
             mmc_addr_r     <= `MAP_ROM(exe_mmc_addr);
+            mmc_rom_misaligned <= exe_mmc_addr[0];
 
             MMC_STATE <= exe_mmc_wr_r ? ST_MMC_INV : ST_MMC_ROM;
           end
@@ -1443,20 +1453,25 @@ always @(posedge CLK) begin
         rom_bus_rrq_r <= 0;
 
         if (~rom_bus_rrq_r & ROM_BUS_RDY) begin
-          mmc_byte_r[1] <= 1;
+          mmc_byte_r <= mmc_byte_r + (mmc_rom_misaligned ? 1 : 2);
+          
+          // only the first request may be misaligned
+          mmc_rom_misaligned <= 0;
 
-          case (mmc_byte_r[1])
+          case (mmc_byte_r)
             0: mmc_data_r[15: 0] <= ROM_BUS_RDDATA[15:0];
-            1: mmc_data_r[31:16] <= ROM_BUS_RDDATA[15:0];
+            1: mmc_data_r[23: 8] <= ROM_BUS_RDDATA[15:0];
+            2: mmc_data_r[31:16] <= ROM_BUS_RDDATA[15:0];
+            3: mmc_data_r[31:24] <= ROM_BUS_RDDATA[7:0];
           endcase
           
-          if (mmc_byte_r[1] != mmc_byte_total_r[1]) begin
+          // FIXME: doesn't work if we want 4 bytes back
+          if ((mmc_rom_misaligned & mmc_byte_total_r[0]) | (~|mmc_byte_r & mmc_byte_total_r[1])) begin
             rom_bus_rrq_r <= 1;
 
-            // FIXME: we could cross into a new memory region...
-            if      (mmc_dpe_r)  rom_bus_addr_r[7:0]  <= rom_bus_addr_r[7:0]  + 2;
-            else if (mmc_long_r) rom_bus_addr_r[23:0] <= rom_bus_addr_r[23:0] + 2;
-            else                 rom_bus_addr_r[15:0] <= rom_bus_addr_r[15:0] + 2;
+            if      (mmc_dpe_r)  rom_bus_addr_r[7:0]  <= {rom_bus_addr_r[7:1]  + 1, 1'b0};
+            else if (mmc_long_r) rom_bus_addr_r[23:0] <= {rom_bus_addr_r[23:1] + 1, 1'b0};
+            else                 rom_bus_addr_r[15:0] <= {rom_bus_addr_r[15:1] + 1, 1'b0};
           end
           else begin
             MMC_STATE <= mmc_state_end_r;
@@ -1587,7 +1602,8 @@ end
 assign ROM_BUS_RRQ = rom_bus_rrq_r;
 assign ROM_BUS_WRQ = rom_bus_wrq_r;
 assign ROM_BUS_WORD = rom_bus_word_r;
-assign ROM_BUS_ADDR = {rom_bus_addr_r[23] | (rom_bus_addr_r[0] & rom_bus_word_r), rom_bus_addr_r[22:1], (rom_bus_addr_r[23] | ~rom_bus_word_r) & rom_bus_addr_r[0]};
+//assign ROM_BUS_ADDR = {rom_bus_addr_r[23] | (rom_bus_addr_r[0] & rom_bus_word_r), rom_bus_addr_r[22:1], (rom_bus_addr_r[23] | ~rom_bus_word_r) & rom_bus_addr_r[0]};
+assign ROM_BUS_ADDR = rom_bus_addr_r;
 assign ROM_BUS_WRDATA = rom_bus_data_r;
 
 `ifdef CSRAM
@@ -2048,7 +2064,7 @@ end
 
 // need to take from the input so we get a clock
 //wire [7:0]  dec_addr = MMC_STATE[clog2(ST_MMC_ROM)] ? ROM_BUS_RDDATA[7:0] : mmc_data_r[7:0];
-wire [7:0]  dec_addr = exe_mmc_int ? 8'h00 : mmc_data[7:0];
+wire [7:0]  dec_addr = exe_mmc_int ? 8'h00 : exe_fetch_byte_val ? exe_fetch_byte[7:0] : mmc_data[7:0];
 wire [31:0] dec_data;
 
 dec_table dec (
@@ -2146,6 +2162,7 @@ reg [23:0] exe_addr_r; initial exe_addr_r = 0;
 reg [23:0] exe_mmc_addr_r; initial exe_mmc_addr_r = 0;
 
 reg [1:0]  exe_opsize_r; initial exe_opsize_r = 0;
+reg [1:0]  exe_fetchsize_r; initial exe_fetchsize_r = 0;
 reg [7:0]  exe_opcode_r; initial exe_opcode_r = 0;
 reg [23:0] exe_operand_r; initial exe_operand_r = 0;
 
@@ -2177,10 +2194,12 @@ reg        exe_active_r; initial exe_active_r = 0;
 
 reg        exe_mmc_state_exe_end_r; initial exe_mmc_state_exe_end_r = 0;
 
+reg        exe_prefetch_val_r; initial exe_prefetch_val_r = 0;
+reg [7:0]  exe_prefetch_r; initial exe_prefetch_r = 0;
+
 wire       exe_dpe       = ~|D_r[7:0] & E_r;
 wire       exe_data_word = |({~P_r[`P_X],~P_r[`P_M]}&dec_data[`DEC_PRC]) | &dec_data[`DEC_PRC];
-
-assign     exe_mmc_addr = EXE_STATE[clog2(ST_EXE_FETCH_END)] ? exe_fetch_addr_r : EXE_STATE[clog2(ST_EXE_ADDRESS_END)] ? exe_addr_r : exe_mmc_addr_r;
+wire       exe_dec_imm16 = (|({~P_r[`P_X],~P_r[`P_M]}&dec_data[`DEC_PRC]) & dec_data[`ADD_IMM]);
 
 // temporary
 reg [16:0] exe_result;
@@ -2205,6 +2224,7 @@ always @(posedge CLK) begin
     exe_mmc_addr_r   <= 0;
     
     exe_opsize_r  <= 0;
+    exe_fetchsize_r <= 0;
     exe_opcode_r  <= 0;
     exe_operand_r <= 0;
     exe_decode_r  <= 0;
@@ -2238,6 +2258,8 @@ always @(posedge CLK) begin
 
     exe_active_r <= 0;
     
+    exe_prefetch_val_r <= 0;
+    
     e2c_waitcnt_r <= 0;
   end
   else begin
@@ -2251,17 +2273,20 @@ always @(posedge CLK) begin
           exe_mmc_long_r <= 0;
           exe_mmc_dpe_r <= 0;
           
+          exe_opsize_r <= 0;
+          
           exe_active_r <= 1;
 
           EXE_STATE <= ST_EXE_FETCH;
         end
 
+        exe_prefetch_val_r <= 0;
         e2c_waitcnt_r  <= 0;
       end
       
       // FETCH
       ST_EXE_FETCH: begin
-        exe_mmc_rd_r   <= ~int_pending_r;
+        exe_mmc_rd_r   <= ~(int_pending_r | exe_prefetch_val_r);
         exe_mmc_byte_total_r <= 1;
         exe_mmc_state_exe_end_r <= 0;
         
@@ -2273,27 +2298,24 @@ always @(posedge CLK) begin
         // always stop the read at END
         if (MMC_STATE[clog2(ST_MMC_EXE_END)]) exe_mmc_rd_r <= 0;
         
-        exe_mmc_state_exe_end_r <= MMC_STATE[clog2(ST_MMC_EXE_END)] | int_pending_r;
-      
-        // TODO: decide if we want to skip a clock here from the ROM
+        exe_mmc_state_exe_end_r <= MMC_STATE[clog2(ST_MMC_EXE_END)] | int_pending_r | exe_prefetch_val_r;
+
         // The decode rom takes an additional clock.
         if (exe_mmc_state_exe_end_r) begin
-          exe_data_r <= int_pending_r ? 8'h00 : mmc_data;
-          // TODO: predecode and data flop
+          exe_data_r <= int_pending_r ? 8'h00 : exe_prefetch_val_r ? exe_prefetch_r : mmc_data;
           
           if (~|exe_opsize_r) begin
-            exe_opcode_r       <= exe_mmc_int ? 8'h00 : mmc_data[7:0];
-            exe_operand_r[7:0] <= mmc_data[15:8];
+            exe_opcode_r       <= exe_mmc_int ? 8'h00 : exe_prefetch_val_r ? exe_prefetch_r : mmc_data[7:0];
             // word size only affects immediate for fetch
-            exe_opsize_r       <= dec_data[`DEC_SIZE] | (|({~P_r[`P_X],~P_r[`P_M]}&dec_data[`DEC_PRC]) & dec_data[`ADD_IMM]);
+            exe_opsize_r       <= dec_data[`DEC_SIZE] ^ {2{exe_dec_imm16}};
             exe_control_r      <= dec_data[`DEC_CONTROL];
             exe_load_r         <= dec_data[`DEC_LOAD];
             exe_store_r        <= dec_data[`DEC_STORE];
             exe_decode_r       <= dec_data;
             exe_data_word_r    <= exe_data_word;
 
-            exe_nextpc_addr_r  <= PC_r + dec_data[`DEC_SIZE] + ((|({~P_r[`P_X],~P_r[`P_M]}&dec_data[`DEC_PRC]) & dec_data[`ADD_IMM]) ? 2 : 1);
-  
+            exe_nextpc_addr_r  <= PC_r + dec_data[`DEC_SIZE] + (exe_dec_imm16 ? 2 : 1);
+
             exe_a_r            <= A_r;
             exe_x_r            <= X_r;
             exe_y_r            <= Y_r;
@@ -2313,21 +2335,72 @@ always @(posedge CLK) begin
             // record the current PC and previous PC
             debug_inst_addr_r <= {PBR_r,PC_r};
             debug_inst_addr_prev_r <= debug_inst_addr_r;
-            
-            // TODO: support multiple instruction decode to avoid extra cycle for 2 instructions sharing a line
-            if (dec_data[`DEC_SIZE] > 1 || (|({~P_r[`P_X],~P_r[`P_M]}&dec_data[`DEC_PRC]) & dec_data[`ADD_IMM])) begin
+          end
+
+          // next state, address, and prefetch logic.
+          if (~|exe_opsize_r) begin
+            // initial decode
+            // `define DEC_SIZE    16:15
+            exe_operand_r[7:0] <= mmc_data[15:8];
+
+            if (dec_data[16] | exe_dec_imm16 | (exe_fetch_addr_r[0] & dec_data[15])) begin
+              // 3,4 bytes or 2 misaligned bytes
+              
               // fetch the remainder of the instruction
-              exe_fetch_addr_r[15:0] <= exe_fetch_addr_r[15:0] + 2;
+              exe_fetch_addr_r[15:0] <= {exe_fetch_addr_r[15:1] + 1,1'b0};
+              // this represents the next total byte size we are going to get (e.g., 3 or 4)
+              exe_fetchsize_r        <= {1'b0,~exe_fetch_addr_r[0]};
+              
+              exe_prefetch_val_r     <= 0;
+              
               EXE_STATE <= ST_EXE_FETCH;
             end
             else begin
+              // 1 byte or 2 aligned bytes
+              
+              // prefetch is valid if aligned 1 byte
+              exe_prefetch_val_r <= ~exe_fetch_addr_r[0] && (dec_data[`DEC_SIZE] == `SZE_1);
+              exe_prefetch_r     <= mmc_data[15:8];
+
               EXE_STATE <= ST_EXE_ADDRESS;
-            end
+            end          
           end
           else begin
-            exe_operand_r[23:8] <= mmc_data[15:0];
+            // remaining bytes
+            // we get here for 2 misaligned 3 aligned (2 valid) or misaligned (1 valid) bytes.
             
-            EXE_STATE <= ST_EXE_ADDRESS;
+            case (exe_fetchsize_r)
+              // have 1 byte
+              `SZE_1: exe_operand_r[15:0]  <= mmc_data[15:0];
+              // have 2 bytes
+              `SZE_2: exe_operand_r[23:8]  <= mmc_data[15:0];
+              // have 3 bytes
+              `SZE_3: exe_operand_r[23:16] <= mmc_data[7:0];
+              // have 4 bytes.  not possible
+              `SZE_4: exe_operand_r[23:0]  <= 24'hBADBAD;
+            endcase
+            
+            // the only case where this matters is 3->5 bytes
+            exe_fetchsize_r[1] <= ~exe_fetchsize_r[1];
+            
+            if (&exe_opsize_r && (exe_fetchsize_r == `SZE_1)) begin
+              // 1->3 (need 4)
+              // continue with aligned fetch.  must already be aligned
+              exe_fetch_addr_r[15:0] <= {exe_fetch_addr_r[15:1] + 1,1'b0};
+              
+              exe_prefetch_val_r <= 0;
+
+              EXE_STATE <= ST_EXE_FETCH;
+            end
+            else begin
+              // fetch is complete.  1->2, 1->3, 2->3, 2->4, 3->4
+
+              // check if prefetch available (overfetch)
+              exe_prefetch_val_r <= exe_fetchsize_r[0] ^ exe_opsize_r[0];
+              exe_prefetch_r     <= mmc_data[15:8];
+                          
+              EXE_STATE <= ST_EXE_ADDRESS;
+            end
           end
           
         end
@@ -2745,6 +2818,9 @@ always @(posedge CLK) begin
           exe_mmc_long_r <= 0;
           exe_mmc_dpe_r <= 0;
           
+          // invalidate the prefetch on a taken control instruction
+          if (exe_control_r) exe_prefetch_val_r <= 0;
+          
           // write register state
           A_r           <= exe_a_r;
           X_r           <= exe_x_r;
@@ -2766,7 +2842,10 @@ always @(posedge CLK) begin
   end
 end
 
-assign int_wai = (exe_opcode_r == 8'hCB);
+assign     int_wai = (exe_opcode_r == 8'hCB);
+assign     exe_mmc_addr = EXE_STATE[clog2(ST_EXE_FETCH_END)] ? exe_fetch_addr_r : EXE_STATE[clog2(ST_EXE_ADDRESS_END)] ? exe_addr_r : exe_mmc_addr_r;
+assign     exe_fetch_byte_val = exe_prefetch_val_r;
+assign     exe_fetch_byte     = exe_prefetch_r;
 
 `ifdef DEBUG
 // breakpoints
@@ -2888,6 +2967,8 @@ always @(posedge CLK) begin
         ADDR_SNV+1 ,
         ADDR_SIV   ,
         ADDR_SIV+1 ,
+
+`ifdef DEBUG_MMIO
         ADDR_TMC   ,
         ADDR_CTR   ,
         ADDR_HCNT  ,
@@ -2943,6 +3024,8 @@ always @(posedge CLK) begin
 
         8'h60+ADDR_SFR   : pgmpre_out[0] <= SFR_r;
         8'h60+ADDR_CFR   : pgmpre_out[0] <= CFR_r;
+`endif
+
 `ifdef DEBUG_EXT
         8'h60+ADDR_HCR   : pgmpre_out[0] <= HCR_r[7:0]; // $2
         8'h60+ADDR_HCR+1 : pgmpre_out[0] <= HCR_r[15:8]; // $2
