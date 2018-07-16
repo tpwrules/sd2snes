@@ -77,7 +77,7 @@ module main(
   output p113_out
 );
 
-//`define CSRAM
+`define CSRAM
 
 wire CLK2;
 
@@ -207,6 +207,7 @@ reg SNES_RD_end; always @(posedge CLK2) SNES_RD_end <= ((SNES_READr[5:0] & SNES_
 reg SNES_WR_end; always @(posedge CLK2) SNES_WR_end <= ((SNES_WRITEr[5:0] & SNES_WRITEr[6:1]) == 6'b000001);
 wire SNES_cycle_start = ((SNES_CPU_CLKr[7:2] & SNES_CPU_CLKr[6:1]) == 6'b000011);
 wire SNES_cycle_end = ((SNES_CPU_CLKr[7:2] | SNES_CPU_CLKr[6:1]) == 6'b111000);
+wire SNES_cycle_end_early = ((SNES_CPU_CLKr[7:2] | SNES_CPU_CLKr[6:1]) == 6'b111100);
 wire SNES_WRITE = SNES_WRITEr[2] & SNES_WRITEr[1];
 wire SNES_READ = SNES_READr[2] & SNES_READr[1];
 wire SNES_CPU_CLK = SNES_CPU_CLKr[2] & SNES_CPU_CLKr[1];
@@ -214,6 +215,7 @@ wire SNES_PARD = SNES_PARDr[2] & SNES_PARDr[1];
 
 wire SNES_ROMSEL = (SNES_ROMSELr[5] & SNES_ROMSELr[4]);
 wire [23:0] SNES_ADDR = (SNES_ADDRr[6] & SNES_ADDRr[5]);
+wire [23:0] SNES_ADDR_early = SNES_ADDRr[0];
 wire [7:0] SNES_PA = (SNES_PAr[6] & SNES_PAr[5]);
 wire [7:0] SNES_DATA_IN = (SNES_DATAr[3] & SNES_DATAr[2]);
 
@@ -224,19 +226,21 @@ always @(posedge CLK2) begin
   else if(~SNES_WRITE) BUS_DATA <= SNES_DATA_IN;
 end
 
-wire free_slot = SNES_cycle_end | free_strobe;
-
 wire ROM_HIT;
-
+wire IS_ROM;
 assign DCM_RST=0;
-
 wire IS_SAVERAM;
 
+//wire free_slot = SNES_cycle_end | free_strobe;
+wire free_slot = SNES_cycle_end | ~IS_ROM;
+
 // TODO: Provide full bandwidth if snes is not accessing the bus.
+reg [7:0] SNES_cycle_end_delay;
 always @(posedge CLK2) begin
+  //if (SNES_cycle_end_early) free_strobe <= ~ROM_HIT; // next address available now
   if (SNES_cycle_start) free_strobe <= ~ROM_HIT;
   else if (SNES_cycle_end) free_strobe <= 1'b0;
-  //else free_strobe <= 1'b0;
+  else free_strobe <= 1'b0;
 end
 
 always @(posedge CLK2) begin
@@ -264,6 +268,8 @@ always @(posedge CLK2) begin
   SNES_DATAr[2] <= SNES_DATAr[1];
   SNES_DATAr[1] <= SNES_DATAr[0];
   SNES_DATAr[0] <= SNES_DATA;
+
+  SNES_cycle_end_delay <= {SNES_cycle_end_delay[6:1],SNES_cycle_end};
 end
 
 parameter ST_IDLE            = 11'b00000000001;
@@ -651,7 +657,7 @@ address snes_addr(
   .CLK(CLK2),
   .MAPPER(MAPPER),
   .featurebits(featurebits),
-  .SNES_ADDR(SNES_ADDR), // requested address from SNES
+  .SNES_ADDR(SNES_ADDR_early), // requested address from SNES
   .SNES_PA(SNES_PA),
   .SNES_ROMSEL(SNES_ROMSEL),
   .ROM_ADDR(MAPPED_SNES_ADDR),   // Address to request from SRAM (active low)
@@ -798,8 +804,14 @@ reg RQ_SA1_ROM_RDYr; initial RQ_SA1_ROM_RDYr = 1;
 assign SA1_ROM_RDY = RQ_SA1_ROM_RDYr;
 
 wire SA1_ROM_RD_HIT = |(STATE & ST_SA1_ROM_RD_ADDR);
+`ifndef CSRAM
 wire SA1_ROM_WR_HIT = |(STATE & ST_SA1_ROM_WR_ADDR);
-wire SA1_ROM_HIT = SA1_ROM_RD_HIT | SA1_ROM_WR_HIT;
+`endif
+wire SA1_ROM_HIT = SA1_ROM_RD_HIT
+`ifndef CSRAM
+                 | SA1_ROM_WR_HIT
+`endif
+ ;
 
 assign ROM_ADDR  = (SD_DMA_TO_ROM) ? MCU_ADDR[23:1] : SA1_ROM_HIT ? SA1_ROM_ADDRr[23:1] : MCU_HIT ? ROM_ADDRr[23:1] : MAPPED_SNES_ADDR[23:1];
 assign ROM_ADDR0 = (SD_DMA_TO_ROM) ? MCU_ADDR[0]    : SA1_ROM_HIT ? SA1_ROM_ADDRr[0]    : MCU_HIT ? ROM_ADDRr[0]    : MAPPED_SNES_ADDR[0];
@@ -846,10 +858,18 @@ always @(posedge CLK2) begin
     SA1_ROM_ADDRr <= SA1_ROM_ADDR;
     SA1_ROM_WORDr <= SA1_ROM_WORD;
     SA1_ROM_DATAr <= SA1_ROM_DATA;
-  end else if(|(STATE & (ST_SA1_ROM_RD_ADDR|ST_SA1_ROM_WR_ADDR)) & ~|ST_MEM_DELAYr) begin
+  end else if(|(STATE & (ST_SA1_ROM_RD_ADDR
+`ifndef CSRAM                                       
+                         |ST_SA1_ROM_WR_ADDR
+`endif
+             )) & ~|ST_MEM_DELAYr) begin
     // enable rdy/response 1 cycle earlier
     RQ_SA1_ROM_RDYr <= 1'b1;
-  end else if(STATE & (ST_SA1_ROM_RD_END | ST_SA1_ROM_WR_END)) begin
+  end else if(STATE & (ST_SA1_ROM_RD_END
+`ifndef CSRAM
+                      | ST_SA1_ROM_WR_END
+`endif
+             )) begin
     SA1_ROM_RD_PENDr <= 1'b0;
     SA1_ROM_WR_PENDr <= 1'b0;
     RQ_SA1_ROM_RDYr <= 1'b1;
@@ -883,10 +903,12 @@ always @(posedge CLK2) begin
           STATE <= ST_SA1_ROM_RD_ADDR;
           ST_MEM_DELAYr <= ROM_CYCLE_LEN;
         end
+`ifndef CSRAM
         else if (SA1_ROM_WR_PENDr) begin
           STATE <= ST_SA1_ROM_WR_ADDR;
           ST_MEM_DELAYr <= ROM_CYCLE_LEN;
         end
+`endif
         else if(MCU_RD_PENDr) begin
           STATE <= ST_MCU_RD_ADDR;
           ST_MEM_DELAYr <= ROM_CYCLE_LEN;
@@ -914,12 +936,15 @@ always @(posedge CLK2) begin
       if(ST_MEM_DELAYr == 0) STATE <= ST_SA1_ROM_RD_END;
       SA1_ROM_DINr <= (ROM_ADDR0_r ? ROM_DATA[15:0] : {ROM_DATA[7:0],ROM_DATA[15:8]});
     end
+`ifndef CSRAM
     ST_SA1_ROM_WR_ADDR: begin
       STATE <= ST_SA1_ROM_WR_ADDR;
       ST_MEM_DELAYr <= ST_MEM_DELAYr - 1;
       if(ST_MEM_DELAYr == 0) STATE <= ST_SA1_ROM_WR_END;
     end
-    ST_MCU_RD_END, ST_MCU_WR_END, ST_SA1_ROM_WR_END, ST_SA1_ROM_RD_END: begin
+    ST_SA1_ROM_WR_END,
+`endif
+    ST_MCU_RD_END, ST_MCU_WR_END, ST_SA1_ROM_RD_END: begin
       STATE <= ST_IDLE;
     end
   endcase
@@ -951,7 +976,9 @@ assign ROM_DATA[7:0] = ROM_ADDR0
                                          & ~IS_SAVERAM
 `endif
                                          & ~SNES_WRITE) ? SNES_DATA
+`ifndef CSRAM                                       
                                        : SA1_ROM_WR_HIT ? (ROM_ADDR0 ? SA1_ROM_DATAr[7:0] : SA1_ROM_DATAr[15:8])
+`endif
                                        : MCU_WR_HIT ? MCU_DOUT : 8'bZ
                         )
                        :8'bZ;
@@ -965,7 +992,9 @@ assign ROM_DATA[15:8] = ROM_ADDR0
                                           & ~IS_SAVERAM
 `endif
                                           & ~SNES_WRITE) ? SNES_DATA
+`ifndef CSRAM                                       
                                         : SA1_ROM_WR_HIT ? (ROM_ADDR0 ? SA1_ROM_DATAr[15:8] : SA1_ROM_DATAr[7:0])
+`endif
                                         : MCU_WR_HIT ? MCU_DOUT
                                         : 8'bZ
                          );
@@ -977,7 +1006,9 @@ assign ROM_WE = SD_DMA_TO_ROM
                   & ~IS_SAVERAM
 `endif
                   & SNES_CPU_CLK) ? SNES_WRITE
+`ifndef CSRAM                                       
                 : SA1_ROM_WR_HIT ? 1'b0
+`endif
                 : MCU_WR_HIT ? 1'b0
                 : 1'b1;
 
@@ -1009,7 +1040,8 @@ parameter RAM_CYCLE_LEN = 4'd5;
 reg [8:0] RAM_STATE; initial RAM_STATE = ST_RAM_IDLE;
 reg [3:0] ST_RAM_DELAYr;
 
-wire ram_free_slot = SNES_cycle_end | ram_free_strobe;
+//wire ram_free_slot = SNES_cycle_end | ram_free_strobe;
+wire ram_free_slot = SNES_cycle_end | ~IS_SAVERAM;
 
 // Provide full bandwidth if snes is not accessing the bus.
 always @(posedge CLK2) begin
