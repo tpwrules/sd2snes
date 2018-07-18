@@ -137,6 +137,8 @@ module sa1(
 //`define DEBUG_DMA
 
 `define DMA_ENABLE
+`define DMA_NORMAL_ENABLE
+`define DMA_TYPE1_ENABLE
 `define DMA_TYPE2_ENABLE
 
 // address mapping
@@ -431,7 +433,7 @@ reg [23:0]  DSA_r;  initial DSA_r  = 0;
 reg [23:0]  DDA_r;  initial DDA_r  = 0;
 reg [15:0]  DTC_r;  initial DTC_r  = 0;
 reg [7:0]   BBF_r;  initial BBF_r  = 0;
-reg [15:0]  BRF_r[7:0]; initial for (i = 0; i < 8; i = i + 1) BRF_r[i] = 0;
+reg [7:0]   BRF_r[15:0]; initial for (i = 0; i < 16; i = i + 1) BRF_r[i] = 0;
 reg [7:0]   MCNT_r; initial MCNT_r = 0;
 reg [15:0]  MA_r;   initial MA_r   = 0;
 reg [15:0]  MB_r;   initial MB_r   = 0;
@@ -665,7 +667,7 @@ always @(posedge CLK) begin
     DDA_r  <= 0;
     DTC_r  <= 0;
     BBF_r  <= 0;
-    for (i = 0; i < 8; i = i + 1) BRF_r[i] <= 0;
+    for (i = 0; i < 16; i = i + 1) BRF_r[i] <= 0;
     MCNT_r <= 0;
     MA_r   <= 0;
     MB_r   <= 0;
@@ -848,23 +850,23 @@ always @(posedge CLK) begin
         ADDR_DTC+1 : DTC_r[15:8]         <= snes_writebuf_data_r;  // 8'h38, // $2
         ADDR_BBF   : BBF_r[`BBF_BBF]     <= snes_writebuf_data_r[`BBF_BBF];  // 8'h3F,
         ADDR_BRF+0 : BRF_r[0][7:0]       <= snes_writebuf_data_r;  // 8'h40,
-        ADDR_BRF+1 : BRF_r[0][15:8]      <= snes_writebuf_data_r;  // 8'h41,
-        ADDR_BRF+2 : BRF_r[1][7:0]       <= snes_writebuf_data_r;  // 8'h42,
-        ADDR_BRF+3 : BRF_r[1][15:8]      <= snes_writebuf_data_r;  // 8'h43,
-        ADDR_BRF+4 : BRF_r[2][7:0]       <= snes_writebuf_data_r;  // 8'h44,
-        ADDR_BRF+5 : BRF_r[2][15:8]      <= snes_writebuf_data_r;  // 8'h45,
-        ADDR_BRF+6 : BRF_r[3][7:0]       <= snes_writebuf_data_r;  // 8'h46,
+        ADDR_BRF+1 : BRF_r[1][7:0]       <= snes_writebuf_data_r;  // 8'h41,
+        ADDR_BRF+2 : BRF_r[2][7:0]       <= snes_writebuf_data_r;  // 8'h42,
+        ADDR_BRF+3 : BRF_r[3][7:0]       <= snes_writebuf_data_r;  // 8'h43,
+        ADDR_BRF+4 : BRF_r[4][7:0]       <= snes_writebuf_data_r;  // 8'h44,
+        ADDR_BRF+5 : BRF_r[5][7:0]       <= snes_writebuf_data_r;  // 8'h45,
+        ADDR_BRF+6 : BRF_r[6][7:0]       <= snes_writebuf_data_r;  // 8'h46,
         // TODO: highest address 7/F BRF writes can cause a DMA
-        ADDR_BRF+7 : BRF_r[3][15:8]      <= snes_writebuf_data_r;  // 8'h47,
-        ADDR_BRF+8 : BRF_r[4][7:0]       <= snes_writebuf_data_r;  // 8'h48,
-        ADDR_BRF+9 : BRF_r[4][15:8]      <= snes_writebuf_data_r;  // 8'h49,
-        ADDR_BRF+10: BRF_r[5][7:0]       <= snes_writebuf_data_r;  // 8'h4A,
-        ADDR_BRF+11: BRF_r[5][15:8]      <= snes_writebuf_data_r;  // 8'h4B,
-        ADDR_BRF+12: BRF_r[6][7:0]       <= snes_writebuf_data_r;  // 8'h4C,
-        ADDR_BRF+13: BRF_r[6][15:8]      <= snes_writebuf_data_r;  // 8'h4D,
-        ADDR_BRF+14: BRF_r[7][7:0]       <= snes_writebuf_data_r;  // 8'h4E,
+        ADDR_BRF+7 : BRF_r[7][7:0]       <= snes_writebuf_data_r;  // 8'h47,
+        ADDR_BRF+8 : BRF_r[8][7:0]       <= snes_writebuf_data_r;  // 8'h48,
+        ADDR_BRF+9 : BRF_r[9][7:0]       <= snes_writebuf_data_r;  // 8'h49,
+        ADDR_BRF+10: BRF_r[10][7:0]      <= snes_writebuf_data_r;  // 8'h4A,
+        ADDR_BRF+11: BRF_r[11][7:0]      <= snes_writebuf_data_r;  // 8'h4B,
+        ADDR_BRF+12: BRF_r[12][7:0]      <= snes_writebuf_data_r;  // 8'h4C,
+        ADDR_BRF+13: BRF_r[13][7:0]      <= snes_writebuf_data_r;  // 8'h4D,
+        ADDR_BRF+14: BRF_r[14][7:0]      <= snes_writebuf_data_r;  // 8'h4E,
         // TODO: highest address 7/F BRF writes can cause a DMA
-        ADDR_BRF+15: BRF_r[7][15:8]      <= snes_writebuf_data_r;  // 8'h4F,  
+        ADDR_BRF+15: BRF_r[15][7:0]      <= snes_writebuf_data_r;  // 8'h4F,  
         ADDR_MCNT  : {MCNT_r[`MCNT_ACM],MCNT_r[`MCNT_MD]} <= {snes_writebuf_data_r[`MCNT_ACM],snes_writebuf_data_r[`MCNT_MD]}; // 8'h50,
         ADDR_MA    : MA_r[7:0]           <= snes_writebuf_data_r;  // 8'h51, // $2
         ADDR_MA+1  : MA_r[15:8]          <= snes_writebuf_data_r;  // 8'h51, // $2
@@ -1788,7 +1790,7 @@ reg [10:0] dma_cc1_addr_wr_r; // current write address
 reg        dma_cc1_upper_r; initial dma_cc1_upper_r = 0;
 reg        dma_cc1_rd_r; initial dma_cc1_rd_r = 0;
 
-reg        dma_cc2_line3_r; initial dma_cc2_line3_r = 0;
+reg [3:0]  dma_cc2_line_r; initial dma_cc2_line_r = 0;
 
 reg        dma_trigger_normal_r; initial dma_trigger_normal_r = 0;
 reg        dma_start_type1_r; initial dma_start_type1_r = 0;
@@ -1836,6 +1838,8 @@ always @(posedge CLK) begin
     dma_cc1_upper_r <= 0;
     dma_cc1_rd_r <= 0;
     dma_write_r <= 0;
+    
+    dma_cc2_line_r <= 0;
     
     SFR_r[`SFR_DMA_IRQFL] <= 0;
     CFR_r[`CFR_DMA_IRQFL] <= 0;
@@ -1920,16 +1924,14 @@ always @(posedge CLK) begin
 
     if (dbg_dma_cc1_trigger_r == 1 && ~DMA_STATE[clog2(ST_DMA_IDLE)]) dbg_dma_cc1_nonzero_write_r <= dbg_dma_cc1_nonzero_write_r + 1;
 
-    if (snes_writebuf_val_r) begin
-      if      (snes_writebuf_addr_r[8:0] == ADDR_BRF7) dma_cc2_line3_r <= 0;
-      else if (snes_writebuf_addr_r[8:0] == ADDR_BRFF) dma_cc2_line3_r <= 1;
-    end
-
     case (DMA_STATE)
       ST_DMA_IDLE: begin
         // clear interrupt
         if (snes_writebuf_val_r && snes_writebuf_addr_r[8:0] == ADDR_CIC  &&  snes_writebuf_data_r[`CIC_DMA_IRQCL]) CFR_r[`CFR_DMA_IRQFL] <= 0;
         if (snes_writebuf_val_r && snes_writebuf_addr_r[8:0] == ADDR_SIC  &&  snes_writebuf_data_r[`SIC_DMA_IRQCL]) SFR_r[`SFR_DMA_IRQFL] <= 0;
+        
+        // clear line number
+        if (~dma_dcnt_r[`DCNT_DMAEN]) dma_cc2_line_r <= 0;
         
         dma_cdma_r <= CDMA_r;
         dma_dcnt_r <= DCNT_r;
@@ -1972,11 +1974,10 @@ always @(posedge CLK) begin
           DMA_STATE <= ST_DMA_TYPE1_READ;
         end
         else if (dma_trigger_type2_r) begin
-          dma_cc2_line3_r <= 0;
-        
           DMA_STATE <= ST_DMA_TYPE2_READ;
         end
       end
+`ifdef DMA_NORMAL_ENABLE
       // normal
       ST_DMA_NORMAL_READ: begin
         if (|dma_dtc_r) begin
@@ -2002,7 +2003,8 @@ always @(posedge CLK) begin
         dma_next_readstate_r  <= ST_DMA_WRITE;
         dma_next_writestate_r <= ST_DMA_NORMAL_READ;
       end
-
+`endif
+`ifdef DMA_TYPE1_ENABLE
       // type1
       ST_DMA_TYPE1_READ: begin
         // only perform memory read for valid byte
@@ -2050,35 +2052,36 @@ always @(posedge CLK) begin
 
         DMA_STATE <= ST_DMA_WRITE_END;
       end
-      
+`endif
 `ifdef DMA_TYPE2_ENABLE
       // type2
       ST_DMA_TYPE2_READ: begin
-        dma_mmc_wr_r <= 1;
+        dma_mmc_wr_r <= ~|(dma_byte_r & ~dma_comp_r);
         {dma_mmc_rom_r,dma_mmc_iram_r,dma_mmc_bram_r} <= {1'b0,1'b1,1'b0};
 
         // compose BRF to iram write
         dma_mmc_addr_r <= {13'h0000,
                            DDA_r[10:7],
-                           (|dma_cdma_r[`CDMA_DMACB] ? DDA_r[6]                                            : dma_cc2_line3_r),
-                           (dma_cdma_r[1]            ? DDA_r[5]         : dma_cdma_r[0] ? dma_cc2_line3_r  : dma_byte_r[2]  ),
-                           (dma_cdma_r[1]            ? dma_cc2_line3_r  :                 dma_byte_r[1]                     ),
-                           dma_line_r[2:0],
+                           (|dma_cdma_r[`CDMA_DMACB] ? DDA_r[6]                                              : dma_cc2_line_r[3]),
+                           (dma_cdma_r[1]            ? DDA_r[5]          : dma_cdma_r[0] ? dma_cc2_line_r[3] : dma_byte_r[2]    ),
+                           (dma_cdma_r[1]            ? dma_cc2_line_r[3] :                 dma_byte_r[1]                        ),
+                           dma_cc2_line_r[2:0],
                            dma_byte_r[0]
                           };
 
-        dma_mmc_data_r <= {BRF_r[{dma_cc2_line3_r,3'h0}][dma_byte_r[2:0]],
-                           BRF_r[{dma_cc2_line3_r,3'h1}][dma_byte_r[2:0]],
-                           BRF_r[{dma_cc2_line3_r,3'h2}][dma_byte_r[2:0]],
-                           BRF_r[{dma_cc2_line3_r,3'h3}][dma_byte_r[2:0]],
-                           BRF_r[{dma_cc2_line3_r,3'h4}][dma_byte_r[2:0]],
-                           BRF_r[{dma_cc2_line3_r,3'h5}][dma_byte_r[2:0]],
-                           BRF_r[{dma_cc2_line3_r,3'h6}][dma_byte_r[2:0]],
-                           BRF_r[{dma_cc2_line3_r,3'h7}][dma_byte_r[2:0]]};
+        dma_mmc_data_r <= {dma_cc2_line_r[0] ? BRF_r[8][dma_byte_r]  : BRF_r[0][dma_byte_r],
+                           dma_cc2_line_r[0] ? BRF_r[9][dma_byte_r]  : BRF_r[1][dma_byte_r],
+                           dma_cc2_line_r[0] ? BRF_r[10][dma_byte_r] : BRF_r[2][dma_byte_r],
+                           dma_cc2_line_r[0] ? BRF_r[11][dma_byte_r] : BRF_r[3][dma_byte_r],
+                           dma_cc2_line_r[0] ? BRF_r[12][dma_byte_r] : BRF_r[4][dma_byte_r],
+                           dma_cc2_line_r[0] ? BRF_r[13][dma_byte_r] : BRF_r[5][dma_byte_r],
+                           dma_cc2_line_r[0] ? BRF_r[14][dma_byte_r] : BRF_r[6][dma_byte_r],
+                           dma_cc2_line_r[0] ? BRF_r[15][dma_byte_r] : BRF_r[7][dma_byte_r]
+                          };
 
         dma_byte_r <= dma_byte_r + 1;
 
-        if (&dma_byte_r) dma_line_r[2:0] <= dma_line_r[2:0] + 1;
+        if (&dma_byte_r) dma_cc2_line_r <= dma_cc2_line_r + 1;
         dma_next_writestate_r <= &dma_byte_r ? ST_DMA_IDLE : ST_DMA_TYPE2_READ;
         
         DMA_STATE <= ST_DMA_WRITE_END;
@@ -2114,6 +2117,7 @@ always @(posedge CLK) begin
           for (i = 0; i < 7; i = i + 1) dma_cc1_data_r[i] <= dma_cc1_data_r[i+1];
         end
       end
+`ifdef DMA_NORMAL_ENABLE
       ST_DMA_WRITE: begin
         dma_mmc_wr_r   <= dma_write_r;
         {dma_mmc_rom_r,dma_mmc_iram_r,dma_mmc_bram_r} <= {1'b0,~dma_dcnt_r[`DCNT_DD],dma_dcnt_r[`DCNT_DD]};
@@ -2122,6 +2126,7 @@ always @(posedge CLK) begin
                 
         DMA_STATE <= ST_DMA_WRITE_END;
       end
+`endif
       ST_DMA_WRITE_END: begin
         if (~dma_mmc_wr_r) begin
           DMA_STATE <= dma_next_writestate_r;
