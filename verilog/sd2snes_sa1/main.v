@@ -77,8 +77,6 @@ module main(
   output p113_out
 );
 
-`define CSRAM
-
 wire CLK2;
 
 wire dspx_dp_enable;
@@ -195,9 +193,7 @@ reg SNES_DEADr = 1;
 reg SNES_reset_strobe = 0;
 
 reg free_strobe = 0;
-`ifdef CSRAM
 reg ram_free_strobe = 0;
-`endif
 
 wire SNES_PARD_start = ((SNES_PARDr[6:1] | SNES_PARDr[7:2]) == 6'b111110);
 wire SNES_RD_start = ((SNES_READr[6:1] | SNES_READr[7:2]) == 6'b111100);
@@ -279,15 +275,10 @@ parameter ST_MCU_WR_ADDR     = 11'b00000001000;
 parameter ST_MCU_WR_END      = 11'b00000010000;
 parameter ST_SA1_ROM_RD_ADDR = 11'b00000100000;
 parameter ST_SA1_ROM_RD_END  = 11'b00001000000;
-`ifdef CSRAM
 parameter ST_SA1_RAM_RD_ADDR = 11'b00010000000;
 parameter ST_SA1_RAM_RD_END  = 11'b00100000000;
 parameter ST_SA1_RAM_WR_ADDR = 11'b01000000000;
 parameter ST_SA1_RAM_WR_END  = 11'b10000000000;
-`else
-parameter ST_SA1_ROM_WR_ADDR = 11'b00010000000;
-parameter ST_SA1_ROM_WR_END  = 11'b00100000000;
-`endif
 
 parameter SNES_DEAD_TIMEOUT = 17'd96000; // 1ms  // FIXME: this and some other constant times should be adjusted for new clock rate.
 
@@ -446,12 +437,10 @@ wire [23:0] SA1_ROM_ADDR;
 wire        SA1_ROM_WORD;
 wire [15:0] SA1_ROM_DATA;
 
-`ifdef CSRAM
 reg  [7:0]  SA1_RAM_DINr;
 wire [23:0] SA1_RAM_ADDR;
 wire [7:0]  SA1_RAM_DOUT;
 wire        SA1_RAM_WORD;
-`endif
 
 // SA1
 sa1 snes_sa1 (
@@ -482,7 +471,6 @@ sa1 snes_sa1 (
   .ROM_BUS_WRDATA(SA1_ROM_DATA),
   .ROM_BUS_RDDATA(SA1_ROM_DINr),
 
-`ifdef CSRAM
   // RAM interface
   .RAM_BUS_RDY(SA1_RAM_RDY),
   .RAM_BUS_RRQ(SA1_RAM_RRQ),
@@ -491,7 +479,6 @@ sa1 snes_sa1 (
   .RAM_BUS_ADDR(SA1_RAM_ADDR),
   .RAM_BUS_RDDATA(SA1_RAM_DINr),
   .RAM_BUS_WRDATA(SA1_RAM_DOUT),
-`endif
 
   .BMAPS_SBM(SA1_BMAPS_SBM),
   .SNV(SA1_SNV),
@@ -548,9 +535,7 @@ sa1 snes_sa1 (
 
 reg [7:0] MCU_DINr;
 reg [7:0] MCU_ROM_DINr;
-`ifdef CSRAM
 reg [7:0] MCU_RAM_DINr;
-`endif
 wire [7:0] MCU_DOUT;
 wire [31:0] cheat_pgm_data;
 wire [7:0] cheat_data_out;
@@ -771,9 +756,7 @@ assign SNES_DATA = (r213f_enable & ~SNES_PARD & ~r213f_forceread) ? r213fr
                                   : sa1_data_enable ? SA1_SNES_DATA_OUT  // SA1 MMIO read
                                   : (cheat_hit & ~feat_cmd_unlock) ? cheat_data_out
                                   : ((snescmd_unlock | feat_cmd_unlock) & snescmd_enable) ? snescmd_dout
-`ifdef CSRAM                                  
                                   : (ROM_HIT & IS_SAVERAM) ? RAM_DATA
-`endif
                                   : (SA1_SCNT_NVSW & nmi_match) ? (SNES_ADDR[0] ? SA1_SNV[15:8] : SA1_SNV[7:0])
                                   : (SA1_SCNT_IVSW & irq_match) ? (SNES_ADDR[0] ? SA1_SIV[15:8] : SA1_SIV[7:0])
                                   : (ROM_ADDR0 ? ROM_DATA[7:0] : ROM_DATA[15:8])
@@ -804,14 +787,7 @@ reg RQ_SA1_ROM_RDYr; initial RQ_SA1_ROM_RDYr = 1;
 assign SA1_ROM_RDY = RQ_SA1_ROM_RDYr;
 
 wire SA1_ROM_RD_HIT = |(STATE & ST_SA1_ROM_RD_ADDR);
-`ifndef CSRAM
-wire SA1_ROM_WR_HIT = |(STATE & ST_SA1_ROM_WR_ADDR);
-`endif
-wire SA1_ROM_HIT = SA1_ROM_RD_HIT
-`ifndef CSRAM
-                 | SA1_ROM_WR_HIT
-`endif
- ;
+wire SA1_ROM_HIT    = SA1_ROM_RD_HIT;
 
 assign ROM_ADDR  = (SD_DMA_TO_ROM) ? MCU_ADDR[23:1] : SA1_ROM_HIT ? SA1_ROM_ADDRr[23:1] : MCU_HIT ? ROM_ADDRr[23:1] : MAPPED_SNES_ADDR[23:1];
 assign ROM_ADDR0 = (SD_DMA_TO_ROM) ? MCU_ADDR[0]    : SA1_ROM_HIT ? SA1_ROM_ADDRr[0]    : MCU_HIT ? ROM_ADDRr[0]    : MAPPED_SNES_ADDR[0];
@@ -823,19 +799,11 @@ reg ROM_ADDR0_r;
 always @(posedge CLK2) ROM_ADDR0_r <= ROM_ADDR0;
 
 always @(posedge CLK2) begin
-  if(MCU_RRQ
-`ifdef CSRAM
-    && MCU_ADDR[23:19] != 5'b11100
-`endif
-    ) begin
+  if(MCU_RRQ && MCU_ADDR[23:19] != 5'b11100) begin
     MCU_RD_PENDr <= 1'b1;
     RQ_MCU_RDYr <= 1'b0;
     ROM_ADDRr <= MCU_ADDR;
-  end else if(MCU_WRQ
-`ifdef CSRAM
-             && MCU_ADDR[23:19] != 5'b11100
-`endif
-             ) begin
+  end else if(MCU_WRQ && MCU_ADDR[23:19] != 5'b11100) begin
     MCU_WR_PENDr <= 1'b1;
     RQ_MCU_RDYr <= 1'b0;
     ROM_ADDRr <= MCU_ADDR;
@@ -858,18 +826,10 @@ always @(posedge CLK2) begin
     SA1_ROM_ADDRr <= SA1_ROM_ADDR;
     SA1_ROM_WORDr <= SA1_ROM_WORD;
     SA1_ROM_DATAr <= SA1_ROM_DATA;
-  end else if(|(STATE & (ST_SA1_ROM_RD_ADDR
-`ifndef CSRAM                                       
-                         |ST_SA1_ROM_WR_ADDR
-`endif
-             )) & ~|ST_MEM_DELAYr) begin
+  end else if(|(STATE & (ST_SA1_ROM_RD_ADDR)) & ~|ST_MEM_DELAYr) begin
     // enable rdy/response 1 cycle earlier
     RQ_SA1_ROM_RDYr <= 1'b1;
-  end else if(STATE & (ST_SA1_ROM_RD_END
-`ifndef CSRAM
-                      | ST_SA1_ROM_WR_END
-`endif
-             )) begin
+  end else if(STATE & (ST_SA1_ROM_RD_END)) begin
     SA1_ROM_RD_PENDr <= 1'b0;
     SA1_ROM_WR_PENDr <= 1'b0;
     RQ_SA1_ROM_RDYr <= 1'b1;
@@ -903,12 +863,6 @@ always @(posedge CLK2) begin
           STATE <= ST_SA1_ROM_RD_ADDR;
           ST_MEM_DELAYr <= ROM_CYCLE_LEN;
         end
-`ifndef CSRAM
-        else if (SA1_ROM_WR_PENDr) begin
-          STATE <= ST_SA1_ROM_WR_ADDR;
-          ST_MEM_DELAYr <= ROM_CYCLE_LEN;
-        end
-`endif
         else if(MCU_RD_PENDr) begin
           STATE <= ST_MCU_RD_ADDR;
           ST_MEM_DELAYr <= ROM_CYCLE_LEN;
@@ -936,14 +890,6 @@ always @(posedge CLK2) begin
       if(ST_MEM_DELAYr == 0) STATE <= ST_SA1_ROM_RD_END;
       SA1_ROM_DINr <= (ROM_ADDR0_r ? ROM_DATA[15:0] : {ROM_DATA[7:0],ROM_DATA[15:8]});
     end
-`ifndef CSRAM
-    ST_SA1_ROM_WR_ADDR: begin
-      STATE <= ST_SA1_ROM_WR_ADDR;
-      ST_MEM_DELAYr <= ST_MEM_DELAYr - 1;
-      if(ST_MEM_DELAYr == 0) STATE <= ST_SA1_ROM_WR_END;
-    end
-    ST_SA1_ROM_WR_END,
-`endif
     ST_MCU_RD_END, ST_MCU_WR_END, ST_SA1_ROM_RD_END: begin
       STATE <= ST_IDLE;
     end
@@ -972,13 +918,8 @@ always @(posedge CLK2) MCU_WRITE_1<= MCU_WRITE;
 assign ROM_DATA[7:0] = ROM_ADDR0
                        ?(SD_DMA_TO_ROM ? (!MCU_WRITE_1 ? MCU_DOUT : 8'bZ)
                                        : (ROM_HIT
-`ifdef CSRAM                                       
                                          & ~IS_SAVERAM
-`endif
                                          & ~SNES_WRITE) ? SNES_DATA
-`ifndef CSRAM                                       
-                                       : SA1_ROM_WR_HIT ? (ROM_ADDR0 ? SA1_ROM_DATAr[7:0] : SA1_ROM_DATAr[15:8])
-`endif
                                        : MCU_WR_HIT ? MCU_DOUT : 8'bZ
                         )
                        :8'bZ;
@@ -988,13 +929,8 @@ assign ROM_DATA[15:8] = ROM_ADDR0
                         ? 8'bZ
                         :(SD_DMA_TO_ROM ? (!MCU_WRITE_1 ? MCU_DOUT : 8'bZ)
                                         : (ROM_HIT
-`ifdef CSRAM
                                           & ~IS_SAVERAM
-`endif
                                           & ~SNES_WRITE) ? SNES_DATA
-`ifndef CSRAM                                       
-                                        : SA1_ROM_WR_HIT ? (ROM_ADDR0 ? SA1_ROM_DATAr[15:8] : SA1_ROM_DATAr[7:0])
-`endif
                                         : MCU_WR_HIT ? MCU_DOUT
                                         : 8'bZ
                          );
@@ -1002,13 +938,8 @@ assign ROM_DATA[15:8] = ROM_ADDR0
 assign ROM_WE = SD_DMA_TO_ROM
                 ?MCU_WRITE
                 : (ROM_HIT & IS_WRITABLE
-`ifdef CSRAM                
                   & ~IS_SAVERAM
-`endif
                   & SNES_CPU_CLK) ? SNES_WRITE
-`ifndef CSRAM                                       
-                : SA1_ROM_WR_HIT ? 1'b0
-`endif
                 : MCU_WR_HIT ? 1'b0
                 : 1'b1;
 
@@ -1021,7 +952,6 @@ assign ROM_CE = 1'b0;
 assign ROM_BHE =  ROM_ADDR0 && !(!SD_DMA_TO_ROM && SA1_ROM_HIT && SA1_ROM_WORDr);
 assign ROM_BLE = !ROM_ADDR0 && !(!SD_DMA_TO_ROM && SA1_ROM_HIT && SA1_ROM_WORDr);
 
-`ifdef CSRAM
 //--------------
 // RAM Pipeline
 //--------------
@@ -1176,28 +1106,18 @@ assign RAM_WE = ( SA1_RAM_WR_HIT ? 1'b0
                 );
 
 assign RAM_OE = 1'b0;
-`else
-assign RAM_WE = 1'b1;
-assign RAM_OE = 1'b1;
-`endif
 
 always @(posedge CLK2) begin
   // flop data based on source
   if (STATE & ST_MCU_RD_END) begin
     MCU_DINr <= MCU_ROM_DINr;
   end
-`ifdef CSRAM
   else if (RAM_STATE & ST_RAM_MCU_RD_END) begin
     MCU_DINr <= MCU_RAM_DINr;
   end
-`endif
 end
 
-assign MCU_RDY = RQ_MCU_RDYr
-`ifdef CSRAM
-                 & RQ_RAM_MCU_RDYr
-`endif
-                 ;
+assign MCU_RDY = RQ_MCU_RDYr & RQ_RAM_MCU_RDYr;
 
 //--------------
 

@@ -92,7 +92,7 @@ assign SRAM_SNES_ADDR = (IS_SAVERAM
                          // 40-4F:0000-FFFF or 00-3F/80-BF:6000-7FFF (first 8K mirror).  Mask handles mirroring.  60 is sa1-only
                          ? (24'hE00000 + ((SNES_ADDR[22] ? SNES_ADDR[19:0] : {sa1_bmaps_sbm,SNES_ADDR[12:0]}) & SAVERAM_MASK))
                          // C0-FF:0000-FFFF or 00-3F/80-BF:8000-FFFF
-                         : ((SNES_ADDR[22] ? {1'b0, xxb[SNES_ADDR[21:20]], SNES_ADDR[19:0]} : {1'b0, xxb_en[{SNES_ADDR[23],SNES_ADDR[21]}] ? xxb[{SNES_ADDR[23],SNES_ADDR[21]}] : {1'b0,SNES_ADDR[23],SNES_ADDR[21]}, SNES_ADDR[20:16], SNES_ADDR[14:0]}) & ROM_MASK)
+                         : ((SNES_ADDR[22] ? {1'b0, xxb[SNES_ADDR[21:20]], SNES_ADDR[19:0]} : {1'b0, (xxb_en[{SNES_ADDR[23],SNES_ADDR[21]}] ? xxb[{SNES_ADDR[23],SNES_ADDR[21]}] : {1'b0,SNES_ADDR[23],SNES_ADDR[21]}), SNES_ADDR[20:16], SNES_ADDR[14:0]}) & ROM_MASK)
                          );
 
 assign ROM_ADDR = SRAM_SNES_ADDR;
