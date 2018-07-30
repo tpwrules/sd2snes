@@ -1744,7 +1744,7 @@ always @(posedge CLK) begin
 
             MMC_STATE <= exe_mmc_wr_r ? ST_MMC_INV : ST_MMC_ROM;
           end
-          else if (`IS_SA1_BRAM(exe_mmc_addr) & RAM_BUS_RDY) begin          
+          else if (`IS_SA1_BRAM(exe_mmc_addr)/* & RAM_BUS_RDY*/) begin          
             ram_bus_rrq_r  <= ~exe_mmc_wr_r;
             ram_bus_wrq_r  <=  exe_mmc_wr_r;
             ram_bus_addr_r <= `MAP_BRAM(exe_mmc_addr);
@@ -2014,6 +2014,8 @@ reg [10:0] dma_cc1_addr_wr_r; // current write address
 
 reg [3:0]  dma_cc2_line_r; initial dma_cc2_line_r = 0;
 
+reg        dma_normal_int_r; initial dma_normal_int_r = 0;
+
 reg        dma_trigger_normal_r; initial dma_trigger_normal_r = 0;
 reg        dma_start_type1_r; initial dma_start_type1_r = 0;
 reg        dma_trigger_type1_r; initial dma_trigger_type1_r = 0;
@@ -2057,8 +2059,10 @@ always @(posedge CLK) begin
     dma_cc1_en_r            <= 0;
     dma_cc1_active_r        <= 0;
     dma_normal_pri_active_r <= 0;
-    
+   
     dma_cc2_line_r <= 0;
+
+    dma_normal_int_r <= 0;
     
     SFR_r[`SFR_DMA_IRQFL] <= 0;
     CFR_r[`CFR_DMA_IRQFL] <= 0;
@@ -2130,9 +2134,14 @@ always @(posedge CLK) begin
     dma_cc1_mask_r      <= {dma_comp_r,3'b111};
     dma_cc1_imask_r     <= {dma_comp_r,4'b1111};
   
+    // CC1 to SCPU (snes) interrupt
     if      (DMA_STATE[clog2(ST_DMA_IDLE)] & dma_cc1_int_r)                                                        SFR_r[`SFR_DMA_IRQFL] <= 1;
     else if (snes_writebuf_val_r && snes_writebuf_addr_r[8:0] == ADDR_SIC && snes_writebuf_data_r[`SIC_DMA_IRQCL]) SFR_r[`SFR_DMA_IRQFL] <= 0;
         
+    // normal to CCPU (sa1) interrupt
+    if      (DMA_STATE[clog2(ST_DMA_IDLE)] & dma_normal_int_r)                                                       CFR_r[`CFR_DMA_IRQFL] <= 1;
+    else if (snes_writebuf_val_r && snes_writebuf_addr_r[8:0] == ADDR_CIC  &&  snes_writebuf_data_r[`CIC_DMA_IRQCL]) CFR_r[`CFR_DMA_IRQFL] <= 0;
+    
     if      (dma_start_type1_r)                                                                                   dma_cc1_en_r <= 1;
     else if (snes_writebuf_val_r && snes_writebuf_addr_r[8:0] == ADDR_CDMA && snes_writebuf_data_r[`CDMA_CHDEND]) dma_cc1_en_r <= 0;
     
@@ -2146,11 +2155,7 @@ always @(posedge CLK) begin
     if (dbg_dma_cc1_trigger_r == 1 && ~DMA_STATE[clog2(ST_DMA_IDLE)]) dbg_dma_cc1_nonzero_write_r <= dbg_dma_cc1_nonzero_write_r + 1;
 
     case (DMA_STATE)
-      ST_DMA_IDLE: begin
-        // clear interrupt
-        if (snes_writebuf_val_r && snes_writebuf_addr_r[8:0] == ADDR_CIC  &&  snes_writebuf_data_r[`CIC_DMA_IRQCL]) CFR_r[`CFR_DMA_IRQFL] <= 0;
-        if (snes_writebuf_val_r && snes_writebuf_addr_r[8:0] == ADDR_SIC  &&  snes_writebuf_data_r[`SIC_DMA_IRQCL]) SFR_r[`SFR_DMA_IRQFL] <= 0;
-        
+      ST_DMA_IDLE: begin        
         // clear line number
         if (~dma_dcnt_r[`DCNT_DMAEN]) dma_cc2_line_r <= 0;
         
@@ -2164,6 +2169,8 @@ always @(posedge CLK) begin
         
         // will be 1 when we transition to idle after the first character.
         dma_cc1_int_r <= dma_start_type1_r;
+
+        dma_normal_int_r <= 0;
 
         if      (dma_trigger_normal_r) begin
           DMA_STATE <= ST_DMA_NORMAL_READ;
@@ -2215,7 +2222,8 @@ always @(posedge CLK) begin
           DMA_STATE <= ST_DMA_READ_END;
         end
         else begin
-          CFR_r[`CFR_DMA_IRQFL] <= 1;
+          // pulse interrupt input for 1 clock in idle
+          dma_normal_int_r <= 1;
 
           DMA_STATE <= ST_DMA_IDLE;
         end
@@ -2360,7 +2368,6 @@ end
 assign dma_mmc_cc1_en   = dma_cc1_en_r;
 assign dma_mmc_cc1_mask = dma_cc1_imask_r;
 
-`ifdef VBD_ENABLE
 //-------------------------------------------------------------------
 // VBD Pipeline
 //-------------------------------------------------------------------
@@ -2386,6 +2393,7 @@ reg [31:0] vbd_data_r;
 
 reg        vbd_active_r; initial vbd_active_r = 0;
 
+`ifdef VBD_ENABLE
 always @(posedge CLK) begin
   if (RST) begin
     vbd_mmc_rd_r  <= 0;
@@ -2616,6 +2624,7 @@ wire       exe_dec_imm16 = (|({~P_r[`P_X],~P_r[`P_M]}&dec_data[`DEC_PRC]) & dec_
 
 // temporary
 reg [16:0] exe_result;
+reg [16:0] add_result;
 
 always @(posedge CLK) begin
   if (RST) begin
@@ -2788,15 +2797,17 @@ always @(posedge CLK) begin
         exe_dst_r <= REG[exe_dec_dst];
         exe_src_r <= REG[exe_dec_src];
 
+        add_result = {1'b0,exe_operand_r[15:0]} + {1'b0,exe_mod_r};
+
         case (exe_dec_add_bank)
           `BNK_PBR: exe_addr_r[23:16] <= PBR_r;
           `BNK_DBR: exe_addr_r[23:16] <= DBR_r;
           `BNK_ZRO: exe_addr_r[23:16] <= 8'h00;
-          `BNK_O24: exe_addr_r[23:16] <= exe_operand_r[23:16];
+          `BNK_O24: exe_addr_r[23:16] <= exe_operand_r[23:16] + (exe_dec_add_mod == `MOD_X16 ? add_result[16] : 0); // need to carry address into upper bits for AbsoluteLongIndexedX
         endcase
 
         case (exe_dec_add_base)
-          `ADD_O16: exe_addr_r[15:0] <= exe_operand_r[15:0]                                            + exe_mod_r;
+          `ADD_O16: exe_addr_r[15:0] <= add_result[15:0]; //exe_operand_r[15:0]                                            + exe_mod_r;
           `ADD_DPR: exe_addr_r[15:0] <= D_r + {8'h00,exe_operand_r[7:0]}                               + exe_mod_r;
           `ADD_PCR: exe_addr_r[15:0] <= exe_nextpc_addr_r + {(exe_dec_add_long ? exe_operand_r[15:8] : {8{exe_operand_r[7]}}),exe_operand_r[7:0]} + exe_mod_r;
           `ADD_SPL: exe_addr_r[15:0] <= S_r + 1                                                        + exe_mod_r;
@@ -2818,6 +2829,7 @@ always @(posedge CLK) begin
         if (mmc_exe_end) begin
           exe_mmc_rd_r <= 0;
           // [3:2] catches the two JMP/JSR indirects which use PBR.  All other indirects are long (full 24b address) or use DBR.
+          // it's safe to not include upper address in post adder because the addressing modes that use it never work with long addressing.
           exe_addr_r[23:16] <= exe_dec_add_long ? exe_mmc_rddata[23:16] : (&exe_opcode_r[3:2]) ? PBR_r : DBR_r;
           exe_addr_r[15:0]  <= exe_mmc_rddata[15:0] + exe_add_post_r;
         
