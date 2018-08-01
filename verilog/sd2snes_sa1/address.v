@@ -19,7 +19,7 @@
 //////////////////////////////////////////////////////////////////////////////////
 module address(
   input CLK,
-  input [7:0] featurebits,  // peripheral enable/disable
+  input [15:0] featurebits,  // peripheral enable/disable
   input [2:0] MAPPER,       // MCU detected mapper
   input [23:0] SNES_ADDR,   // requested address from SNES
   input [7:0] SNES_PA,      // peripheral address from SNES

@@ -111,7 +111,7 @@ module mcu_cmd(
 //  output reg dspx_reset_out,
 
   // feature enable
-  output reg [7:0] featurebits_out,
+  output reg [15:0] featurebits_out,
 
   output reg region_out,
   // SNES sync/clk
@@ -127,10 +127,12 @@ module mcu_cmd(
   output reg [7:0] cheat_pgm_idx_out,
   output reg [31:0] cheat_pgm_data_out,
   output reg cheat_pgm_we_out,
-//
-//  // DSP core features
+
+  // DSP core features
   output reg [15:0] dsp_feat_out = 16'h0000
 );
+
+//`define DEBUG
 
 initial begin
   region_out = 0;
@@ -181,6 +183,7 @@ reg [2:0] mcu_nextaddr_buf;
 wire mcu_nextaddr;
 
 reg [7:0] dsp_feat_tmp;
+reg [7:0] feat_tmp;
 
 reg DAC_STATUSr;
 reg SD_DMA_STATUSr;
@@ -377,7 +380,10 @@ always @(posedge clk) begin
           dac_palmode_out <= param_data[7];
         end
       8'hed:
-        featurebits_out <= param_data;
+        case (spi_byte_cnt)
+          32'h2: feat_tmp <= param_data;
+          32'h3: featurebits_out <= {feat_tmp, param_data};
+        endcase
       8'hee:
         region_out <= param_data[0];
       8'hef:
@@ -387,6 +393,7 @@ always @(posedge clk) begin
             dsp_feat_out <= {dsp_feat_tmp, param_data[7:0]};
           end
         endcase
+`ifdef DEBUG
       8'hfa: // handles all group, index, value, invmask writes.  unit is responsible for decoding group for match
         case (spi_byte_cnt)
           32'h2: begin
@@ -410,6 +417,7 @@ always @(posedge clk) begin
             invmask_out_buf <= 8'hFF;
           end
         endcase
+`endif
     endcase
   end
 end
@@ -521,6 +529,7 @@ always @(posedge clk) begin
         32'h5:
           MCU_DATA_IN_BUF <= SNES_SYSCLK_FREQ_BUF[7:0];
       endcase
+`ifdef DEBUG
     else if (cmd_data[7:0] == 8'hF9)
       case (spi_byte_cnt)
         32'h2: begin
@@ -534,6 +543,7 @@ always @(posedge clk) begin
           else                         MCU_DATA_IN_BUF <= 0;
         end
       endcase 
+`endif
     else if (cmd_data[7:0] == 8'hFF)
       MCU_DATA_IN_BUF <= param_data;
     else if (cmd_data[7:0] == 8'hD1)

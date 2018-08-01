@@ -141,7 +141,7 @@ uint8_t get_snes_reset_state(void) {
 
   if(resbutton) { /* Yes (e.g. reset-button is pressed) */
 
-    result = SNES_RESET_SHORT;
+    result = cfg_is_reset_to_menu() ? SNES_RESET_LONG : SNES_RESET_SHORT;
     reset_flag = 1;
 
     if(!resbutton_prev) { /* push, reset tick-timer */
@@ -382,6 +382,20 @@ uint64_t snescmd_gettime(void) {
     data[11-i] = fpga_read_snescmd();
   }
   return srtctime2bcdtime(data);
+}
+
+uint16_t snescmd_readstrn(void *buf, uint16_t addr, uint16_t size) {
+  fpga_set_snescmd_addr(addr);
+  uint16_t elemcount = 0;
+  uint16_t count = size;
+  uint8_t* tgt = buf;
+  while(count--) {
+    if(!(*(tgt++) = fpga_read_snescmd())) break;
+    elemcount++;
+  }
+  tgt--;
+  if(*tgt) *tgt = 0;
+  return elemcount;
 }
 
 void snescmd_prepare_nmihook() {

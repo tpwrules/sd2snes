@@ -228,10 +228,6 @@ void smc_id(snes_romprops_t* props) {
       if(header->carttype == 0x32 || header->carttype == 0x34 || header->carttype == 0x35) {
         props->has_sa1 = 1;
         props->fpga_conf = FPGA_SA1;
-        //props->fpga_dspfeat = CFG.sa1_speed;
-
-        //props->error = MENU_ERR_NOIMPL;
-        //props->error_param = (uint8_t*)"SA-1";
       }
       break;
 

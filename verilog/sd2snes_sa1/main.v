@@ -144,7 +144,7 @@ wire [3:0]  SA1_XXB_EN;
 //wire [10:0] dspx_dat_addr;
 //wire dspx_dat_we;
 
-wire [7:0] featurebits;
+wire [15:0] featurebits;
 
 wire [23:0] MAPPED_SNES_ADDR;
 wire ROM_ADDR0;
