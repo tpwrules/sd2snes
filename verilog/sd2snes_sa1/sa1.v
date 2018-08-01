@@ -1764,7 +1764,7 @@ always @(posedge CLK) begin
             mmc_iram_state_r <= 0;
             mmc_addr_r    <= `MAP_IRAM(exe_mmc_addr);
             
-            if (~exe_mmc_wr_r || ~snes_readbuf_iram_r /*|| (`MAP_IRAM(addr_in_r) != `MAP_IRAM(exe_mmc_addr))*/) begin
+            if (~exe_mmc_wr_r || ~snes_readbuf_iram_r || (addr_in_r[10:2] != exe_mmc_addr[10:2])) begin
               MMC_STATE <= ST_MMC_IRAM;
             end
           end
