@@ -320,6 +320,7 @@ reg         brk_data_wr_byte; initial brk_data_wr_byte = 0;
 reg         brk_inst_rd_addr; initial brk_inst_rd_addr = 0;
 reg         brk_data_rd_addr; initial brk_data_rd_addr = 0;
 reg         brk_data_wr_addr; initial brk_data_wr_addr = 0;
+reg         brk_data;         initial brk_data = 0;
 reg         brk_stop;         initial brk_stop = 0;
 reg         brk_error;        initial brk_error = 0;
 
@@ -687,6 +688,7 @@ always @(posedge CLK) begin
     snes_readbuf_active_r <= `IS_MMIO(addr_in_r) | `IS_CPU_IRAM(addr_in_r) | (`IS_CPU_BRAM(addr_in_r) & dma_mmc_cc1_en);
     data_enable_r <= snes_readbuf_active_r & (snes_readbuf_val_r | snes_readbuf_iram_r);
 
+    // capture the data at the start of the read to avoid late changes.  for both mmio and iram the sa1 can modify the location late into the snes read cycle which may lead to data corruption.
     if (snes_readbuf_val_r) begin
       casex (snes_readbuf_addr_r[7:0])
         ADDR_SFR  : data_out_r <= {SFR_r[`SFR_CPU_IRQFL], SCNT_r[`SCNT_IVSW],    SFR_r[`SFR_DMA_IRQFL], SCNT_r[`SCNT_NVSW],    SCNT_r[`SCNT_CMEG]};
@@ -709,7 +711,7 @@ always @(posedge CLK) begin
     else if (snes_readbuf_iram_r) begin
       data_out_r <= snes_iram_out;
     end
-  
+
     // Register Write Buffer.
     if (SNES_WR_end & `IS_MMIO(addr_in_r)) begin
       snes_writebuf_val_r  <= 1;
@@ -1609,7 +1611,7 @@ assign iram_din  = mmc_iram_wrdata_r[7:0];
 
 assign sa1_mmio_addr  = mmc_mmio_addr_r[8:0];
 assign sa1_mmio_data  = mmc_mmio_wrdata_r[7:0];
-assign sa1_mmio_write = ~SNES_WR_end & ~snes_writebuf_iram_r & ~snes_writebuf_val_r & MMC_MMIO_STATE & mmc_mmio_wr_r;
+assign sa1_mmio_write = ~SNES_WR_end & ~snes_writebuf_iram_r & ~snes_writebuf_val_r & MMC_MMIO_STATE & mmc_mmio_wr_r & ~snes_readbuf_active_r; // block writes when there is a colliding read
 assign sa1_mmio_read  = ~|sa1_mmio_read_r & ~snes_readbuf_active_r & MMC_MMIO_STATE & ~mmc_mmio_wr_r;
 
 // TODO: add MDR here for exe
@@ -1705,9 +1707,13 @@ always @(posedge CLK) begin
             MMC_STATE      <= dma_mmc_wr_r ? ST_MMC_INV : ST_MMC_ROM;
           end
           else if (dma_mmc_iram_r) begin
-            mmc_iram_state_r <= 0;
-            mmc_addr_r     <= `MAP_IRAM(dma_mmc_addr_r);
-            MMC_STATE      <= ST_MMC_IRAM;
+            // avoid sa1 write to snes read conflict late in the cycle
+            // TODO: decide if we need this for dma.  It would be poor programming to read an address that is going to be DMAed to.
+            //if (~dma_mmc_wr_r || ~snes_readbuf_iram_r/* || (`MAP_IRAM(addr_in_r) != `MAP_IRAM(dma_mmc_addr_r))*/) begin
+              mmc_iram_state_r <= 0;
+              mmc_addr_r     <= `MAP_IRAM(dma_mmc_addr_r);
+              MMC_STATE      <= ST_MMC_IRAM;
+            //end
           end
           else if (dma_mmc_bram_r/* & RAM_BUS_RDY */) begin
             ram_bus_rrq_r  <= ~dma_mmc_wr_r;
@@ -1753,9 +1759,14 @@ always @(posedge CLK) begin
             MMC_STATE <= ST_MMC_BRAM;
           end
           else if (`IS_SA1_IRAM(exe_mmc_addr)) begin
+            // avoid sa1 write to snes read conflict late in the cycle - NOTE: if we do an address compare we won't properly handle collisions on multi-byte operations.
+            // TODO: move this to the IRAM cycle, but need to be careful of write enable, state machine, etc state.  The current fix may still miss multibyte operations.
             mmc_iram_state_r <= 0;
             mmc_addr_r    <= `MAP_IRAM(exe_mmc_addr);
-            MMC_STATE <= ST_MMC_IRAM;
+            
+            if (~exe_mmc_wr_r || ~snes_readbuf_iram_r /*|| (`MAP_IRAM(addr_in_r) != `MAP_IRAM(exe_mmc_addr))*/) begin
+              MMC_STATE <= ST_MMC_IRAM;
+            end
           end
           else if (`IS_MMIO(exe_mmc_addr)) begin
             mmc_addr_r    <= `MAP_MMIO(exe_mmc_addr);
@@ -1804,8 +1815,9 @@ always @(posedge CLK) begin
             rom_bus_rrq_r <= 1;
 
             if      (mmc_dpe_r)  rom_bus_addr_r[7:0]  <= {rom_bus_addr_r[7:1]  + 1, 1'b0};
-            else if (mmc_long_r) rom_bus_addr_r[23:0] <= {rom_bus_addr_r[23:1] + 1, 1'b0};
-            else                 rom_bus_addr_r[15:0] <= {rom_bus_addr_r[15:1] + 1, 1'b0};
+            //else if (mmc_long_r) rom_bus_addr_r[23:0] <= {rom_bus_addr_r[23:1] + 1, 1'b0};
+            //else                 rom_bus_addr_r[15:0] <= {rom_bus_addr_r[15:1] + 1, 1'b0};
+            else                 rom_bus_addr_r[23:0] <= {rom_bus_addr_r[23:1] + 1, 1'b0};
           end
           else begin
             MMC_STATE <= mmc_state_end_r;
@@ -1862,8 +1874,9 @@ always @(posedge CLK) begin
             ram_bus_wrq_r  <=  mmc_wr_r;
             
             if      (mmc_dpe_r)  ram_bus_addr_r[7:0]  <= ram_bus_addr_r[7:0]  + 1;
-            else if (mmc_long_r) ram_bus_addr_r[23:0] <= ram_bus_addr_r[23:0] + 1;
-            else                 ram_bus_addr_r[15:0] <= ram_bus_addr_r[15:0] + 1;
+            //else if (mmc_long_r) ram_bus_addr_r[23:0] <= ram_bus_addr_r[23:0] + 1;
+            //else                 ram_bus_addr_r[15:0] <= ram_bus_addr_r[15:0] + 1;
+            else                 ram_bus_addr_r[23:0] <= ram_bus_addr_r[23:0] + 1;
             
             ram_bus_data_r <= mmc_wrdata_r[15:8];
           end
@@ -1896,7 +1909,7 @@ always @(posedge CLK) begin
           end
         end
       end
-      ST_MMC_MMIO: begin       
+      ST_MMC_MMIO: begin
         if ((mmc_wr_r & sa1_mmio_write) | (~mmc_wr_r & sa1_mmio_read_r[1])) begin
           mmc_byte_r <= mmc_byte_r + 1;
 
@@ -1951,7 +1964,7 @@ assign iram_din  = mmc_wrdata_r[7:0];
 
 assign sa1_mmio_addr  = mmc_addr_r[8:0];
 assign sa1_mmio_data  = mmc_wrdata_r[7:0];
-assign sa1_mmio_write = ~SNES_WR_end & ~snes_writebuf_iram_r & ~snes_writebuf_val_r & MMC_STATE[clog2(ST_MMC_MMIO)] & mmc_wr_r;
+assign sa1_mmio_write = ~SNES_WR_end & ~snes_writebuf_iram_r & ~snes_writebuf_val_r & MMC_STATE[clog2(ST_MMC_MMIO)] & mmc_wr_r & ~snes_readbuf_active_r; // block writes when there is a colliding read
 assign sa1_mmio_read  = ~|sa1_mmio_read_r & ~snes_readbuf_active_r & MMC_STATE[clog2(ST_MMC_MMIO)] & ~mmc_wr_r;
 
 assign exe_mmc_rddata = mmc_data_r;
@@ -3269,8 +3282,8 @@ always @(posedge CLK) begin
     //brk_data_wr_byte <= pipeline_advance ? 0                                                              : brk_data_wr_ram_m1 ? (RAMWRBUF_r     == CONFIG_DATA_WATCH) : brk_data_wr_byte;
   
     brk_inst_rd_addr <= (debug_inst_addr_r == brk_addr_r);
-    brk_data_rd_addr <= (exe_mmc_addr == brk_addr_r) && exe_mmc_rd_r;
-    brk_data_wr_addr <= (exe_mmc_addr == brk_addr_r) && exe_mmc_wr_r;
+    brk_data_rd_addr <= EXE_STATE[clog2(ST_EXE_EXECUTE_END)] && (exe_mmc_addr_r == brk_addr_r) && exe_mmc_rd_r && (!config_r[2][0] ||     mmc_data_r[7:0] == CONFIG_DATA_WATCH);
+    brk_data_wr_addr <= EXE_STATE[clog2(ST_EXE_EXECUTE_END)] && (exe_mmc_addr_r == brk_addr_r) && exe_mmc_wr_r && (!config_r[2][0] || exe_mmc_data_r[7:0] == CONFIG_DATA_WATCH);
     brk_stop         <= EXE_STATE[clog2(ST_EXE_EXECUTE)] && (exe_opcode_r == 8'hDB || exe_opcode_r == 8'hCB || int_pending_r);
     brk_error        <= EXE_STATE[clog2(ST_EXE_EXECUTE)] && (exe_opcode_r == 8'h00);
   
