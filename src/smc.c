@@ -225,7 +225,7 @@ void smc_id(snes_romprops_t* props) {
       break;
 
     case 0x23: /* SA1 */
-      if(header->carttype == 0x32 || header->carttype == 0x34 || header->carttype == 0x35) {
+      if(header->carttype == 0x32 || header->carttype == 0x34 || header->carttype == 0x35 || header->carttype == 0x36) {
         props->has_sa1 = 1;
         props->fpga_conf = FPGA_SA1;
       }
