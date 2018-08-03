@@ -457,6 +457,7 @@ sa1 snes_sa1 (
   .SNES_RD_end(SNES_RD_end),
   .SNES_WR_start(SNES_WR_start),
   .SNES_WR_end(SNES_WR_end),
+  .SNES_cycle_end(SNES_cycle_end),
   .SNES_ADDR(SNES_ADDR),
   .DATA_IN(SA1_SNES_DATA_IN),
   .DATA_ENABLE(sa1_data_enable),

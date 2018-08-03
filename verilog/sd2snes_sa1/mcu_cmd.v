@@ -132,7 +132,7 @@ module mcu_cmd(
   output reg [15:0] dsp_feat_out = 16'h0000
 );
 
-//`define DEBUG
+`define DEBUG
 
 initial begin
   region_out = 0;

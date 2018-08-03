@@ -33,6 +33,7 @@ module sa1(
   input         SNES_RD_end,
   input         SNES_WR_start,
   input         SNES_WR_end,
+  input         SNES_cycle_end,
   input  [23:0] SNES_ADDR,
   input  [7:0]  DATA_IN,
   output        DATA_ENABLE,
@@ -1764,7 +1765,10 @@ always @(posedge CLK) begin
             mmc_iram_state_r <= 0;
             mmc_addr_r    <= `MAP_IRAM(exe_mmc_addr);
             
-            if (~exe_mmc_wr_r || ~snes_readbuf_iram_r || (addr_in_r[10:2] != exe_mmc_addr[10:2])) begin
+            // TODO: figure out how to not cause a collision with the snes
+            // TODO: need to make this check on subsequent bytes, too.
+            // TODO: writes are single cycle
+            if (~exe_mmc_wr_r | ~`IS_CPU_IRAM(addr_in_r) | SNES_cycle_end) begin
               MMC_STATE <= ST_MMC_IRAM;
             end
           end
@@ -1888,7 +1892,9 @@ always @(posedge CLK) begin
       ST_MMC_IRAM: begin
         mmc_iram_state_r <= ~mmc_iram_state_r;
       
-        if (mmc_iram_state_r) begin
+        // writes are pipelined single cycle
+        // TODO: this is a hack.
+        if (mmc_wr_r ? (~`IS_CPU_IRAM(addr_in_r) | SNES_cycle_end | mmc_byte_r == mmc_byte_total_r) : mmc_iram_state_r) begin
           mmc_byte_r <= mmc_byte_r + 1;
           
           case (mmc_byte_r)
@@ -2814,7 +2820,7 @@ always @(posedge CLK) begin
 
         case (exe_dec_add_bank)
           `BNK_PBR: exe_addr_r[23:16] <= PBR_r;
-          `BNK_DBR: exe_addr_r[23:16] <= DBR_r;
+          `BNK_DBR: exe_addr_r[23:16] <= DBR_r + add_result[16]; // this covers the 3 types: Absolute, AbsoluteIndexedX, AbsoluteIndexedY.  Always in the form operand[15:0] + 0/X/Y
           `BNK_ZRO: exe_addr_r[23:16] <= 8'h00;
           `BNK_O24: exe_addr_r[23:16] <= exe_operand_r[23:16] + (exe_dec_add_mod == `MOD_X16 ? add_result[16] : 0); // need to carry address into upper bits for AbsoluteLongIndexedX
         endcase
@@ -2842,9 +2848,10 @@ always @(posedge CLK) begin
         if (mmc_exe_end) begin
           exe_mmc_rd_r <= 0;
           // [3:2] catches the two JMP/JSR indirects which use PBR.  All other indirects are long (full 24b address) or use DBR.
-          // it's safe to not include upper address in post adder because the addressing modes that use it never work with long addressing.
-          exe_addr_r[23:16] <= exe_dec_add_long ? exe_mmc_rddata[23:16] : (&exe_opcode_r[3:2]) ? PBR_r : DBR_r;
-          exe_addr_r[15:0]  <= exe_mmc_rddata[15:0] + exe_add_post_r;
+          add_result = {1'b0,exe_mmc_rddata[15:0]} + {1'b0,exe_add_post_r};
+
+          exe_addr_r[23:16] <= exe_dec_add_long ? (exe_mmc_rddata[23:16] + add_result[16]) : (&exe_opcode_r[3:2]) ? PBR_r : DBR_r;
+          exe_addr_r[15:0]  <= add_result[15:0];
         
           EXE_STATE <= ST_EXE_EXECUTE;
         end
