@@ -143,6 +143,8 @@ module sa1(
 `define DMA_TYPE2_ENABLE
 `define VBD_ENABLE
 
+//`define EXE_FAST_FETCH
+
 // address mapping
 wire       sw46;
 wire [6:0] cbm;
@@ -1612,7 +1614,7 @@ assign iram_din  = mmc_iram_wrdata_r[7:0];
 
 assign sa1_mmio_addr  = mmc_mmio_addr_r[8:0];
 assign sa1_mmio_data  = mmc_mmio_wrdata_r[7:0];
-assign sa1_mmio_write = ~SNES_WR_end & ~snes_writebuf_iram_r & ~snes_writebuf_val_r & MMC_MMIO_STATE & mmc_mmio_wr_r & ~snes_readbuf_active_r; // block writes when there is a colliding read
+assign sa1_mmio_write = ~SNES_WR_end & ~snes_writebuf_iram_r & ~snes_writebuf_val_r & MMC_MMIO_STATE & mmc_mmio_wr_r & ~snes_readbuf_val_r; // block writes when there is a colliding read
 assign sa1_mmio_read  = ~|sa1_mmio_read_r & ~snes_readbuf_active_r & MMC_MMIO_STATE & ~mmc_mmio_wr_r;
 
 // TODO: add MDR here for exe
@@ -1970,7 +1972,7 @@ assign iram_din  = mmc_wrdata_r[7:0];
 
 assign sa1_mmio_addr  = mmc_addr_r[8:0];
 assign sa1_mmio_data  = mmc_wrdata_r[7:0];
-assign sa1_mmio_write = ~SNES_WR_end & ~snes_writebuf_iram_r & ~snes_writebuf_val_r & MMC_STATE[clog2(ST_MMC_MMIO)] & mmc_wr_r & ~snes_readbuf_active_r; // block writes when there is a colliding read
+assign sa1_mmio_write = ~SNES_WR_end & ~snes_writebuf_iram_r & ~snes_writebuf_val_r & MMC_STATE[clog2(ST_MMC_MMIO)] & mmc_wr_r & ~snes_readbuf_val_r; // block writes when there is a colliding read
 assign sa1_mmio_read  = ~|sa1_mmio_read_r & ~snes_readbuf_active_r & MMC_STATE[clog2(ST_MMC_MMIO)] & ~mmc_wr_r;
 
 assign exe_mmc_rddata = mmc_data_r;
@@ -2785,6 +2787,73 @@ always @(posedge CLK) begin
             debug_inst_addr_prev_r <= debug_inst_addr_r;
           end
 
+`ifdef EXE_FAST_FETCH
+          // next state, address, and prefetch logic.
+          if (~|exe_opsize_r) begin
+            // initial decode
+            // `define DEC_SIZE    16:15
+            exe_operand_r[7:0] <= exe_data_r[15:8];
+
+            if (dec_data[16] | exe_dec_imm16 | (exe_fetch_addr_r[0] & dec_data[15])) begin
+              // 3,4 bytes or 2 misaligned bytes
+              
+              // fetch the remainder of the instruction
+              exe_fetch_addr_r[15:0] <= {exe_fetch_addr_r[15:1] + 1,1'b0};
+              // this represents the next total byte size we are going to get (e.g., 3 or 4)
+              exe_fetch_size_r        <= {1'b0,~exe_fetch_addr_r[0]};
+              
+              exe_prefetch_val_r     <= 0;
+              
+              EXE_STATE <= ST_EXE_FETCH;
+            end
+            else begin
+              // 1 byte or 2 aligned bytes
+              
+              // prefetch is valid if aligned 1 byte
+              exe_prefetch_val_r <= ~exe_fetch_addr_r[0] && (dec_data[`DEC_SIZE] == `SZE_1);
+              exe_prefetch_r     <= exe_data_r[15:8];
+
+              EXE_STATE <= ST_EXE_ADDRESS;
+            end          
+          end
+          else begin
+            // remaining bytes
+            // we get here for 2 misaligned 3 aligned (2 valid) or misaligned (1 valid) bytes.
+            
+            case (exe_fetch_size_r)
+              // have 1 byte
+              `SZE_1: exe_operand_r[15:0]  <= exe_data_r[15:0];
+              // have 2 bytes
+              `SZE_2: exe_operand_r[23:8]  <= exe_data_r[15:0];
+              // have 3 bytes
+              `SZE_3: exe_operand_r[23:16] <= exe_data_r[7:0];
+              // have 4 bytes.  not possible
+              `SZE_4: exe_operand_r[23:0]  <= 24'hBADBAD;
+            endcase
+            
+            // the only case where this matters is 3->5 bytes
+            exe_fetch_size_r[1] <= ~exe_fetch_size_r[1];
+            
+            if (&exe_opsize_r && (exe_fetch_size_r == `SZE_1)) begin
+              // 1->3 (need 4)
+              // continue with aligned fetch.  must already be aligned
+              exe_fetch_addr_r[15:0] <= {exe_fetch_addr_r[15:1] + 1,1'b0};
+              
+              exe_prefetch_val_r <= 0;
+
+              EXE_STATE <= ST_EXE_FETCH;
+            end
+            else begin
+              // fetch is complete.  1->2, 1->3, 2->3, 2->4, 3->4
+
+              // check if prefetch available (overfetch)
+              exe_prefetch_val_r <= exe_fetch_size_r[0] ^ exe_opsize_r[0];
+              exe_prefetch_r     <= exe_data_r[15:8];
+                          
+              EXE_STATE <= ST_EXE_ADDRESS;
+            end
+          end
+`else
           // handle 1 byte at a time
           exe_fetch_size_r <= exe_fetch_size_r + 1;
           exe_fetch_addr_r <= exe_fetch_addr_r + 1;
@@ -2801,6 +2870,8 @@ always @(posedge CLK) begin
           exe_prefetch_r     <= exe_data_r[15:8];
           
           EXE_STATE <= ~|exe_opsize_r ? (~|dec_data[`DEC_SIZE] ? ST_EXE_ADDRESS : ST_EXE_FETCH) : (exe_fetch_size_r == exe_opsize_r ? ST_EXE_ADDRESS : ST_EXE_FETCH);          
+`endif
+
         end
       end
       
