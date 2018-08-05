@@ -180,11 +180,11 @@ wire [7:0] reg_read;
 // unit level configuration output
 wire [7:0] sa1_config_data;
 
-reg [7:0] SNES_PARDr;
-reg [7:0] SNES_READr;
-reg [7:0] SNES_WRITEr;
+reg [7:0] SNES_PARDr = 8'hFF;
+reg [7:0] SNES_READr = 8'hFF;
+reg [7:0] SNES_WRITEr = 8'hFF;
 reg [7:0] SNES_CPU_CLKr;
-reg [7:0] SNES_ROMSELr;
+reg [7:0] SNES_ROMSELr = 8'hFF;
 reg [23:0] SNES_ADDRr [6:0];
 reg [7:0] SNES_PAr [6:0];
 reg [7:0] SNES_DATAr [4:0];
@@ -240,11 +240,20 @@ always @(posedge CLK2) begin
 end
 
 always @(posedge CLK2) begin
-  SNES_PARDr <= {SNES_PARDr[6:0], SNES_PARD_IN};
-  SNES_READr <= {SNES_READr[6:0], SNES_READ_IN};
-  SNES_WRITEr <= {SNES_WRITEr[6:0], SNES_WRITE_IN};
+  if (SNES_reset_strobe) begin
+    SNES_PARDr  <= 8'hFF;
+    SNES_READr  <= 8'hFF;
+    SNES_WRITEr <= 8'hFF;
+    SNES_ROMSELr <= 8'hFF;
+  end
+  else begin
+    SNES_PARDr  <= {SNES_PARDr[6:0], SNES_PARD_IN};
+    SNES_READr  <= {SNES_READr[6:0], SNES_READ_IN};
+    SNES_WRITEr <= {SNES_WRITEr[6:0], SNES_WRITE_IN};
+    SNES_ROMSELr <= {SNES_ROMSELr[6:0], SNES_ROMSEL_IN};
+  end
+
   SNES_CPU_CLKr <= {SNES_CPU_CLKr[6:0], SNES_CPU_CLK_IN};
-  SNES_ROMSELr <= {SNES_ROMSELr[6:0], SNES_ROMSEL_IN};
   SNES_ADDRr[6] <= SNES_ADDRr[5];
   SNES_ADDRr[5] <= SNES_ADDRr[4];
   SNES_ADDRr[4] <= SNES_ADDRr[3];
@@ -1122,11 +1131,11 @@ assign MCU_RDY = RQ_MCU_RDYr & RQ_RAM_MCU_RDYr;
 
 //--------------
 
-assign SNES_DATABUS_OE = msu_enable ? 1'b0 :
-                         sa1_enable ? 1'b0 :
-                         snescmd_enable ? (~(snescmd_unlock | feat_cmd_unlock) | (SNES_READ & SNES_WRITE)) :
+assign SNES_DATABUS_OE = msu_enable & ~(SNES_READ & SNES_WRITE) ? 1'b0 :
+                         sa1_enable & ~(SNES_READ & SNES_WRITE) ? 1'b0 :
+                         snescmd_enable & ~(SNES_READ & SNES_WRITE) ? ~(snescmd_unlock | feat_cmd_unlock) :
                          r213f_enable & !SNES_PARD ? 1'b0 :
-                         snoop_4200_enable ? SNES_WRITE :
+                         snoop_4200_enable & ~SNES_WRITE ? 1'b0 :
                          ( (IS_ROM & SNES_ROMSEL)
                          | (!IS_ROM & !IS_SAVERAM & !IS_WRITABLE)
                          | (SNES_READ & SNES_WRITE)
