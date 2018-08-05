@@ -145,28 +145,6 @@ module sa1(
 
 //`define EXE_FAST_FETCH
 
-// address mapping
-wire       sw46;
-wire [6:0] cbm;
-wire       bbf;
-reg  [2:0] xxb[3:0];
-wire [3:0] xxb_en;
-
-// address map tests
-`define IS_ROM(a)  ((&a[23:22]) | (~a[22] & a[15]))                                              // 00-3F/80-BF:8000-FFFF, C0-FF:0000-FFFF
-`define IS_SA1_BRAM(a) ((~sw46 & ~a[22] & ~a[15] & &a[14:13]) | (~a[23] & a[22] & ~a[21] & ~a[20])) // 00-3F/80-BF:6000-7FFF, 40-4F:0000-FFFF
-`define IS_CPU_BRAM(a) ((~a[22] & ~a[15] & &a[14:13]) | (~a[23] & a[22] & ~a[21] & ~a[20]))      // 00-3F/80-BF:6000-7FFF, 40-4F:0000-FFFF
-`define IS_SA1_IRAM(a) (~a[22] & ~a[15] & ~a[14] & ~^a[13:12] & ~a[11])                          // 00-3F/80-BF:0/3000-0/37FF
-`define IS_CPU_IRAM(a) (~a[22] & ~a[15] & ~a[14] & &a[13:12] & ~a[11])                           // 00-3F/80-BF:3000-37FF
-`define IS_MMIO(a) (~a[22] & ~a[15] & ~a[14] & a[13] & ~a[12] & ~a[11] & ~a[10] & a[9])          // 00-3F/80-BF:2200-23FF
-`define IS_SA1_PRAM(a) ((sw46 & ~a[22] & ~a[15] & &a[14:13]) | (~a[23] & a[22] & a[21] & ~a[20])) // 00-3F/80-BF:6000-7FFF, 60-6F:0000-FFFF
-
-`define MAP_ROM(a)  ((a[22] ? {1'b0, xxb[a[21:20]], a[19:0]} : {1'b0, xxb_en[{a[23],a[21]}] ? xxb[{a[23],a[21]}] : {1'b0,a[23],a[21]}, a[20:16], a[14:0]}) & ROM_MASK)
-`define MAP_IRAM(a) (a[10:0])
-`define MAP_MMIO(a) (a[8:0])
-`define MAP_BRAM(a) ((a[22] ? a[19:0] : {cbm[4:0],a[12:0]}) & SAVERAM_MASK)
-`define MAP_PRAM(a) ((a[22] ? (bbf ? a[19:2] : a[19:1]) : (bbf ? {cbm[6:0],a[12:2]} : {cbm[6:0],a[12:1]})) & SAVERAM_MASK)
-
 // temporaries
 integer i;
 wire pipeline_advance;
@@ -189,12 +167,49 @@ reg [23:0] addr_in_r;
 //reg        enable_r;
 reg [11:0]  pgm_addr_r;
 
+reg [23:0]  SAVERAM_MASK_r; initial SAVERAM_MASK_r = 0;
+reg [23:0]  ROM_MASK_r; initial ROM_MASK_r = 0;
+// TODO: battery backed iram support doesn't fit.  For now, only let the snes access it.
+reg         iram_battery_r; initial iram_battery_r = 0;
+
 always @(posedge CLK) begin
   data_in_r  <= DATA_IN;
   addr_in_r  <= SNES_ADDR;
   //enable_r   <= ENABLE;
   pgm_addr_r <= PGM_ADDR;
+  
+  SAVERAM_MASK_r <= SAVERAM_MASK;
+  ROM_MASK_r     <= ROM_MASK;
+  // battery backed iram is encoded as a mask of 1 by the firmware.
+  iram_battery_r <= ~SAVERAM_MASK_r[1] & SAVERAM_MASK_r[0];
 end
+
+//-------------------------------------------------------------------
+// ADDRESS MAP
+//-------------------------------------------------------------------
+wire       sw46;
+wire [6:0] cbm;
+wire       bbf;
+reg  [2:0] xxb[3:0];
+wire [3:0] xxb_en;
+
+// address map tests
+`define IS_ROM(a)  ((&a[23:22]) | (~a[22] & a[15]))                                              // 00-3F/80-BF:8000-FFFF, C0-FF:0000-FFFF
+`define IS_SA1_IRAM(a) (~a[22] & ~a[15] & ~a[14] & ~^a[13:12] & ~a[11])                          // 00-3F/80-BF:0/3000-0/37FF
+`define IS_CPU_IRAM(a) (~iram_battery_r & ~a[22] & ~a[15] & ~a[14] & &a[13:12] & ~a[11])                           // 00-3F/80-BF:3000-37FF
+//`define IS_SA1_BRAM(a) ((iram_battery_r & `IS_SA1_IRAM(a)) | (~sw46 & ~a[22] & ~a[15] & &a[14:13]) | (~a[23] & a[22] & ~a[21] & ~a[20])) // 00-3F/80-BF:6000-7FFF, 40-4F:0000-FFFF
+`define IS_SA1_BRAM(a) ((~sw46 & ~a[22] & ~a[15] & &a[14:13]) | (~a[23] & a[22] & ~a[21] & ~a[20])) // 00-3F/80-BF:6000-7FFF, 40-4F:0000-FFFF
+// NOTE: the following is only used for cc1 DMA
+`define IS_CPU_BRAM(a) ((~a[22] & ~a[15] & &a[14:13]) | (~a[23] & a[22] & ~a[21] & ~a[20]))      // 00-3F/80-BF:6000-7FFF, 40-4F:0000-FFFF
+`define IS_MMIO(a) (~a[22] & ~a[15] & ~a[14] & a[13] & ~a[12] & ~a[11] & ~a[10] & a[9])          // 00-3F/80-BF:2200-23FF
+`define IS_SA1_PRAM(a) ((sw46 & ~a[22] & ~a[15] & &a[14:13]) | (~a[23] & a[22] & a[21] & ~a[20])) // 00-3F/80-BF:6000-7FFF, 60-6F:0000-FFFF
+
+`define MAP_ROM(a)  ((a[22] ? {1'b0, xxb[a[21:20]], a[19:0]} : {1'b0, xxb_en[{a[23],a[21]}] ? xxb[{a[23],a[21]}] : {1'b0,a[23],a[21]}, a[20:16], a[14:0]}) & ROM_MASK_r)
+`define MAP_IRAM(a) (a[10:0])
+`define MAP_MMIO(a) (a[8:0])
+//`define MAP_BRAM(a) (iram_battery_r ? `MAP_IRAM(a) : ((a[22] ? a[19:0] : {cbm[4:0],a[12:0]}) & SAVERAM_MASK_r))
+`define MAP_BRAM(a) ((a[22] ? a[19:0] : {cbm[4:0],a[12:0]}) & SAVERAM_MASK_r)
+`define MAP_PRAM(a) ((a[22] ? (bbf ? a[19:2] : a[19:1]) : (bbf ? {cbm[6:0],a[12:2]} : {cbm[6:0],a[12:1]})) & SAVERAM_MASK_r)
 
 //-------------------------------------------------------------------
 // PARAMETERS
@@ -1709,6 +1724,16 @@ always @(posedge CLK) begin
 
             MMC_STATE      <= dma_mmc_wr_r ? ST_MMC_INV : ST_MMC_ROM;
           end
+          // if someone uses battery backed iram forced it to BRAM
+          else if ((dma_mmc_bram_r/* | iram_battery_r*/)/* & RAM_BUS_RDY */) begin
+            ram_bus_rrq_r  <= ~dma_mmc_wr_r;
+            ram_bus_wrq_r  <=  dma_mmc_wr_r;
+            ram_bus_addr_r <= `MAP_BRAM(dma_mmc_addr_r);
+            ram_bus_data_r <= dma_mmc_data_r[7:0];
+
+            //mmc_addr_r     <= `MAP_BRAM(dma_mmc_addr_r);
+            MMC_STATE      <= ST_MMC_BRAM;
+          end
           else if (dma_mmc_iram_r) begin
             // avoid sa1 write to snes read conflict late in the cycle
             // TODO: decide if we need this for dma.  It would be poor programming to read an address that is going to be DMAed to.
@@ -1717,15 +1742,6 @@ always @(posedge CLK) begin
               mmc_addr_r     <= `MAP_IRAM(dma_mmc_addr_r);
               MMC_STATE      <= ST_MMC_IRAM;
             //end
-          end
-          else if (dma_mmc_bram_r/* & RAM_BUS_RDY */) begin
-            ram_bus_rrq_r  <= ~dma_mmc_wr_r;
-            ram_bus_wrq_r  <=  dma_mmc_wr_r;
-            ram_bus_addr_r <= `MAP_BRAM(dma_mmc_addr_r);
-            ram_bus_data_r <= dma_mmc_data_r[7:0];
-
-            //mmc_addr_r     <= `MAP_BRAM(dma_mmc_addr_r);
-            MMC_STATE      <= ST_MMC_BRAM;
           end
           else begin
             rom_bus_rrq_r <= 0;

@@ -73,6 +73,7 @@ void smc_id(snes_romprops_t* props) {
   props->has_gsu = 0;
   props->has_gsu_sram = 0;
   props->has_sa1 = 0;
+  props->has_sa1_iram_save = 0;
   props->fpga_features = 0;
   props->fpga_dspfeat = 0;
   props->fpga_conf = NULL;
@@ -228,6 +229,12 @@ void smc_id(snes_romprops_t* props) {
       if(header->carttype == 0x32 || header->carttype == 0x34 || header->carttype == 0x35 || header->carttype == 0x36) {
         props->has_sa1 = 1;
         props->fpga_conf = FPGA_SA1;
+
+        // move iram into saveram for special carts with no bwram
+        if (header->carttype == 0x36 && !header->ramsize) {
+          props->has_sa1_iram_save = 1;
+          header->ramsize = 1;
+        }
       }
       break;
 

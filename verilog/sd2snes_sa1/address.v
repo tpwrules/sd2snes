@@ -60,6 +60,17 @@ parameter [2:0]
   FEAT_213F = 4
 ;
 
+// Static Inputs
+reg [23:0] ROM_MASK_r     = 0;
+reg [23:0] SAVERAM_MASK_r = 0;
+reg        iram_battery_r = 0;
+
+always @(posedge CLK) begin
+  ROM_MASK_r     <= ROM_MASK;
+  SAVERAM_MASK_r <= SAVERAM_MASK;
+  iram_battery_r <= ~SAVERAM_MASK_r[1] & SAVERAM_MASK_r[0];
+end
+
 wire [23:0] SRAM_SNES_ADDR;
 
 wire [2:0] xxb[3:0];
@@ -70,7 +81,7 @@ assign IS_ROM = ( (~SNES_ADDR[22] & SNES_ADDR[15])
                 | (&SNES_ADDR[23:22]))
                 ;
 
-assign IS_SAVERAM = SAVERAM_MASK[0]
+assign IS_SAVERAM = SAVERAM_MASK_r[0]
                     & ( // 40-4F:0000-FFFF
                         ( ~SNES_ADDR[23]
                         &  SNES_ADDR[22]
@@ -83,6 +94,14 @@ assign IS_SAVERAM = SAVERAM_MASK[0]
                         & ~SNES_ADDR[15]
                         & &SNES_ADDR[14:13]
                         )
+                      | ( iram_battery_r
+                        & ~SNES_ADDR[22]
+                        & ~SNES_ADDR[15]
+                        & ~SNES_ADDR[14]
+                        &  SNES_ADDR[13]
+                        &  SNES_ADDR[12]
+                        & ~SNES_ADDR[11]
+                        )
                       );
 
 assign IS_WRITABLE = IS_SAVERAM;
@@ -90,9 +109,9 @@ assign IS_WRITABLE = IS_SAVERAM;
 // TODO: add programmable address map
 assign SRAM_SNES_ADDR = (IS_SAVERAM
                          // 40-4F:0000-FFFF or 00-3F/80-BF:6000-7FFF (first 8K mirror).  Mask handles mirroring.  60 is sa1-only
-                         ? (24'hE00000 + ((SNES_ADDR[22] ? SNES_ADDR[19:0] : {sa1_bmaps_sbm,SNES_ADDR[12:0]}) & SAVERAM_MASK))
+                         ? (24'hE00000 + (iram_battery_r ? SNES_ADDR[10:0] : ((SNES_ADDR[22] ? SNES_ADDR[19:0] : {sa1_bmaps_sbm,SNES_ADDR[12:0]}) & SAVERAM_MASK_r)))
                          // C0-FF:0000-FFFF or 00-3F/80-BF:8000-FFFF
-                         : ((SNES_ADDR[22] ? {1'b0, xxb[SNES_ADDR[21:20]], SNES_ADDR[19:0]} : {1'b0, (xxb_en[{SNES_ADDR[23],SNES_ADDR[21]}] ? xxb[{SNES_ADDR[23],SNES_ADDR[21]}] : {1'b0,SNES_ADDR[23],SNES_ADDR[21]}), SNES_ADDR[20:16], SNES_ADDR[14:0]}) & ROM_MASK)
+                         : ((SNES_ADDR[22] ? {1'b0, xxb[SNES_ADDR[21:20]], SNES_ADDR[19:0]} : {1'b0, (xxb_en[{SNES_ADDR[23],SNES_ADDR[21]}] ? xxb[{SNES_ADDR[23],SNES_ADDR[21]}] : {1'b0,SNES_ADDR[23],SNES_ADDR[21]}), SNES_ADDR[20:16], SNES_ADDR[14:0]}) & ROM_MASK_r)
                          );
 
 assign ROM_ADDR = SRAM_SNES_ADDR;
@@ -107,6 +126,6 @@ assign return_vector_enable = (SNES_ADDR == 24'h002A5A);
 assign branch1_enable = (SNES_ADDR == 24'h002A13);
 assign branch2_enable = (SNES_ADDR == 24'h002A4D);
 // 00-3F/80-BF:2200-23FF sa1 registers. 00-3F/80-BF:3000-37FF iram.
-assign sa1_enable = (!SNES_ADDR[22] && ({SNES_ADDR[15:9],1'h0} == 8'h22 || {SNES_ADDR[15:11],3'h0} == 8'h30)) || (SNES_ADDR[23:20] == 4'h4 && sa1_dma_cc1_en);
+assign sa1_enable = (!SNES_ADDR[22] && ({SNES_ADDR[15:9],1'h0} == 8'h22 || ({SNES_ADDR[15:11],3'h0} == 8'h30 && !iram_battery_r))) || (SNES_ADDR[23:20] == 4'h4 && sa1_dma_cc1_en);
 
 endmodule

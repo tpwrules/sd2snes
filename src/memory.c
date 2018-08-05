@@ -325,7 +325,8 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   }
   rommask = romprops.romsize_bytes - 1;
   printf("ramsize=%x rammask=%lx\nromsize=%x rommask=%lx\n", romprops.header.ramsize, rammask, romprops.header.romsize, rommask);
-  set_saveram_mask(rammask);
+  // sa1 battery backed iram uses rammask=1 as valid
+  set_saveram_mask((romprops.has_sa1 && romprops.has_sa1_iram_save) ? 1 : rammask);
   set_rom_mask(rommask);
   readled(0);
 
