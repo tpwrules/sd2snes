@@ -87,29 +87,6 @@ module mcu_cmd(
   output       reg_we_out,
   output [7:0] reg_read_out,
 
-//  // BS-X
-//  output [7:0] bsx_regs_reset_out,
-//  output [7:0] bsx_regs_set_out,
-//  output bsx_regs_reset_we,
-//
-//  // generic RTC
-//  output [55:0] rtc_data_out,
-//  output rtc_pgm_we,
-//
-//  // S-RTC
-//  output srtc_reset,
-//
-//  // uPD77C25
-//  output reg [23:0] dspx_pgm_data_out,
-//  output reg [10:0] dspx_pgm_addr_out,
-//  output reg dspx_pgm_we_out,
-//
-//  output reg [15:0] dspx_dat_data_out,
-//  output reg [10:0] dspx_dat_addr_out,
-//  output reg dspx_dat_we_out,
-//
-//  output reg dspx_reset_out,
-
   // feature enable
   output reg [15:0] featurebits_out,
 
@@ -132,7 +109,8 @@ module mcu_cmd(
   output reg [15:0] dsp_feat_out = 16'h0000
 );
 
-`define DEBUG
+//`define DEBUG
+//`define MSU
 
 initial begin
   region_out = 0;
@@ -317,6 +295,7 @@ always @(posedge clk) begin
           end
         endcase
       end
+`ifdef MSU
       8'he0:
         case (spi_byte_cnt)
           32'h2: begin
@@ -353,32 +332,12 @@ always @(posedge clk) begin
             MSU_RESET_OUT_BUF <= 1'b1;
           end
         endcase
-      8'he5:
-        case (spi_byte_cnt)
-          32'h2:
-            rtc_data_out_buf[55:48] <= param_data;
-          32'h3:
-            rtc_data_out_buf[47:40] <= param_data;
-          32'h4:
-            rtc_data_out_buf[39:32] <= param_data;
-          32'h5:
-            rtc_data_out_buf[31:24] <= param_data;
-          32'h6:
-            rtc_data_out_buf[23:16] <= param_data;
-          32'h7:
-            rtc_data_out_buf[15:8] <= param_data;
-          32'h8: begin
-            rtc_data_out_buf[7:0] <= param_data;
-            rtc_pgm_we_buf <= 1'b1;
-          end
-          32'h9:
-            rtc_pgm_we_buf <= 1'b0;
-        endcase
       8'hec:
         begin // set DAC properties
           dac_vol_select_out <= param_data[2:0];
           dac_palmode_out <= param_data[7];
         end
+`endif
       8'hed:
         case (spi_byte_cnt)
           32'h2: feat_tmp <= param_data;
@@ -386,13 +345,6 @@ always @(posedge clk) begin
         endcase
       8'hee:
         region_out <= param_data[0];
-      8'hef:
-        case (spi_byte_cnt)
-          32'h2: dsp_feat_tmp <= param_data[7:0];
-          32'h3: begin
-            dsp_feat_out <= {dsp_feat_tmp, param_data[7:0]};
-          end
-        endcase
 `ifdef DEBUG
       8'hfa: // handles all group, index, value, invmask writes.  unit is responsible for decoding group for match
         case (spi_byte_cnt)
@@ -425,6 +377,7 @@ end
 always @(posedge clk) begin
   if(param_ready && cmd_data[7:4] == 4'h0)  begin
     case (cmd_data[1:0])
+`ifdef MSU
       2'b01: begin
         case (spi_byte_cnt)
           32'h2: begin
@@ -435,16 +388,21 @@ always @(posedge clk) begin
             DAC_ADDR_OUT_BUF[7:0] <= param_data;
         endcase
       end
+`endif
       2'b10: begin
         case (spi_byte_cnt)
           32'h2: begin
+`ifdef MSU
             MSU_ADDR_OUT_BUF[13:8] <= param_data[5:0];
             MSU_ADDR_OUT_BUF[7:0] <= 8'b0;
+`endif
             SA1_ADDR_OUT_BUF[11:8] <= param_data[3:0];
             SA1_ADDR_OUT_BUF[7:0] <= 8'b0;
           end
           32'h3: begin
+`ifdef MSU
             MSU_ADDR_OUT_BUF[7:0] <= param_data;
+`endif
             SA1_ADDR_OUT_BUF[7:0] <= param_data;
           end
         endcase
@@ -472,8 +430,10 @@ always @(posedge clk) begin
   ) begin
     case (SD_DMA_TGTr)
       2'b00: ADDR_OUT_BUF <= ADDR_OUT_BUF + 1;
+`ifdef MSU
       2'b01: DAC_ADDR_OUT_BUF <= DAC_ADDR_OUT_BUF + 1;
       2'b10: MSU_ADDR_OUT_BUF <= MSU_ADDR_OUT_BUF + 1;
+`endif
     endcase
   end
 end

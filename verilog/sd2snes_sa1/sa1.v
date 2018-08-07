@@ -143,7 +143,7 @@ module sa1(
 `define DMA_TYPE2_ENABLE
 `define VBD_ENABLE
 
-//`define EXE_FAST_FETCH
+`define EXE_FAST_FETCH
 
 // temporaries
 integer i;
