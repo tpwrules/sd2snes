@@ -142,6 +142,7 @@ module sa1(
 `define DMA_TYPE1_ENABLE
 `define DMA_TYPE2_ENABLE
 `define VBD_ENABLE
+//`define BCD_ENABLE
 
 `define EXE_FAST_FETCH
 
@@ -156,6 +157,16 @@ function integer clog2;
     value = value-1;
     for (clog2=0; value>0; clog2=clog2+1)
       value = value>>1;
+  end
+endfunction
+
+`define BCD_CARRY(c,s) (c | (s[3] & (s[2] | s[1])))
+function [2:0] bcd_adder;
+  input       carry;
+  input [3:0] sum;
+  
+  begin
+    bcd_adder = {`BCD_CARRY(carry,sum),`BCD_CARRY(carry,sum),1'b0};
   end
 endfunction
 
@@ -651,8 +662,8 @@ always @(posedge CLK) begin
     SIV_r  <= 0;
     TMC_r  <= 0;
     CTR_r  <= 0;
-    HCNT_r <= 0;
-    VCNT_r <= 0;
+    //HCNT_r <= 0;
+    //VCNT_r <= 0;
     CXB_r  <= 0;
     DXB_r  <= 1;
     EXB_r  <= 2;
@@ -667,10 +678,10 @@ always @(posedge CLK) begin
     DCNT_r <= 0;
     CDMA_r <= 0;
     DSA_r  <= 0;
-    DDA_r  <= 0;
+    //DDA_r  <= 0;
     DTC_r  <= 0;
     BBF_r  <= 0;
-    for (i = 0; i < 16; i = i + 1) BRF_r[i] <= 0;
+    //for (i = 0; i < 16; i = i + 1) BRF_r[i] <= 0;
     MCNT_r <= 0;
     MA_r   <= 0;
     MB_r   <= 0;
@@ -711,10 +722,10 @@ always @(posedge CLK) begin
       casex (snes_readbuf_addr_r[7:0])
         ADDR_SFR  : data_out_r <= {SFR_r[`SFR_CPU_IRQFL], SCNT_r[`SCNT_IVSW],    SFR_r[`SFR_DMA_IRQFL], SCNT_r[`SCNT_NVSW],    SCNT_r[`SCNT_CMEG]};
         ADDR_CFR  : data_out_r <= {CFR_r[`CFR_SA1_IRQFL], CFR_r[`CFR_TMR_IRQFL], CFR_r[`CFR_DMA_IRQFL], CFR_r[`CFR_SA1_NMIFL], CCNT_r[`CCNT_SMEG]};
-        ADDR_HCR  : if (~data_enable_r) begin data_out_r <= hcounter_r[9:2]; HCR_r <= {2'h0,hcounter_r[15:2]}; VCR_r <= vcounter_r; end
-        ADDR_HCR+1: data_out_r <= HCR_r[15:8];
-        ADDR_VCR  : data_out_r <= VCR_r[7:0];
-        ADDR_VCR+1: data_out_r <= VCR_r[15:8];
+        //ADDR_HCR  : if (~data_enable_r) begin data_out_r <= hcounter_r[9:2]; HCR_r <= {2'h0,hcounter_r[15:2]}; VCR_r <= vcounter_r; end
+        //ADDR_HCR+1: data_out_r <= HCR_r[15:8];
+        //ADDR_VCR  : data_out_r <= VCR_r[7:0];
+        //ADDR_VCR+1: data_out_r <= VCR_r[15:8];
         ADDR_MR   : data_out_r <= MR_r[7:0];
         ADDR_MR+1 : data_out_r <= MR_r[15:8];
         ADDR_MR+2 : data_out_r <= MR_r[23:16];
@@ -822,10 +833,10 @@ always @(posedge CLK) begin
         ADDR_SIV+1 : SIV_r[15:8]         <= snes_writebuf_data_r;  // 8'h0E, // $2
         ADDR_TMC   : {TMC_r[`TMC_HVSELB],TMC_r[`TMC_VEN],TMC_r[`TMC_HEN]} <= {snes_writebuf_data_r[`TMC_HVSELB],snes_writebuf_data_r[`TMC_VEN],snes_writebuf_data_r[`TMC_HEN]};  // 8'h10,
         //ADDR_CTR   : // TODO: reset counters.  Probably needs to be moved outside of this code  // 8'h11,
-        ADDR_HCNT  : HCNT_r[7:0]         <= snes_writebuf_data_r;  // 8'h12, // $2
-        ADDR_HCNT+1: HCNT_r[15:8]        <= snes_writebuf_data_r;  // 8'h12, // $2
-        ADDR_VCNT  : VCNT_r[7:0]         <= snes_writebuf_data_r;  // 8'h14, // $2
-        ADDR_VCNT+1: VCNT_r[15:8]        <= snes_writebuf_data_r;  // 8'h14, // $2
+        //ADDR_HCNT  : HCNT_r[7:0]         <= snes_writebuf_data_r;  // 8'h12, // $2
+        //ADDR_HCNT+1: HCNT_r[15:8]        <= snes_writebuf_data_r;  // 8'h12, // $2
+        //ADDR_VCNT  : VCNT_r[7:0]         <= snes_writebuf_data_r;  // 8'h14, // $2
+        //ADDR_VCNT+1: VCNT_r[15:8]        <= snes_writebuf_data_r;  // 8'h14, // $2
         ADDR_CXB   : {CXB_r[`CXB_CBMODE],CXB_r[`CXB_CB]} <= {snes_writebuf_data_r[`CXB_CBMODE],snes_writebuf_data_r[`CXB_CB]};  // 8'h20,
         ADDR_DXB   : {DXB_r[`DXB_DBMODE],DXB_r[`DXB_DB]} <= {snes_writebuf_data_r[`DXB_DBMODE],snes_writebuf_data_r[`DXB_DB]};  // 8'h21,
         ADDR_EXB   : {EXB_r[`EXB_EBMODE],EXB_r[`EXB_EB]} <= {snes_writebuf_data_r[`EXB_EBMODE],snes_writebuf_data_r[`EXB_EB]};  // 8'h22,
@@ -2068,11 +2079,6 @@ reg [15:0] dma_dtc_r; initial dma_dtc_r = 0;
 reg [23:0] dma_dsa_r; initial dma_dsa_r = 0;
 reg [23:0] dma_dda_r; initial dma_dda_r = 0;
 
-reg [7:0]  dbg_dma_cc1_start_r; initial dbg_dma_cc1_start_r = 0;
-reg [7:0]  dbg_dma_cc1_trigger_r; initial dbg_dma_cc1_trigger_r = 0;
-reg [15:0] dbg_dma_cc1_write_r; initial dbg_dma_cc1_write_r = 0;
-reg [15:0] dbg_dma_cc1_nonzero_write_r; initial dbg_dma_cc1_nonzero_write_r = 0;
-
 always @(posedge CLK) begin
   if (RST) begin
     DMA_STATE             <= ST_DMA_IDLE;
@@ -2103,11 +2109,6 @@ always @(posedge CLK) begin
     
     SFR_r[`SFR_DMA_IRQFL] <= 0;
     CFR_r[`CFR_DMA_IRQFL] <= 0;
-    
-    dbg_dma_cc1_start_r         <= 0;
-    dbg_dma_cc1_trigger_r       <= 0;
-    dbg_dma_cc1_write_r         <= 0;
-    dbg_dma_cc1_nonzero_write_r <= 0;
   end
   else begin
     // watch for triggers
@@ -2189,8 +2190,6 @@ always @(posedge CLK) begin
     if      ((dma_trigger_normal_r/* & dma_dcnt_r[`DCNT_DPRIO]*/) | dma_trigger_type2_r)                              dma_normal_pri_active_r <= 1;
     else if (DMA_STATE[clog2(ST_DMA_IDLE)])                                                                       dma_normal_pri_active_r <= 0;
 
-    if (dbg_dma_cc1_trigger_r == 1 && ~DMA_STATE[clog2(ST_DMA_IDLE)]) dbg_dma_cc1_nonzero_write_r <= dbg_dma_cc1_nonzero_write_r + 1;
-
     case (DMA_STATE)
       ST_DMA_IDLE: begin        
         // clear line number
@@ -2222,7 +2221,6 @@ always @(posedge CLK) begin
 
           dma_cc1_char_num_r  <= {4'b0000,dma_cc1_size_mask_r[0]};
           dma_line_r          <= 0;
-          dbg_dma_cc1_start_r <= dbg_dma_cc1_start_r + 1;
           
           DMA_STATE <= ST_DMA_TYPE1_READ;
         end
@@ -2237,7 +2235,6 @@ always @(posedge CLK) begin
           dma_cc1_addr_wr_r[6:4] <= dma_cc1_addr_wr_r[6:4] ^ dma_cc1_bpp_r[3:1];
 
           dma_cc1_char_num_r  <= (dma_cc1_char_num_r + 1) & dma_cc1_size_mask_r;
-          dbg_dma_cc1_trigger_r <= dbg_dma_cc1_trigger_r + 1;
           
           DMA_STATE <= ST_DMA_TYPE1_READ;
         end
@@ -2392,7 +2389,6 @@ always @(posedge CLK) begin
         end
         else if (mmc_dma_end) begin
           dma_mmc_wr_r <= 0;
-          dbg_dma_cc1_write_r <= dbg_dma_cc1_write_r + 1;
           
           DMA_STATE <= dma_next_writestate_r;
         end
@@ -2659,6 +2655,15 @@ wire       exe_dpe       = ~|D_r[7:0] & E_r;
 wire       exe_data_word = |({~P_r[`P_X],~P_r[`P_M]}&dec_data[`DEC_PRC]) | &dec_data[`DEC_PRC];
 wire       exe_dec_imm16 = (|({~P_r[`P_X],~P_r[`P_M]}&dec_data[`DEC_PRC]) & dec_data[`ADD_IMM]);
 
+`ifdef BCD_ENABLE
+// bcd
+reg [2:0]  exe_bcd_mode_r;
+reg [15:0] exe_bcd_src_r;
+reg [15:0] exe_bcd_result_r;
+reg        exe_bcd_carry_r;
+reg [4:0]  exe_bcd_result;
+`endif
+
 // temporary
 reg [16:0] exe_result;
 reg [16:0] add_result;
@@ -2697,16 +2702,6 @@ always @(posedge CLK) begin
     exe_nextpc_addr_r <= 0;
     exe_add_post_r <= 0;
     
-//    exe_a_r       <= 0;
-//    exe_x_r       <= 0;
-//    exe_y_r       <= 0;
-//    exe_s_r       <= 1;
-//    exe_d_r       <= 0;
-//    exe_dbr_r     <= 0;
-//    exe_p_r       <= 8'h34;
-//    exe_e_r       <= 1;
-//    exe_wai_r     <= 0;
-
     exe_mmc_rd_r  <= 0;
     exe_mmc_wr_r  <= 0;
     exe_mmc_data_r<= 0;
@@ -2747,7 +2742,9 @@ always @(posedge CLK) begin
       // FETCH
       ST_EXE_FETCH: begin
         exe_mmc_rd_r   <= ~(int_pending_r | exe_prefetch_val_r);
-        //{exe_mmc_rom_r,exe_mmc_bram_r,exe_mmc_pram_r,exe_mmc_iram_r,exe_mmc_mmio_r} <= {`IS_ROM(exe_fetch_addr_r),`IS_SA1_BRAM(exe_fetch_addr_r),`IS_SA1_PRAM(exe_fetch_addr_r),`IS_SA1_IRAM(exe_fetch_addr_r),`IS_MMIO(exe_fetch_addr_r)};
+        // only tell the mmc about 1 byte if its to rom.  It still returns 2 which we will use if aligned.
+        // TODO: why is this slower?
+        //exe_mmc_byte_total_r <= `IS_ROM(exe_fetch_addr_r) ? 0 : 1;
         exe_mmc_byte_total_r <= 1;
         exe_mmc_state_exe_end_r <= 0;
         
@@ -2781,16 +2778,6 @@ always @(posedge CLK) begin
 
             exe_nextpc_addr_r  <= PC_r + dec_data[`DEC_SIZE] + (exe_dec_imm16 ? 2 : 1);
 
-            exe_a_r            <= A_r;
-            exe_x_r            <= X_r;
-            exe_y_r            <= Y_r;
-            exe_s_r            <= S_r;
-            exe_d_r            <= D_r;
-            exe_dbr_r          <= DBR_r;
-            exe_pbr_r          <= PBR_r;
-            exe_p_r            <= P_r;
-            exe_e_r            <= E_r;
-
             // TODO: hide the -1 in the decoder
             // FIXME: fix latencies once perf problems are resolved
             e2c_waitcnt_r <= 0; // SPEED ? 0 : (dec_data[`DEC_LATENCY] - 1);
@@ -2802,6 +2789,22 @@ always @(posedge CLK) begin
             debug_inst_addr_r <= {PBR_r,PC_r};
             debug_inst_addr_prev_r <= debug_inst_addr_r;
           end
+
+          exe_a_r            <= A_r;
+          exe_x_r            <= X_r;
+          exe_y_r            <= Y_r;
+          exe_s_r            <= S_r;
+          exe_d_r            <= D_r;
+          exe_dbr_r          <= DBR_r;
+          exe_pbr_r          <= PBR_r;
+          exe_p_r            <= P_r;
+          exe_e_r            <= E_r;
+
+`ifdef BCD_ENABLE
+          exe_bcd_mode_r     <= 0;
+          exe_bcd_carry_r    <= P_r[`P_C];
+          exe_bcd_src_r      <= A_r;
+`endif
 
 `ifdef EXE_FAST_FETCH
           // next state, address, and prefetch logic.
@@ -2971,13 +2974,41 @@ always @(posedge CLK) begin
               0: exe_result[15:0] = exe_src_r | exe_data_r; // ORA
               1: exe_result[15:0] = exe_src_r & exe_data_r; // AND
               2: exe_result[15:0] = exe_src_r ^ exe_data_r; // EOR
-              3: exe_result[16:0] = exe_data_word_r ? {1'b0,exe_src_r[15:0]} + {1'b0,exe_data_r[15:0]} + P_r[`P_C] : {9'h000,exe_src_r[7:0]} + {9'h000,exe_data_r[7:0]} + P_r[`P_C]; // ADC
+              3: begin
+`ifdef BCD_ENABLE
+                if (P_r[`P_D]) begin
+                  // do a nibble per clock to ease timing.
+                  if (~exe_load_r & ~exe_bcd_mode_r[2]) begin
+                    exe_bcd_src_r <= {exe_bcd_src_r[3:0],exe_bcd_src_r[15:4]};
+                    exe_data_r    <= {exe_data_r[3:0],exe_data_r[15:4]};
+
+                    exe_bcd_result_r[11:0]  <= exe_bcd_result_r[15:4];
+                    
+                    if (exe_data_word_r | ~exe_bcd_mode_r[1]) begin
+                      exe_bcd_result[4:0] = exe_bcd_src_r[3:0] + exe_data_r[3:0] + exe_bcd_carry_r;
+                      {exe_bcd_carry_r,exe_bcd_result_r[15:12]} <= exe_bcd_result[4:0] + bcd_adder(exe_bcd_result[4],exe_bcd_result[3:0]);
+                    end
+                    
+                    exe_bcd_mode_r <= exe_bcd_mode_r + 1;
+
+                    // cancel transition
+                    exe_mmc_wr_r <= 0;
+                    EXE_STATE <= ST_EXE_EXECUTE;
+                  end
+
+                  // NOTE: this won't set the overflow flag properly
+                  exe_result[16:0] = exe_data_word_r ? {exe_bcd_carry_r,exe_bcd_result_r[15:0]} : {8'h00,exe_bcd_carry_r,exe_bcd_result_r[7:0]};
+                end
+                else
+`endif
+                  exe_result[16:0] = exe_data_word_r ? {1'b0,exe_src_r[15:0]} + {1'b0,exe_data_r[15:0]} + P_r[`P_C] : {9'h000,exe_src_r[7:0]} + {9'h000,exe_data_r[7:0]} + P_r[`P_C]; // ADC
+              end
               //4: // STA
               5: exe_result[15:0] = exe_data_r; // LDA
               //6: // CMP
               //7: exe_result[16:0] = exe_data_word_r ? {1'b0,exe_src_r[15:0]} + ~{1'b0,exe_data_r[15:0]} + P_r[`P_C] : {9'h000,exe_src_r[7:0]} + ~{9'h000,exe_data_r[7:0]} + P_r[`P_C];// SBC
               7: exe_result[16:0] = exe_data_word_r ? {1'b0,exe_src_r[15:0]} + {1'b0,~exe_data_r[15:0]} + P_r[`P_C] : {9'h000,exe_src_r[7:0]} + {9'h000,~exe_data_r[7:0]} + P_r[`P_C];// SBC
-              default: exe_result[15:0] = 0;
+              //default: exe_result[15:0] = 0;
             endcase
               
             exe_a_r <= {exe_data_word_r ? exe_result[15:8] : exe_src_r[15:8], exe_result[7:0]};
@@ -3407,6 +3438,7 @@ end
 //-------------------------------------------------------------------
 // DEBUG OUTPUT
 //-------------------------------------------------------------------
+`ifdef DEBUG
 wire [7:0] dbg_reg_dout;
 
 dbg_state state (
@@ -3426,7 +3458,6 @@ dbg_state state (
 reg [7:0]  pgmpre_out[3:0];
 reg [7:0]  pgmdata_out; //initial pgmdata_out_r = 0;
 
-`ifdef DEBUG
 always @(posedge CLK) begin
   if      (~pgm_addr_r[11])                              pgmdata_out <= pgmpre_out[pgm_addr_r[9:8]];
 `ifdef DEBUG_IRAM
@@ -3686,7 +3717,11 @@ end
 // MISC OUTPUTS
 //-------------------------------------------------------------------
 assign DBG         = 0;
+`ifdef DEBUG
 assign PGM_DATA    = pgmdata_out;
+`else
+assign PGM_DATA    = 0;
+`endif
 
 assign DATA_ENABLE = data_enable_r;
 assign DATA_OUT    = data_out_r;
