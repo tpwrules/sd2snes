@@ -142,7 +142,7 @@ module sa1(
 `define DMA_TYPE1_ENABLE
 `define DMA_TYPE2_ENABLE
 `define VBD_ENABLE
-//`define BCD_ENABLE
+`define BCD_ENABLE
 
 `define EXE_FAST_FETCH
 
@@ -1096,7 +1096,7 @@ wire       exe_mmc_int;
 
 wire       exe_fetch_byte_val;
 wire [7:0] exe_fetch_byte;
-wire [31:0] exe_data;
+wire [7:0] exe_fetch_data;
 
 //-------------------------------------------------------------------
 // COMMON PIPELINE
@@ -2519,7 +2519,7 @@ end
 
 // need to take from the input so we get a clock
 //wire [7:0]  dec_addr = MMC_STATE[clog2(ST_MMC_ROM)] ? ROM_BUS_RDDATA[7:0] : mmc_data_r[7:0];
-wire [7:0]  dec_addr = exe_mmc_int ? 8'h00 : exe_fetch_byte_val ? exe_fetch_byte[7:0] : mmc_exe_end ? exe_mmc_rddata[7:0] : exe_data[7:0];
+wire [7:0]  dec_addr = exe_mmc_int ? 8'h00 : exe_fetch_byte_val ? exe_fetch_byte[7:0] : mmc_exe_end ? exe_mmc_rddata[7:0] : exe_fetch_data[7:0];
 wire [31:0] dec_data;
 
 dec_table dec (
@@ -2608,10 +2608,69 @@ assign exe_wai     = EXE_STATE[clog2(ST_EXE_EXECUTE)] & int_wai;
 assign exe_mmc_int = int_pending_r;
 
 //-------------------------------------------------------------------
+// BCD
+//-------------------------------------------------------------------
+`ifdef BCD_ENABLE
+reg [15:0] bcd_a_r;
+reg [15:0] bcd_b_r;
+reg [15:0] bcd_o_r;
+reg [3:0]  bcd_c_r;
+
+reg [1:0]  bcd_cnt_r; initial bcd_cnt_r = 3;
+reg        bcd_state_r; initial bcd_state_r = 0;
+reg        bcd_done_r; initial bcd_done_r = 0;
+
+// exe inputs
+reg        exe_bcd_val_r; initial exe_bcd_val_r = 0;
+reg [15:0] exe_bcd_a_r; initial exe_bcd_a_r = 0;
+reg [15:0] exe_bcd_b_r; initial exe_bcd_b_r = 0;
+reg        exe_bcd_c_r; initial exe_bcd_c_r = 0;
+
+wire [4:0] bcd_result;
+
+always @(posedge CLK) begin
+  if (RST) begin
+    bcd_state_r <= 0;
+    bcd_done_r  <= 0;
+    bcd_cnt_r   <= 3;
+  end
+  else begin
+    if (~bcd_state_r) begin
+      bcd_done_r <= 0;
+      
+      if (exe_bcd_val_r) begin
+        bcd_a_r    <= exe_bcd_a_r;
+        bcd_b_r    <= exe_bcd_b_r;
+        bcd_c_r[3] <= exe_bcd_c_r;
+
+        bcd_state_r <= 1;
+      end
+    end
+    else begin
+      bcd_a_r <= {bcd_a_r[3:0],bcd_a_r[15:4]};
+      bcd_b_r <= {bcd_b_r[3:0],bcd_b_r[15:4]};
+        
+      bcd_o_r[11:0] <= bcd_o_r[15:4];
+      bcd_c_r[2:0]  <= bcd_c_r[3:1];
+      
+      {bcd_c_r[3],bcd_o_r[15:12]} <= bcd_result[4:0] + bcd_adder(bcd_result[4],bcd_result[3:0]);
+      
+      bcd_cnt_r   <= bcd_cnt_r - 1;
+      bcd_done_r  <= ~|bcd_cnt_r;
+      bcd_state_r <= |bcd_cnt_r;
+    end
+  end
+end
+
+assign bcd_result = bcd_a_r[3:0] + bcd_b_r[3:0] + bcd_c_r[3];
+`endif
+
+//-------------------------------------------------------------------
 // EXECUTION PIPELINE
 //-------------------------------------------------------------------
 
 reg [31:0] exe_data_r;
+reg [15:0] exe_fetch_data_r;
 reg [23:0] exe_addr_r; initial exe_addr_r = 0;
 reg [23:0] exe_mmc_addr_r; initial exe_mmc_addr_r = 0;
 
@@ -2655,20 +2714,20 @@ wire       exe_dpe       = ~|D_r[7:0] & E_r;
 wire       exe_data_word = |({~P_r[`P_X],~P_r[`P_M]}&dec_data[`DEC_PRC]) | &dec_data[`DEC_PRC];
 wire       exe_dec_imm16 = (|({~P_r[`P_X],~P_r[`P_M]}&dec_data[`DEC_PRC]) & dec_data[`ADD_IMM]);
 
-`ifdef BCD_ENABLE
-// bcd
-reg [2:0]  exe_bcd_mode_r;
-reg [15:0] exe_bcd_src_r;
-reg [15:0] exe_bcd_result_r;
-reg        exe_bcd_carry_r;
-reg [4:0]  exe_bcd_result;
-`endif
-
 // temporary
 reg [16:0] exe_result;
 reg [16:0] add_result;
 
 always @(posedge CLK) begin
+
+`ifdef BCD_ENABLE
+  // drive BCD inputs
+  exe_bcd_a_r <= exe_src_r[15:0];
+  // invert for SBC
+  exe_bcd_b_r <= exe_opcode_r[7] ? ~exe_data_r[15:0] : exe_data_r[15:0];
+  exe_bcd_c_r <= P_r[`P_C];
+`endif
+
   if (RST) begin
     EXE_STATE <= ST_EXE_IDLE;
     
@@ -2683,9 +2742,9 @@ always @(posedge CLK) begin
     P_r           <= 8'h34;
     E_r           <= 1;
 
-    exe_fetch_addr_r <= 0;
-    exe_addr_r       <= 0;
-    exe_mmc_addr_r   <= 0;
+    //exe_fetch_addr_r <= 0;
+    //exe_addr_r       <= 0;
+    //exe_mmc_addr_r   <= 0;
     
     exe_opsize_r  <= 0;
     exe_fetch_size_r <= 0;
@@ -2693,8 +2752,8 @@ always @(posedge CLK) begin
     exe_operand_r <= 0;
     exe_decode_r  <= 0;
     
-    exe_src_r     <= 16'h0BAD;
-    exe_dst_r     <= 16'h0BAD;
+    //exe_src_r     <= 16'h0BAD;
+    //exe_dst_r     <= 16'h0BAD;
     
     exe_control_r <= 0;
     exe_pbr_r     <= 0;
@@ -2704,7 +2763,7 @@ always @(posedge CLK) begin
     
     exe_mmc_rd_r  <= 0;
     exe_mmc_wr_r  <= 0;
-    exe_mmc_data_r<= 0;
+    //exe_mmc_data_r<= 0;
     exe_mmc_long_r<= 0;
     exe_mmc_byte_total_r <= 0;
     
@@ -2713,6 +2772,8 @@ always @(posedge CLK) begin
     exe_active_r <= 0;
     
     exe_prefetch_val_r <= 0;
+    
+    exe_bcd_val_r <= 0;
     
     e2c_waitcnt_r <= 0;
   end
@@ -2756,7 +2817,7 @@ always @(posedge CLK) begin
         // always stop the read at END
         if (mmc_exe_end) begin
           exe_mmc_rd_r <= 0;
-          exe_data_r <= exe_mmc_rddata;
+          exe_fetch_data_r <= exe_mmc_rddata[15:0];
         end
         
         // TODO: fill in other data sources
@@ -2764,10 +2825,10 @@ always @(posedge CLK) begin
 
         // The decode rom takes an additional clock.
         if (exe_mmc_state_exe_end_r) begin
-          exe_data_r <= int_pending_r ? 8'h00 : exe_prefetch_val_r ? exe_prefetch_r : exe_data_r;
+          //exe_fetch_data_r <= int_pending_r ? 8'h00 : exe_prefetch_val_r ? exe_prefetch_r : exe_fetch_data_r;
           
           if (~|exe_opsize_r) begin
-            exe_opcode_r       <= exe_mmc_int ? 8'h00 : exe_prefetch_val_r ? exe_prefetch_r : exe_data_r[7:0];
+            exe_opcode_r       <= exe_mmc_int ? 8'h00 : exe_prefetch_val_r ? exe_prefetch_r : exe_fetch_data_r[7:0];
             // word size only affects immediate for fetch
             exe_opsize_r       <= dec_data[`DEC_SIZE] ^ {2{exe_dec_imm16}};
             exe_control_r      <= dec_data[`DEC_CONTROL];
@@ -2800,18 +2861,12 @@ always @(posedge CLK) begin
           exe_p_r            <= P_r;
           exe_e_r            <= E_r;
 
-`ifdef BCD_ENABLE
-          exe_bcd_mode_r     <= 0;
-          exe_bcd_carry_r    <= P_r[`P_C];
-          exe_bcd_src_r      <= A_r;
-`endif
-
 `ifdef EXE_FAST_FETCH
           // next state, address, and prefetch logic.
           if (~|exe_opsize_r) begin
             // initial decode
             // `define DEC_SIZE    16:15
-            exe_operand_r[7:0] <= exe_data_r[15:8];
+            exe_operand_r[7:0] <= exe_fetch_data_r[15:8];
 
             if (dec_data[16] | exe_dec_imm16 | (exe_fetch_addr_r[0] & dec_data[15])) begin
               // 3,4 bytes or 2 misaligned bytes
@@ -2830,7 +2885,7 @@ always @(posedge CLK) begin
               
               // prefetch is valid if aligned 1 byte
               exe_prefetch_val_r <= ~exe_fetch_addr_r[0] && (dec_data[`DEC_SIZE] == `SZE_1);
-              exe_prefetch_r     <= exe_data_r[15:8];
+              exe_prefetch_r     <= exe_fetch_data_r[15:8];
 
               EXE_STATE <= ST_EXE_ADDRESS;
             end          
@@ -2841,11 +2896,11 @@ always @(posedge CLK) begin
             
             case (exe_fetch_size_r)
               // have 1 byte
-              `SZE_1: exe_operand_r[15:0]  <= exe_data_r[15:0];
+              `SZE_1: exe_operand_r[15:0]  <= exe_fetch_data_r[15:0];
               // have 2 bytes
-              `SZE_2: exe_operand_r[23:8]  <= exe_data_r[15:0];
+              `SZE_2: exe_operand_r[23:8]  <= exe_fetch_data_r[15:0];
               // have 3 bytes
-              `SZE_3: exe_operand_r[23:16] <= exe_data_r[7:0];
+              `SZE_3: exe_operand_r[23:16] <= exe_fetch_data_r[7:0];
               // have 4 bytes.  not possible
               `SZE_4: exe_operand_r[23:0]  <= 24'hBADBAD;
             endcase
@@ -2867,7 +2922,7 @@ always @(posedge CLK) begin
 
               // check if prefetch available (overfetch)
               exe_prefetch_val_r <= exe_fetch_size_r[0] ^ exe_opsize_r[0];
-              exe_prefetch_r     <= exe_data_r[15:8];
+              exe_prefetch_r     <= exe_fetch_data_r[15:8];
                           
               EXE_STATE <= ST_EXE_ADDRESS;
             end
@@ -2879,14 +2934,14 @@ always @(posedge CLK) begin
           
           case (exe_fetch_size_r)
             `SZE_1: begin end
-            `SZE_2: exe_operand_r[7 : 0] <= exe_prefetch_val_r ? exe_prefetch_r : exe_data_r[7:0];
-            `SZE_3: exe_operand_r[15: 8] <= exe_prefetch_val_r ? exe_prefetch_r : exe_data_r[7:0];
-            `SZE_4: exe_operand_r[23:16] <= exe_prefetch_val_r ? exe_prefetch_r : exe_data_r[7:0];
+            `SZE_2: exe_operand_r[7 : 0] <= exe_prefetch_val_r ? exe_prefetch_r : exe_fetch_data_r[7:0];
+            `SZE_3: exe_operand_r[15: 8] <= exe_prefetch_val_r ? exe_prefetch_r : exe_fetch_data_r[7:0];
+            `SZE_4: exe_operand_r[23:16] <= exe_prefetch_val_r ? exe_prefetch_r : exe_fetch_data_r[7:0];
           endcase
           
           // TODO: the memory controller actually returns 2 sequential bytes independent of source, but we still want to force alignment.
           exe_prefetch_val_r <= ~exe_prefetch_val_r & (~exe_fetch_addr_r[0] | ~`IS_ROM(exe_fetch_addr_r));
-          exe_prefetch_r     <= exe_data_r[15:8];
+          exe_prefetch_r     <= exe_fetch_data_r[15:8];
           
           EXE_STATE <= ~|exe_opsize_r ? (~|dec_data[`DEC_SIZE] ? ST_EXE_ADDRESS : ST_EXE_FETCH) : (exe_fetch_size_r == exe_opsize_r ? ST_EXE_ADDRESS : ST_EXE_FETCH);          
 `endif
@@ -2977,27 +3032,18 @@ always @(posedge CLK) begin
               3: begin
 `ifdef BCD_ENABLE
                 if (P_r[`P_D]) begin
-                  // do a nibble per clock to ease timing.
-                  if (~exe_load_r & ~exe_bcd_mode_r[2]) begin
-                    exe_bcd_src_r <= {exe_bcd_src_r[3:0],exe_bcd_src_r[15:4]};
-                    exe_data_r    <= {exe_data_r[3:0],exe_data_r[15:4]};
-
-                    exe_bcd_result_r[11:0]  <= exe_bcd_result_r[15:4];
+                  if (~exe_load_r) begin
+                    exe_bcd_val_r <= |bcd_cnt_r & ~bcd_done_r;
                     
-                    if (exe_data_word_r | ~exe_bcd_mode_r[1]) begin
-                      exe_bcd_result[4:0] = exe_bcd_src_r[3:0] + exe_data_r[3:0] + exe_bcd_carry_r;
-                      {exe_bcd_carry_r,exe_bcd_result_r[15:12]} <= exe_bcd_result[4:0] + bcd_adder(exe_bcd_result[4],exe_bcd_result[3:0]);
+                    if (~bcd_done_r) begin
+                      // wait on bcd state machine if not done
+                      exe_mmc_wr_r <= 0;
+                      EXE_STATE <= ST_EXE_EXECUTE;
                     end
-                    
-                    exe_bcd_mode_r <= exe_bcd_mode_r + 1;
-
-                    // cancel transition
-                    exe_mmc_wr_r <= 0;
-                    EXE_STATE <= ST_EXE_EXECUTE;
-                  end
+                  end                  
 
                   // NOTE: this won't set the overflow flag properly
-                  exe_result[16:0] = exe_data_word_r ? {exe_bcd_carry_r,exe_bcd_result_r[15:0]} : {8'h00,exe_bcd_carry_r,exe_bcd_result_r[7:0]};
+                  exe_result[16:0] = exe_data_word_r ? {bcd_c_r[3],bcd_o_r[15:0]} : {8'h00,bcd_c_r[1],bcd_o_r[7:0]};
                 end
                 else
 `endif
@@ -3025,7 +3071,7 @@ always @(posedge CLK) begin
             exe_result[16] = 0;
             case (exe_opcode_r[7:5])
               0: exe_result[16:0] = {exe_data_r[15:0],1'b0}; // ASL
-              1: exe_result[16:0] = exe_data_word_r ? {exe_data_r[15:0],P_r[`P_C]}                  : {8'h00,exe_data_r[7:0],P_r[`P_C]}; // ROL
+              1: exe_result[16:0] = {exe_data_r[15:0],P_r[`P_C]}; // ROL
               2: exe_result[16:0] = exe_data_word_r ? {exe_data_r[0],1'b0,exe_data_r[15:1]}         : {8'h00,exe_data_r[0],1'b0,exe_data_r[7:1]}; // LSR
               3: exe_result[16:0] = exe_data_word_r ? {exe_data_r[0],P_r[`P_C],exe_data_r[15:1]}    : {8'h00,exe_data_r[0],P_r[`P_C],exe_data_r[7:1]}; // ROR
               //4: // STX,STY
@@ -3363,7 +3409,7 @@ assign     int_wai = (exe_opcode_r == 8'hCB);
 assign     exe_mmc_addr = EXE_STATE[clog2(ST_EXE_FETCH_END)] ? exe_fetch_addr_r : EXE_STATE[clog2(ST_EXE_ADDRESS_END)] ? exe_addr_r : exe_mmc_addr_r;
 assign     exe_fetch_byte_val = exe_prefetch_val_r;
 assign     exe_fetch_byte     = exe_prefetch_r;
-assign     exe_data           = exe_data_r;
+assign     exe_fetch_data     = exe_fetch_data_r[7:0];
 
 `ifdef DEBUG
 // breakpoints
@@ -3417,13 +3463,14 @@ always @(posedge CLK) begin
 end
 `endif
 
-assign pipeline_advance = sa1_clock_en & ~|exe_waitcnt_r & EXE_STATE[clog2(ST_EXE_WAIT)] & step_r & ~dma_cc1_active_r & ~dma_normal_pri_active_r & ~vbd_active_r & ~WAI_r;
-assign op_complete = 1;
-
 // performance counter
 reg cycle_wait_r;
+reg dma_active_r;
 
 always @(posedge CLK) begin
+  dma_active_r <= dma_cc1_active_r | dma_normal_pri_active_r | vbd_active_r;
+  
+`ifdef DEBUG
   if (sa1_clock_en & ~|exe_waitcnt_r & EXE_STATE[clog2(ST_EXE_WAIT)] & ~step_r) cycle_wait_r <= 1;
   else if (pipeline_advance) cycle_wait_r <= 0;
 
@@ -3433,7 +3480,10 @@ always @(posedge CLK) begin
   else if ((~EXE_STATE[clog2(ST_EXE_WAIT)] | ~cycle_wait_r) & ~EXE_STATE[clog2(ST_EXE_IDLE)]) begin
     sa1_cycle_cnt_r <= sa1_cycle_cnt_r + 1;
   end
+`endif
 end
+
+assign pipeline_advance = sa1_clock_en & ~|exe_waitcnt_r & EXE_STATE[clog2(ST_EXE_WAIT)] & step_r & ~dma_active_r & ~WAI_r;
 
 //-------------------------------------------------------------------
 // DEBUG OUTPUT
