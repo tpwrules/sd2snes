@@ -1686,6 +1686,10 @@ always @(posedge CLK) begin
     MMC_STATE <= ST_MMC_IDLE;
     MDR_r <= 0;
     mmc_long_r <= 0;
+    
+    rom_bus_rrq_r <= 0;
+    ram_bus_rrq_r <= 0;
+    ram_bus_wrq_r <= 0;
   end
   else begin
     case (MMC_STATE)
