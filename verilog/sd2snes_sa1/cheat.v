@@ -43,6 +43,8 @@ module cheat(
   output snescmd_unlock
 );
 
+//`define IRQ_HOOK_ENABLE
+
 wire snescmd_wr_strobe = snescmd_enable & SNES_wr_strobe;
 
 reg cheat_enable = 0;
@@ -54,15 +56,19 @@ reg wram_present = 0;
 wire branch_wram = cheat_enable & wram_present;
 
 reg auto_nmi_enable = 1;
-reg auto_irq_enable = 0;
 reg auto_nmi_enable_sync = 0;
+`ifdef IRQ_HOOK_ENABLE
+reg auto_irq_enable = 0;
 reg auto_irq_enable_sync = 0;
+`endif
 reg hook_enable_sync = 0;
 
 reg [1:0] sync_delay = 2'b10;
 
 reg [4:0] nmi_usage = 5'h00;
+`ifdef IRQ_HOOK_ENABLE
 reg [4:0] irq_usage = 5'h00;
+`endif
 reg [20:0] usage_count = 21'h1fffff;
 
 reg [29:0] hook_enable_count = 0;
@@ -98,11 +104,15 @@ wire [5:0] cheat_match_bits ={(cheat_enable_mask[5] & (SNES_ADDR == cheat_addr[5
 wire cheat_addr_match = |cheat_match_bits;
 
 wire [1:0] nmi_match_bits = {SNES_ADDR == 24'h00FFEA, SNES_ADDR == 24'h00FFEB};
+`ifdef IRQ_HOOK_ENABLE
 wire [1:0] irq_match_bits = {SNES_ADDR == 24'h00FFEE, SNES_ADDR == 24'h00FFEF};
+`endif
 wire [1:0] rst_match_bits = {SNES_ADDR == 24'h00FFFC, SNES_ADDR == 24'h00FFFD};
 
 wire nmi_addr_match = |nmi_match_bits;
+`ifdef IRQ_HOOK_ENABLE
 wire irq_addr_match = |irq_match_bits;
+`endif
 wire rst_addr_match = |rst_match_bits;
 
 wire hook_enable = ~|hook_enable_count;
@@ -114,7 +124,9 @@ assign data_out = cheat_match_bits[0] ? cheat_data[0]
                 : cheat_match_bits[4] ? cheat_data[4]
                 : cheat_match_bits[5] ? cheat_data[5]
                 : nmi_match_bits[1] ? 8'h04
+`ifdef IRQ_HOOK_ENABLE
                 : irq_match_bits[1] ? 8'h04
+`endif
                 : rst_match_bits[1] ? 8'h6b
                 : nmicmd_enable ? nmicmd
                 : return_vector_enable ? return_vector
@@ -126,7 +138,10 @@ assign cheat_hit = (snescmd_unlock & hook_enable_sync & (nmicmd_enable | return_
                    | (reset_unlock & rst_addr_match)
                    | (cheat_enable & cheat_addr_match)
                    | (hook_enable_sync & (((auto_nmi_enable_sync & nmi_enable) & nmi_addr_match & vector_unlock)
-                                           |((auto_irq_enable_sync & irq_enable) & irq_addr_match & vector_unlock)));
+`ifdef IRQ_HOOK_ENABLE                   
+                                           |((auto_irq_enable_sync & irq_enable) & irq_addr_match & vector_unlock)
+`endif
+                                           ));
 
 // irq/nmi detect based on CPU access pattern
 // 4 writes (mirrored to B bus) signify that the CPU pushes PB, PC and
@@ -164,7 +179,10 @@ always @(posedge clk) begin
   end else if(SNES_rd_strobe) begin
     if(hook_enable_sync
       & ((auto_nmi_enable_sync & nmi_enable & nmi_match_bits[1])
-        |(auto_irq_enable_sync & irq_enable & irq_match_bits[1]))
+`ifdef IRQ_HOOK_ENABLE
+        |(auto_irq_enable_sync & irq_enable & irq_match_bits[1])
+`endif
+        )
       & cpu_push_cnt == 4) begin
       vector_unlock_r <= 2'b11;
     end else if(|vector_unlock_r) begin
@@ -197,7 +215,10 @@ always @(posedge clk) begin
     if(SNES_rd_strobe) begin
       if(hook_enable_sync
         & ((auto_nmi_enable_sync & nmi_enable & nmi_match_bits[1])
-          |(auto_irq_enable_sync & irq_enable & irq_match_bits[1]))
+`ifdef IRQ_HOOK_ENABLE
+          |(auto_irq_enable_sync & irq_enable & irq_match_bits[1])
+`endif
+          )
         & cpu_push_cnt == 4) begin
         // remember where we came from (IRQ/NMI) for hook exit
         return_vector <= SNES_ADDR[7:0];
@@ -232,7 +253,11 @@ always @(posedge clk) usage_count <= usage_count - 1;
 always @(posedge clk) begin
   if(usage_count == 21'b0) begin
     nmi_usage <= SNES_cycle_start & nmi_match_bits[1];
+`ifdef IRQ_HOOK_ENABLE    
     irq_usage <= SNES_cycle_start & irq_match_bits[1];
+`endif
+
+`ifdef IRQ_HOOK_ENABLE    
     if(|nmi_usage & |irq_usage) begin
       auto_nmi_enable <= 1'b1;
       auto_irq_enable <= 1'b0;
@@ -243,21 +268,32 @@ always @(posedge clk) begin
       auto_nmi_enable <= 1'b0;
       auto_irq_enable <= 1'b1;
     end
+`else
+    auto_nmi_enable <= |nmi_usage;
+`endif
   end else begin
     if(SNES_cycle_start & nmi_match_bits[0]) nmi_usage <= nmi_usage + 1;
+`ifdef IRQ_HOOK_ENABLE    
     if(SNES_cycle_start & irq_match_bits[0]) irq_usage <= irq_usage + 1;
+`endif
   end
 end
 
 // Do not change vectors while they are being read
 always @(posedge clk) begin
   if(SNES_cycle_start) begin
-    if(nmi_addr_match | irq_addr_match) sync_delay <= 2'b10;
+    if(nmi_addr_match
+`ifdef IRQ_HOOK_ENABLE    
+      | irq_addr_match
+`endif
+      ) sync_delay <= 2'b10;
     else begin
       if (|sync_delay) sync_delay <= sync_delay - 1;
       if (sync_delay == 2'b00) begin
         auto_nmi_enable_sync <= auto_nmi_enable;
+`ifdef IRQ_HOOK_ENABLE
         auto_irq_enable_sync <= auto_irq_enable;
+`endif
         hook_enable_sync <= hook_enable;
       end
     end

@@ -114,7 +114,7 @@ module sa1(
 // [x] host interrupt vectors
 // [x] sa1 interrupts
 // [_] counters
-// [_] bcd mode/math
+// [x] bcd mode/math (overflow likely not set correctly)
 // [x] rom address mapping
 // [x] ram address mapping
 // [x] multiply/divide
@@ -149,7 +149,6 @@ module sa1(
 // temporaries
 integer i;
 wire pipeline_advance;
-wire op_complete;
 
 function integer clog2;
   input integer value;
@@ -927,6 +926,7 @@ always @(posedge CLK) begin
   if (RST) begin
     math_val_r <= 0;
     math_acm_r <= 0;
+    math_init_r <= 0;
   
     math_md_r <= 0;
     math_ma_r <= 0;
@@ -1115,9 +1115,9 @@ always @(posedge CLK) begin
     else                               exe_waitcnt_r <= exe_waitcnt_r + e2c_waitcnt_r;
     
     // ok to advance to next instruction byte
-    step_r <= CONFIG_CONTROL_ENABLED || (!op_complete & !CONFIG_CONTROL_MATCHPARTINST) || (stepcnt_r != CONFIG_STEP_COUNT);
+    step_r <= CONFIG_CONTROL_ENABLED || (stepcnt_r != CONFIG_STEP_COUNT);
     
-    if (pipeline_advance & (op_complete | CONFIG_CONTROL_MATCHPARTINST)) stepcnt_r <= CONFIG_STEP_COUNT;
+    if (pipeline_advance) stepcnt_r <= CONFIG_STEP_COUNT;
   end
 end
 
@@ -1230,6 +1230,9 @@ reg        mmc_rom_exe_r;
 
 always @(posedge CLK) begin
   if (RST) begin
+    rom_bus_rrq_r <= 0;
+    rom_bus_wrq_r <= 0; // unused but good to init
+  
     mmc_rom_exe_end_r <= 0;
     mmc_rom_dma_end_r <= 0;
     mmc_rom_vbd_end_r <= 0;
@@ -1688,6 +1691,7 @@ always @(posedge CLK) begin
     mmc_long_r <= 0;
     
     rom_bus_rrq_r <= 0;
+    rom_bus_wrq_r <= 0; // unused but good to init
     ram_bus_rrq_r <= 0;
     ram_bus_wrq_r <= 0;
   end
@@ -1759,10 +1763,10 @@ always @(posedge CLK) begin
             //end
           end
           else begin
-            rom_bus_rrq_r <= 0;
-            rom_bus_wrq_r <= 0;
-            ram_bus_rrq_r <= 0;
-            ram_bus_wrq_r <= 0;
+            //rom_bus_rrq_r <= 0;
+            //rom_bus_wrq_r <= 0; // unused but good to init
+            //ram_bus_rrq_r <= 0;
+            //ram_bus_wrq_r <= 0;
             MMC_STATE <= ST_MMC_INV;
           end
 
@@ -1823,7 +1827,7 @@ always @(posedge CLK) begin
             MMC_STATE <= ST_MMC_BRAM;
           end
           else begin
-            rom_bus_rrq_r <= 0;
+            //rom_bus_rrq_r <= 0;
             MMC_STATE <= ST_MMC_INV;
           end
           
@@ -1970,7 +1974,6 @@ always @(posedge CLK) begin
         end
       end
       ST_MMC_INV: begin
-        // interrupt returns BRK instruction
         mmc_data_r <= {MDR_r,MDR_r,MDR_r,MDR_r};
         MMC_STATE <= mmc_state_end_r;
       end
@@ -2067,6 +2070,8 @@ reg [10:0] dma_cc1_addr_wr_r; // current write address
 reg [3:0]  dma_cc2_line_r; initial dma_cc2_line_r = 0;
 
 reg        dma_normal_int_r; initial dma_normal_int_r = 0;
+reg        dma_normal_prefetch_val_r; initial dma_normal_prefetch_val_r = 0;
+reg [7:0]  dma_normal_prefetch_dat_r; initial dma_normal_prefetch_dat_r = 0;
 
 reg        dma_trigger_normal_r; initial dma_trigger_normal_r = 0;
 reg        dma_start_type1_r; initial dma_start_type1_r = 0;
@@ -2109,7 +2114,8 @@ always @(posedge CLK) begin
    
     dma_cc2_line_r <= 0;
 
-    dma_normal_int_r <= 0;
+    dma_normal_int_r          <= 0;
+    dma_normal_prefetch_val_r <= 0;
     
     SFR_r[`SFR_DMA_IRQFL] <= 0;
     CFR_r[`CFR_DMA_IRQFL] <= 0;
@@ -2210,7 +2216,8 @@ always @(posedge CLK) begin
         // will be 1 when we transition to idle after the first character.
         dma_cc1_int_r <= dma_start_type1_r;
 
-        dma_normal_int_r <= 0;
+        dma_normal_int_r          <= 0;
+        dma_normal_prefetch_val_r <= 0;
 
         if      (dma_trigger_normal_r) begin
           DMA_STATE <= ST_DMA_NORMAL_READ;
@@ -2250,7 +2257,7 @@ always @(posedge CLK) begin
       // normal
       ST_DMA_NORMAL_READ: begin
         if (|dma_dtc_r) begin
-          dma_mmc_rd_r <= 1;
+          dma_mmc_rd_r <= ~dma_normal_prefetch_val_r;
           {dma_mmc_rom_r,dma_mmc_iram_r,dma_mmc_bram_r} <= {~|dma_dcnt_r[1:0],dma_dcnt_r[1],dma_dcnt_r[0]};
           
           dma_dtc_r <= dma_dtc_r - 1;
@@ -2272,7 +2279,16 @@ always @(posedge CLK) begin
         dma_next_readstate_r  <= ST_DMA_WRITE;
         dma_next_writestate_r <= ST_DMA_NORMAL_READ;
       end
+      ST_DMA_WRITE: begin
+        dma_mmc_wr_r   <= 1;
+        {dma_mmc_rom_r,dma_mmc_iram_r,dma_mmc_bram_r} <= {1'b0,~dma_dcnt_r[`DCNT_DD],dma_dcnt_r[`DCNT_DD]};
+        dma_mmc_addr_r <= dma_write_addr_r;
+        dma_mmc_data_r <= dma_data_r;
+
+        DMA_STATE <= ST_DMA_WRITE_END;
+      end
 `endif
+
 `ifdef DMA_TYPE1_ENABLE
       // type1
       ST_DMA_TYPE1_READ: begin
@@ -2355,10 +2371,13 @@ always @(posedge CLK) begin
         DMA_STATE <= ST_DMA_WRITE_END;
       end
 `endif
+
       ST_DMA_READ_END: begin
         if (~dma_mmc_rd_r) begin
+          //dma_normal_prefetch_val_r <= 0;
+          dma_data_r <= dma_normal_prefetch_dat_r[7:0];
+        
           DMA_STATE <= dma_next_readstate_r;
-          
           //if (dma_cc1_rd_r) dma_cc1_upper_r <= 0;
         end
         else if (mmc_dma_end) begin
@@ -2367,6 +2386,9 @@ always @(posedge CLK) begin
           
           DMA_STATE <= dma_next_readstate_r;
         end
+        
+        dma_normal_prefetch_val_r <= ~dma_mmc_addr_r[0] & dma_mmc_rom_r; 
+        dma_normal_prefetch_dat_r <= dma_mmc_rddata[15:8];
         
         if (~dma_mmc_rd_r | mmc_dma_end) begin
           dma_cc1_data_r[7] <=   dma_mmc_rd_r  ? dma_mmc_rddata[7:0]
@@ -2377,16 +2399,6 @@ always @(posedge CLK) begin
           for (i = 0; i < 7; i = i + 1) dma_cc1_data_r[i] <= dma_cc1_data_r[i+1];
         end
       end
-`ifdef DMA_NORMAL_ENABLE
-      ST_DMA_WRITE: begin
-        dma_mmc_wr_r   <= 1;
-        {dma_mmc_rom_r,dma_mmc_iram_r,dma_mmc_bram_r} <= {1'b0,~dma_dcnt_r[`DCNT_DD],dma_dcnt_r[`DCNT_DD]};
-        dma_mmc_addr_r <= dma_write_addr_r;
-        dma_mmc_data_r <= dma_data_r;
-
-        DMA_STATE <= ST_DMA_WRITE_END;
-      end
-`endif
       ST_DMA_WRITE_END: begin
         if (~dma_mmc_wr_r) begin
           DMA_STATE <= dma_next_writestate_r;
@@ -2777,7 +2789,9 @@ always @(posedge CLK) begin
     
     exe_prefetch_val_r <= 0;
     
+`ifdef BCD_ENABLE
     exe_bcd_val_r <= 0;
+`endif
     
     e2c_waitcnt_r <= 0;
   end
