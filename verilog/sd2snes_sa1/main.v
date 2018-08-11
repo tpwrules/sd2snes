@@ -210,9 +210,9 @@ wire SNES_CPU_CLK = SNES_CPU_CLKr[2] & SNES_CPU_CLKr[1];
 wire SNES_PARD = SNES_PARDr[2] & SNES_PARDr[1];
 
 wire SNES_ROMSEL = (SNES_ROMSELr[5] & SNES_ROMSELr[4]);
-wire [23:0] SNES_ADDR = (SNES_ADDRr[6] & SNES_ADDRr[5]);
+wire [23:0] SNES_ADDR = SNES_ADDRr[0]; //(SNES_ADDRr[6] & SNES_ADDRr[5]);
 wire [23:0] SNES_ADDR_early = SNES_ADDRr[0];
-wire [7:0] SNES_PA = (SNES_PAr[6] & SNES_PAr[5]);
+wire [7:0] SNES_PA = SNES_PAr[0]; //(SNES_PAr[6] & SNES_PAr[5]);
 wire [7:0] SNES_DATA_IN = (SNES_DATAr[3] & SNES_DATAr[2]);
 
 reg [7:0] BUS_DATA;
