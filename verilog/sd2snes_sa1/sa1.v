@@ -127,8 +127,6 @@ module sa1(
 // DEFINES
 //-------------------------------------------------------------------
 
-//`define NEW_MMC
-
 //`define DEBUG
 `define DEBUG_IRAM
 `define DEBUG_MMIO
@@ -1228,7 +1226,7 @@ reg        rom_bus_word_r;
 // bram
 reg ram_bus_rrq_r; initial ram_bus_rrq_r = 0;
 reg ram_bus_wrq_r; initial ram_bus_wrq_r = 0;
-reg [23:0] ram_bus_addr_r;
+reg [19:0] ram_bus_addr_r;
 reg [7:0]  ram_bus_data_r;
 
 // iram
@@ -1241,465 +1239,10 @@ wire [23:0] exe_mmc_addr;
 
 wire        mmc_dma_end;
 wire        mmc_exe_end;
-
-
-`ifdef NEW_MMC
-// TODO
-// - mux for data response
-
-// rom
-// - exe
-// - dma
-// - vbd
-parameter
-  ST_MMC_ROM_IDLE = 1'b0,
-  ST_MMC_ROM_WAIT = 1'b1;
-
-reg        MMC_ROM_STATE; initial MMC_ROM_STATE = ST_MMC_ROM_IDLE;
-reg        mmc_rom_exe_end_r; initial mmc_rom_exe_end_r = 0;
-reg        mmc_rom_dma_end_r; initial mmc_rom_dma_end_r = 0;
-reg        mmc_rom_vbd_end_r; initial mmc_rom_vbd_end_r = 0;
-
-reg [1:0]  mmc_rom_byte_r;
-reg [1:0]  mmc_rom_byte_total_r;
-reg        mmc_rom_dpe_r;
-//reg        mmc_rom_wr_r;
-reg        mmc_rom_long_r;
-reg [31:0] mmc_rom_rddata_r;
-reg        mmc_rom_misaligned; initial mmc_rom_misaligned = 0;
-
-reg        mmc_rom_dma_r;
-reg        mmc_rom_exe_r;
-
-always @(posedge CLK) begin
-  if (RST) begin
-    rom_bus_rrq_r <= 0;
-    rom_bus_wrq_r <= 0; // unused but good to init
-  
-    mmc_rom_exe_end_r <= 0;
-    mmc_rom_dma_end_r <= 0;
-    mmc_rom_vbd_end_r <= 0;
-  
-    MMC_ROM_STATE <= ST_MMC_ROM_IDLE;
-  end
-  else begin
-    case (MMC_ROM_STATE)
-      ST_MMC_ROM_IDLE: begin
-        mmc_rom_exe_end_r <= 0;
-        mmc_rom_dma_end_r <= 0;
-        mmc_rom_vbd_end_r <= 0;
-        mmc_rom_byte_r    <= 0;
-        mmc_rom_dma_r     <= 0;
-        mmc_rom_exe_r     <= 0;
-
-        // bus must be available here
-        if      (dma_mmc_rd_r & dma_mmc_rom_r) begin
-          rom_bus_rrq_r  <= ~dma_mmc_wr_r;
-          rom_bus_addr_r <= `MAP_ROM(dma_mmc_addr_r);
-          rom_bus_word_r <= 1;
-          
-          mmc_rom_byte_total_r <= 0;
-          mmc_rom_dpe_r        <= 0;
-          //mmc_rom_wr_r         <= 0;
-          mmc_rom_long_r       <= 0;
-
-          mmc_rom_dma_r        <= 1;
-
-          MMC_ROM_STATE <= ST_MMC_ROM_WAIT;
-        end
-        else if (exe_mmc_rd_r & `IS_ROM(exe_mmc_addr)) begin
-          rom_bus_rrq_r  <= ~exe_mmc_wr_r;
-          rom_bus_addr_r <= `MAP_ROM(exe_mmc_addr);
-          rom_bus_word_r <= 1;
-          
-          mmc_rom_byte_total_r <= exe_mmc_byte_total_r;
-          mmc_rom_dpe_r        <= exe_mmc_dpe_r;
-          //mmc_rom_wr_r         <= exe_mmc_wr_r;
-          mmc_rom_long_r       <= exe_mmc_long_r;
-          mmc_rom_misaligned   <= exe_mmc_addr[0];
-
-          mmc_rom_exe_r        <= 1;
-
-          MMC_ROM_STATE <= ST_MMC_ROM_WAIT;
-        end
-      end
-      ST_MMC_ROM_WAIT: begin
-        rom_bus_rrq_r <= 0;
-
-        if (~rom_bus_rrq_r & ROM_BUS_RDY) begin
-          mmc_rom_byte_r <= mmc_rom_byte_r + (mmc_rom_misaligned ? 1 : 2);
-          
-          // only the first request may be misaligned
-          mmc_rom_misaligned <= 0;
-
-          case (mmc_rom_byte_r)
-            0: mmc_rom_rddata_r[15: 0] <= ROM_BUS_RDDATA[15:0];
-            1: mmc_rom_rddata_r[23: 8] <= ROM_BUS_RDDATA[15:0];
-            2: mmc_rom_rddata_r[31:16] <= ROM_BUS_RDDATA[15:0];
-            3: mmc_rom_rddata_r[31:24] <= ROM_BUS_RDDATA[7:0];
-          endcase
-          
-          // FIXME: doesn't work if we want 4 bytes back
-          if ((mmc_rom_misaligned & mmc_rom_byte_total_r[0]) | (~|mmc_rom_byte_r & mmc_rom_byte_total_r[1])) begin
-            rom_bus_rrq_r <= 1;
-
-            if      (mmc_rom_dpe_r)  rom_bus_addr_r[7:0]  <= {rom_bus_addr_r[7:1]  + 1, 1'b0};
-            else if (mmc_rom_long_r) rom_bus_addr_r[23:0] <= {rom_bus_addr_r[23:1] + 1, 1'b0};
-            else                     rom_bus_addr_r[15:0] <= {rom_bus_addr_r[15:1] + 1, 1'b0};
-          end
-          else begin
-            // FIXME: add vpr
-            {mmc_rom_dma_end_r,mmc_rom_exe_end_r,mmc_rom_vbd_end_r} <= {mmc_rom_dma_r,mmc_rom_exe_r,1'b0};
-            
-            MMC_ROM_STATE <= ST_MMC_ROM_IDLE;
-          end
-        end
-      end
-    endcase
-  end
-end
-
-// bram/pram
-// - exe
-// - dma
-parameter
-  ST_MMC_RAM_IDLE = 1'b0,
-  ST_MMC_RAM_WAIT = 1'b1;
-
-reg        MMC_RAM_STATE; initial MMC_RAM_STATE = ST_MMC_RAM_IDLE;
-reg        mmc_ram_exe_end_r; initial mmc_ram_exe_end_r = 0;
-reg        mmc_ram_dma_end_r; initial mmc_ram_dma_end_r = 0;
-
-reg [1:0]  mmc_ram_byte_r;
-reg [1:0]  mmc_ram_byte_total_r;
-reg        mmc_ram_dpe_r;
-reg        mmc_ram_wr_r;
-reg        mmc_ram_long_r;
-reg [31:0] mmc_ram_rddata_r;
-reg [31:0] mmc_ram_wrdata_r;
-reg        mmc_ram_pram_r;
-reg [1:0]  mmc_ram_pram_index_r; initial mmc_ram_pram_index_r = 0;
-
-reg        mmc_ram_dma_r;
-reg        mmc_ram_exe_r;
-
-always @(posedge CLK) begin
-  if (RST) begin
-    mmc_ram_exe_end_r <= 0;
-    mmc_ram_dma_end_r <= 0;
-  
-    MMC_RAM_STATE <= ST_MMC_RAM_IDLE;
-  end
-  else begin
-    case (MMC_RAM_STATE)
-      ST_MMC_RAM_IDLE: begin
-        mmc_ram_exe_end_r <= 0;
-        mmc_ram_dma_end_r <= 0;
-        mmc_ram_byte_r    <= 0;
-        mmc_ram_dma_r     <= 0;
-        mmc_ram_exe_r     <= 0;
-
-        // bus must be available here
-        if      ((dma_mmc_wr_r | dma_mmc_rd_r) & dma_mmc_bram_r) begin
-          ram_bus_rrq_r  <= ~dma_mmc_wr_r;
-          ram_bus_wrq_r  <=  dma_mmc_wr_r;
-          ram_bus_addr_r <= `MAP_BRAM(dma_mmc_addr_r);
-          ram_bus_data_r <= dma_mmc_data_r[7:0];
-          
-          mmc_ram_pram_r       <= 0;
-          
-          mmc_ram_byte_total_r  <= 0;
-          mmc_ram_dpe_r         <= 0;
-          mmc_ram_wr_r          <= dma_mmc_wr_r;
-          mmc_ram_long_r        <= 0;
-          mmc_ram_wrdata_r[7:0] <= dma_mmc_data_r;
-          
-          mmc_ram_dma_r        <= 1;
-          
-          MMC_RAM_STATE <= ST_MMC_RAM_WAIT;
-        end
-        else if ((exe_mmc_wr_r | exe_mmc_rd_r) & (`IS_SA1_BRAM(exe_mmc_addr) | `IS_SA1_PRAM(exe_mmc_addr))) begin
-          ram_bus_rrq_r  <= ~exe_mmc_wr_r;
-          ram_bus_wrq_r  <=  exe_mmc_wr_r;
-          ram_bus_addr_r <= `IS_SA1_PRAM(exe_mmc_addr) ? `MAP_PRAM(exe_mmc_addr) : `MAP_BRAM(exe_mmc_addr);
-          ram_bus_data_r <= exe_mmc_data_r[7:0];
-          
-          mmc_ram_pram_r       <= `IS_SA1_PRAM(exe_mmc_addr);
-          mmc_ram_pram_index_r <= exe_mmc_addr[1:0];
-          
-          mmc_ram_byte_total_r <= exe_mmc_byte_total_r;
-          mmc_ram_dpe_r        <= exe_mmc_dpe_r;
-          mmc_ram_wr_r         <= exe_mmc_wr_r;
-          mmc_ram_long_r       <= exe_mmc_long_r;
-          mmc_ram_wrdata_r     <= exe_mmc_data_r;
-          
-          mmc_ram_exe_r        <= 1;
-
-          MMC_RAM_STATE <= ST_MMC_RAM_WAIT;
-        end
-      end
-      ST_MMC_RAM_WAIT: begin
-        ram_bus_rrq_r <= 0;
-        ram_bus_wrq_r <= 0;
-
-        if (~ram_bus_rrq_r & ~ram_bus_wrq_r & RAM_BUS_RDY) begin
-          // FIXME: don't increment byte to avoid storing extra
-          if (~mmc_ram_pram_r) mmc_ram_byte_r <= mmc_ram_byte_r + 1;
-
-          mmc_ram_wrdata_r <= {mmc_ram_wrdata_r[7:0],mmc_ram_wrdata_r[31:24],mmc_ram_wrdata_r[23:16],mmc_ram_wrdata_r[15:8]};
-
-          if (mmc_ram_pram_r) begin
-            // read data
-            case (mmc_ram_pram_index_r)
-              0: mmc_ram_rddata_r[7:0] <= bbf ? {6'h00,RAM_BUS_RDDATA[1:0]} : {4'h0,RAM_BUS_RDDATA[3:0]};
-              1: mmc_ram_rddata_r[7:0] <= bbf ? {6'h00,RAM_BUS_RDDATA[3:2]} : {4'h0,RAM_BUS_RDDATA[7:4]};
-              2: mmc_ram_rddata_r[7:0] <= bbf ? {6'h00,RAM_BUS_RDDATA[5:4]} : {4'h0,RAM_BUS_RDDATA[3:0]};
-              3: mmc_ram_rddata_r[7:0] <= bbf ? {6'h00,RAM_BUS_RDDATA[7:6]} : {4'h0,RAM_BUS_RDDATA[7:4]};
-            endcase
-          end
-          else begin
-            case (mmc_ram_byte_r)
-              0: mmc_ram_rddata_r[7 : 0] <= RAM_BUS_RDDATA[7:0];
-              1: mmc_ram_rddata_r[15: 8] <= RAM_BUS_RDDATA[7:0];
-              2: mmc_ram_rddata_r[23:16] <= RAM_BUS_RDDATA[7:0];
-              3: mmc_ram_rddata_r[31:24] <= RAM_BUS_RDDATA[7:0];
-            endcase
-          end
-          
-          if (mmc_ram_pram_r & mmc_ram_wr_r) begin
-            // perform rmw
-            ram_bus_wrq_r <= 1;
-            
-            mmc_ram_pram_r <= 0;
-            
-            // TODO: assumes only one byte (value) is merged
-            case (mmc_ram_pram_index_r)
-              0: ram_bus_data_r[7:0] <= bbf ? {RAM_BUS_RDDATA[7:2],mmc_ram_wrdata_r[1:0]                    } : {RAM_BUS_RDDATA[7:4],mmc_ram_wrdata_r[3:0]};
-              1: ram_bus_data_r[7:0] <= bbf ? {RAM_BUS_RDDATA[7:4],mmc_ram_wrdata_r[1:0],RAM_BUS_RDDATA[1:0]} : {mmc_ram_wrdata_r[3:0],RAM_BUS_RDDATA[3:0]};
-              2: ram_bus_data_r[7:0] <= bbf ? {RAM_BUS_RDDATA[7:6],mmc_ram_wrdata_r[1:0],RAM_BUS_RDDATA[3:0]} : {RAM_BUS_RDDATA[7:4],mmc_ram_wrdata_r[3:0]};
-              3: ram_bus_data_r[7:0] <= bbf ? {mmc_ram_wrdata_r[1:0],RAM_BUS_RDDATA[5:0]                    } : {mmc_ram_wrdata_r[3:0],RAM_BUS_RDDATA[3:0]};
-            endcase
-          end
-          else if (mmc_ram_byte_r != mmc_ram_byte_total_r) begin
-            // stay in the same state and make a new request
-            ram_bus_rrq_r  <= ~mmc_ram_wr_r;
-            ram_bus_wrq_r  <=  mmc_ram_wr_r;
-            
-            if      (mmc_ram_dpe_r)  ram_bus_addr_r[7:0]  <= ram_bus_addr_r[7:0]  + 1;
-            else if (mmc_ram_long_r) ram_bus_addr_r[23:0] <= ram_bus_addr_r[23:0] + 1;
-            else                     ram_bus_addr_r[15:0] <= ram_bus_addr_r[15:0] + 1;
-            
-            ram_bus_data_r <= mmc_ram_wrdata_r[15:8];
-          end
-          else begin
-            {mmc_ram_dma_end_r,mmc_ram_exe_end_r} <= {mmc_ram_dma_r,mmc_ram_exe_r};
-          
-            MMC_RAM_STATE <= ST_MMC_RAM_IDLE;
-          end
-        end
-      end
-    endcase
-  end
-end
-
-// iram
-// - exe
-// - dma
-parameter
-  ST_MMC_IRAM_IDLE = 1'b0,
-  ST_MMC_IRAM_WAIT = 1'b1;
-
-reg        MMC_IRAM_STATE; initial MMC_IRAM_STATE = ST_MMC_IRAM_IDLE;
-reg        mmc_iram_exe_end_r; initial mmc_iram_exe_end_r = 0;
-reg        mmc_iram_dma_end_r; initial mmc_iram_dma_end_r = 0;
-
-reg [1:0]  mmc_iram_byte_r;
-reg [1:0]  mmc_iram_byte_total_r;
-reg [10:0] mmc_iram_addr_r;
-reg        mmc_iram_dpe_r;
-reg        mmc_iram_wr_r;
-//reg        mmc_iram_long_r;
-reg [31:0] mmc_iram_rddata_r;
-reg [31:0] mmc_iram_wrdata_r;
-
-reg        mmc_iram_dma_r;
-reg        mmc_iram_exe_r;
-
-always @(posedge CLK) begin
-  if (RST) begin
-    mmc_iram_exe_end_r <= 0;
-    mmc_iram_dma_end_r <= 0;
-  
-    MMC_IRAM_STATE <= ST_MMC_IRAM_IDLE;
-  end
-  else begin
-    case (MMC_IRAM_STATE)
-      ST_MMC_IRAM_IDLE: begin
-        mmc_iram_exe_end_r <= 0;
-        mmc_iram_dma_end_r <= 0;
-        mmc_iram_byte_r    <= 0;
-        mmc_iram_dma_r     <= 0;
-        mmc_iram_exe_r     <= 0;
-
-        // bus must be available here
-        if      ((dma_mmc_wr_r | dma_mmc_rd_r) & dma_mmc_iram_r) begin         
-          mmc_iram_addr_r       <= `MAP_IRAM(dma_mmc_addr_r);
-          mmc_iram_state_r      <= 0;
-
-          mmc_iram_byte_total_r  <= 0;
-          mmc_iram_dpe_r         <= 0;
-          mmc_iram_wr_r          <= dma_mmc_wr_r;
-          //mmc_iram_long_r        <= 0;
-          mmc_iram_wrdata_r[7:0] <= dma_mmc_data_r;
-          
-          mmc_iram_dma_r       <= 1;
-          
-          MMC_IRAM_STATE <= ST_MMC_IRAM_WAIT;
-        end
-        else if ((exe_mmc_wr_r | exe_mmc_rd_r) & `IS_SA1_IRAM(exe_mmc_addr)) begin
-          mmc_iram_addr_r       <= `MAP_IRAM(exe_mmc_addr);
-          mmc_iram_state_r      <= 0;
-
-          mmc_iram_byte_total_r <= exe_mmc_byte_total_r;
-          mmc_iram_dpe_r        <= exe_mmc_dpe_r;
-          mmc_iram_wr_r         <= exe_mmc_wr_r;
-          //mmc_iram_long_r       <= exe_mmc_long_r;
-          mmc_iram_wrdata_r     <= exe_mmc_data_r;
-          
-          mmc_iram_exe_r        <= 1;
-          
-          MMC_IRAM_STATE <= ST_MMC_IRAM_WAIT;
-        end
-      end
-      ST_MMC_IRAM_WAIT: begin
-        mmc_iram_state_r <= ~mmc_iram_state_r;
-      
-        if (mmc_iram_state_r) begin
-          mmc_iram_byte_r <= mmc_iram_byte_r + 1;
-          
-          case (mmc_iram_byte_r)
-            0: mmc_iram_rddata_r[ 7: 0] <= iram_dout[7:0];
-            1: mmc_iram_rddata_r[15: 8] <= iram_dout[7:0];
-            2: mmc_iram_rddata_r[23:16] <= iram_dout[7:0];
-            3: mmc_iram_rddata_r[31:24] <= iram_dout[7:0];
-          endcase
-
-          mmc_iram_wrdata_r <= {mmc_iram_wrdata_r[7:0],mmc_iram_wrdata_r[31:24],mmc_iram_wrdata_r[23:16],mmc_iram_wrdata_r[15:8]};
-
-          if (mmc_iram_byte_r != mmc_iram_byte_total_r) begin
-            if (mmc_iram_dpe_r) mmc_iram_addr_r[7:0]  <= mmc_iram_addr_r[7:0] + 1;
-            else                mmc_iram_addr_r[10:0] <= mmc_iram_addr_r[10:0] + 1;
-          end
-          else begin
-            {mmc_iram_dma_end_r,mmc_iram_exe_end_r} <= {mmc_iram_dma_r,mmc_iram_exe_r};
-
-            MMC_IRAM_STATE <= ST_MMC_IRAM_IDLE;
-          end
-        end
-      end
-    endcase
-  end
-end
-
-// mmio
-// -exe
-parameter
-  ST_MMC_MMIO_IDLE = 1'b0,
-  ST_MMC_MMIO_WAIT = 1'b1;
-
-reg        MMC_MMIO_STATE; initial MMC_MMIO_STATE = ST_MMC_MMIO_IDLE;
-reg        mmc_mmio_exe_end_r; initial mmc_mmio_exe_end_r = 0;
-
-reg [1:0]  mmc_mmio_byte_r;
-reg [1:0]  mmc_mmio_byte_total_r;
-reg [8:0]  mmc_mmio_addr_r;
-reg        mmc_mmio_wr_r;
-reg [31:0] mmc_mmio_rddata_r;
-reg [31:0] mmc_mmio_wrdata_r;
-
-always @(posedge CLK) begin
-  if (RST) begin
-    mmc_mmio_exe_end_r <= 0;
-  
-    MMC_MMIO_STATE <= ST_MMC_MMIO_IDLE;
-  end
-  else begin
-    case (MMC_MMIO_STATE)
-      ST_MMC_MMIO_IDLE: begin
-        mmc_mmio_exe_end_r <= 0;
-        mmc_mmio_byte_r    <= 0;
-
-        // bus must be available here
-        if ((exe_mmc_wr_r | exe_mmc_rd_r) & `IS_SA1_MMIO(exe_mmc_addr)) begin
-          mmc_mmio_addr_r       <= `MAP_MMIO(exe_mmc_addr);
-
-          mmc_mmio_byte_total_r <= exe_mmc_byte_total_r;
-          mmc_mmio_wr_r         <= exe_mmc_wr_r;
-          mmc_mmio_wrdata_r     <= exe_mmc_data_r;
-
-          MMC_MMIO_STATE <= ST_MMC_MMIO_WAIT;
-        end
-      end
-      ST_MMC_MMIO_WAIT: begin
-        if (mmc_mmio_wr_r ? sa1_mmio_write : sa1_mmio_read_r[1]) begin
-          mmc_mmio_byte_r <= mmc_mmio_byte_r + 1;
-
-          case (mmc_mmio_byte_r)
-            0: mmc_mmio_rddata_r[ 7: 0] <= data_out_r[7:0];
-            1: mmc_mmio_rddata_r[15: 8] <= data_out_r[7:0];
-            2: mmc_mmio_rddata_r[23:16] <= data_out_r[7:0];
-            3: mmc_mmio_rddata_r[31:23] <= data_out_r[7:0];
-          endcase
-
-          mmc_mmio_wrdata_r <= {mmc_mmio_wrdata_r[7:0],mmc_mmio_wrdata_r[31:24],mmc_mmio_wrdata_r[23:16],mmc_mmio_wrdata_r[15:8]};
-          
-          if (mmc_mmio_byte_r != mmc_mmio_byte_total_r) begin
-            // stay in the read/write region by not incrementing bit 8
-            mmc_mmio_addr_r[7:0] <= mmc_mmio_addr_r[7:0] + 1;
-          end
-          else begin
-            mmc_mmio_exe_end_r <= 1;
-
-            MMC_MMIO_STATE <= ST_MMC_MMIO_IDLE;
-          end
-        end
-      end
-    endcase
-  end
-end
-
-assign ROM_BUS_RRQ = rom_bus_rrq_r;
-assign ROM_BUS_WRQ = 1'b0;
-assign ROM_BUS_WORD = rom_bus_word_r;
-assign ROM_BUS_ADDR = rom_bus_addr_r;
-assign ROM_BUS_WRDATA = 16'h0000;
-
-assign RAM_BUS_RRQ = ram_bus_rrq_r;
-assign RAM_BUS_WRQ = ram_bus_wrq_r;
-assign RAM_BUS_WORD = 1'b0;
-assign RAM_BUS_ADDR = ram_bus_addr_r;
-assign RAM_BUS_WRDATA = ram_bus_data_r;
-
-assign iram_wren = MMC_IRAM_STATE & mmc_iram_wr_r;
-assign iram_addr = mmc_iram_addr_r[10:0];
-assign iram_din  = mmc_iram_wrdata_r[7:0];
-
-assign sa1_mmio_addr  = mmc_mmio_addr_r[8:0];
-assign sa1_mmio_data  = mmc_mmio_wrdata_r[7:0];
-assign sa1_mmio_write = ~(SNES_WR_end & snes_mmio_active_r) & MMC_MMIO_STATE & mmc_mmio_wr_r;
-assign sa1_mmio_read  = ~|sa1_mmio_read_r & ~(~SNES_READ & snes_mmio_active_r & ~snes_mmio_done_r) & MMC_MMIO_STATE & ~mmc_mmio_wr_r;
-
-// TODO: add MDR here for exe
-assign exe_mmc_rddata = mmc_rom_exe_end_r ? mmc_rom_rddata_r : mmc_ram_exe_end_r ? mmc_ram_rddata_r : mmc_iram_exe_end_r ? mmc_iram_rddata_r : mmc_mmio_exe_end_r ? mmc_mmio_rddata_r : 32'h0BAD0BAD;
-assign dma_mmc_rddata = mmc_rom_dma_end_r ? mmc_rom_rddata_r : mmc_ram_dma_end_r ? mmc_ram_rddata_r : mmc_iram_dma_end_r ? mmc_iram_rddata_r                                          : 32'h0BAD0BAD;
-
-assign mmc_dma_end    = mmc_rom_dma_end_r | mmc_ram_dma_end_r | mmc_iram_dma_end_r;
-assign mmc_exe_end    = mmc_rom_exe_end_r | mmc_ram_exe_end_r | mmc_iram_exe_end_r | mmc_mmio_exe_end_r;
-
-`else
 reg rom_bus_wrq_r; initial rom_bus_wrq_r = 0;
 reg [15:0] rom_bus_data_r;
 
+`ifdef MMC_RAM_OLD
 parameter
   ST_MMC_IDLE      = 9'b000000001,
   ST_MMC_ROM       = 9'b000000010,
@@ -1714,6 +1257,21 @@ parameter
   
 reg [8:0]  MMC_STATE; initial MMC_STATE = ST_MMC_IDLE;
 reg [8:0]  mmc_state_end_r;
+`else
+parameter
+  ST_MMC_IDLE      = 8'b00000001,
+  ST_MMC_ROM       = 8'b00000010,
+  ST_MMC_IRAM      = 8'b00000100,
+  ST_MMC_MMIO      = 8'b00001000,
+  ST_MMC_INV       = 8'b00010000,
+  ST_MMC_EXE_END   = 8'b00100000,
+  ST_MMC_DMA_END   = 8'b01000000,
+  ST_MMC_VBD_END   = 8'b10000000,
+  ST_MMC_ALL       = 8'b11111111;
+  
+reg [7:0]  MMC_STATE; initial MMC_STATE = ST_MMC_IDLE;
+reg [7:0]  mmc_state_end_r;
+`endif
 
 reg [23:0] mmc_addr_r;
 reg [31:0] mmc_data_r; initial mmc_data_r = 0;
@@ -1723,9 +1281,11 @@ reg        mmc_dpe_r; initial mmc_dpe_r = 0;
 reg [1:0]  mmc_byte_r; initial mmc_byte_r = 0;
 reg [1:0]  mmc_byte_total_r; initial mmc_byte_total_r = 0;
 reg        mmc_long_r; initial mmc_long_r = 0;
+reg        mmc_rom_misaligned; initial mmc_rom_misaligned = 0;
+`ifdef MMC_RAM_OLD
 reg        mmc_pram_r; initial mmc_pram_r = 0;
 reg [1:0]  mmc_pram_index_r; initial mmc_pram_index_r = 0;
-reg        mmc_rom_misaligned; initial mmc_rom_misaligned = 0;
+`endif
 
 always @(posedge CLK) begin
   if (RST) begin
@@ -1735,8 +1295,10 @@ always @(posedge CLK) begin
     
     rom_bus_rrq_r <= 0;
     rom_bus_wrq_r <= 0; // unused but good to init
+`ifdef MMC_RAM_OLD
     ram_bus_rrq_r <= 0;
     ram_bus_wrq_r <= 0;
+`endif
   end
   else begin
     case (MMC_STATE)
@@ -1747,7 +1309,9 @@ always @(posedge CLK) begin
         // - exe
         // - dma (low pri)
         mmc_byte_r <= 0;
+`ifdef MMC_RAM_OLD
         mmc_pram_r <= 0;
+`endif
 
 `ifdef VBD_ENABLE
         if (vbd_mmc_rd_r) begin
@@ -1769,7 +1333,7 @@ always @(posedge CLK) begin
         end
         else
 `endif
-        if ((dma_mmc_rd_r | dma_mmc_wr_r)) begin
+        if ((dma_mmc_rd_r | dma_mmc_wr_r) & ~dma_mmc_bram_r) begin
           mmc_byte_total_r<= 0;
           mmc_dpe_r       <= 0;
           mmc_wr_r        <= dma_mmc_wr_r;
@@ -1786,6 +1350,7 @@ always @(posedge CLK) begin
 
             MMC_STATE      <= dma_mmc_wr_r ? ST_MMC_INV : ST_MMC_ROM;
           end
+`ifdef MMC_RAM_OLD
           // if someone uses battery backed iram forced it to BRAM
           else if ((dma_mmc_bram_r/* | iram_battery_r*/)/* & RAM_BUS_RDY */) begin
             ram_bus_rrq_r  <= ~dma_mmc_wr_r;
@@ -1796,6 +1361,7 @@ always @(posedge CLK) begin
             //mmc_addr_r     <= `MAP_BRAM(dma_mmc_addr_r);
             MMC_STATE      <= ST_MMC_BRAM;
           end
+`endif
           else if (dma_mmc_iram_r) begin
             // avoid sa1 write to snes read conflict late in the cycle
             // TODO: decide if we need this for dma.  It would be poor programming to read an address that is going to be DMAed to.
@@ -1831,6 +1397,7 @@ always @(posedge CLK) begin
 
             MMC_STATE <= exe_mmc_wr_r ? ST_MMC_INV : ST_MMC_ROM;
           end
+`ifdef MMC_RAM_OLD
           else if (`IS_SA1_BRAM(exe_mmc_addr)/* & RAM_BUS_RDY*/) begin          
             ram_bus_rrq_r  <= ~exe_mmc_wr_r;
             ram_bus_wrq_r  <=  exe_mmc_wr_r;
@@ -1839,6 +1406,7 @@ always @(posedge CLK) begin
             //mmc_addr_r     <= `MAP_BRAM(exe_mmc_addr);
             MMC_STATE <= ST_MMC_BRAM;
           end
+`endif
           else if (`IS_SA1_IRAM(exe_mmc_addr)) begin
             // avoid sa1 write to snes read conflict late in the cycle - NOTE: if we do an address compare we won't properly handle collisions on multi-byte operations.
             // TODO: move this to the IRAM cycle, but need to be careful of write enable, state machine, etc state.  The current fix may still miss multibyte operations.
@@ -1856,6 +1424,7 @@ always @(posedge CLK) begin
             mmc_addr_r    <= `MAP_MMIO(exe_mmc_addr);
             MMC_STATE <= ST_MMC_MMIO;
           end
+`ifdef MMC_RAM_OLD
           else if (`IS_SA1_PRAM(exe_mmc_addr)/* & RAM_BUS_RDY*/) begin          
             // PRAM is always RMW if we are writing
             ram_bus_rrq_r  <= 1;
@@ -1869,7 +1438,8 @@ always @(posedge CLK) begin
             
             MMC_STATE <= ST_MMC_BRAM;
           end
-          else begin
+`endif
+          else if (~`IS_SA1_BRAM(exe_mmc_addr) & ~`IS_SA1_PRAM(exe_mmc_addr)) begin
             //rom_bus_rrq_r <= 0;
             MMC_STATE <= ST_MMC_INV;
           end
@@ -1908,6 +1478,7 @@ always @(posedge CLK) begin
           end
         end
       end
+`ifdef MMC_RAM_OLD
       ST_MMC_BRAM: begin
         ram_bus_rrq_r <= 0;
         ram_bus_wrq_r <= 0;
@@ -1960,7 +1531,7 @@ always @(posedge CLK) begin
             if      (mmc_dpe_r)  ram_bus_addr_r[7:0]  <= ram_bus_addr_r[7:0]  + 1;
             //else if (mmc_long_r) ram_bus_addr_r[23:0] <= ram_bus_addr_r[23:0] + 1;
             //else                 ram_bus_addr_r[15:0] <= ram_bus_addr_r[15:0] + 1;
-            else                 ram_bus_addr_r[23:0] <= ram_bus_addr_r[23:0] + 1;
+            else                 ram_bus_addr_r[19:0] <= ram_bus_addr_r[19:0] + 1;
             
             ram_bus_data_r <= mmc_wrdata_r[15:8];
           end
@@ -1969,6 +1540,7 @@ always @(posedge CLK) begin
           end
         end
       end
+`endif
       ST_MMC_IRAM: begin
         mmc_iram_state_r <= ~mmc_iram_state_r;
       
@@ -2032,6 +1604,167 @@ always @(posedge CLK) begin
   end
 end
 
+// bram/pram
+// - exe
+// - dma
+parameter
+  ST_MMC_RAM_IDLE = 1'b0,
+  ST_MMC_RAM_WAIT = 1'b1;
+
+reg        MMC_RAM_STATE; initial MMC_RAM_STATE = ST_MMC_RAM_IDLE;
+reg        mmc_ram_exe_end_r; initial mmc_ram_exe_end_r = 0;
+reg        mmc_ram_dma_end_r; initial mmc_ram_dma_end_r = 0;
+
+reg [1:0]  mmc_ram_byte_r;
+reg [1:0]  mmc_ram_byte_total_r;
+reg        mmc_ram_dpe_r;
+reg        mmc_ram_wr_r;
+reg        mmc_ram_long_r;
+reg [31:0] mmc_ram_rddata_r;
+reg [31:0] mmc_ram_wrdata_r;
+reg        mmc_ram_pram_r;
+reg [1:0]  mmc_ram_pram_index_r; initial mmc_ram_pram_index_r = 0;
+
+reg        mmc_ram_dma_r;
+reg        mmc_ram_exe_r;
+
+always @(posedge CLK) begin
+  if (RST) begin
+    mmc_ram_exe_end_r <= 0;
+    mmc_ram_dma_end_r <= 0;
+
+    ram_bus_rrq_r     <= 0;
+    ram_bus_wrq_r     <= 0;
+  
+    MMC_RAM_STATE <= ST_MMC_RAM_IDLE;
+  end
+  else begin
+    case (MMC_RAM_STATE)
+      ST_MMC_RAM_IDLE: begin
+        mmc_ram_exe_end_r <= 0;
+        mmc_ram_dma_end_r <= 0;
+        mmc_ram_byte_r    <= 0;
+        mmc_ram_dma_r     <= 0;
+        mmc_ram_exe_r     <= 0;
+
+        // bus must be available here
+        if      ((dma_mmc_wr_r | dma_mmc_rd_r) & dma_mmc_bram_r & ~mmc_ram_dma_end_r) begin
+          ram_bus_rrq_r  <= ~dma_mmc_wr_r;
+          ram_bus_wrq_r  <=  dma_mmc_wr_r;
+          ram_bus_addr_r <= `MAP_BRAM(dma_mmc_addr_r);
+          ram_bus_data_r <= dma_mmc_data_r[7:0];
+          
+          mmc_ram_pram_r       <= 0;
+          
+          mmc_ram_byte_total_r  <= 0;
+          mmc_ram_dpe_r         <= 0;
+          mmc_ram_wr_r          <= dma_mmc_wr_r;
+          mmc_ram_long_r        <= 0;
+          mmc_ram_wrdata_r[7:0] <= dma_mmc_data_r;
+          
+          mmc_ram_dma_r        <= 1;
+          
+          MMC_RAM_STATE <= ST_MMC_RAM_WAIT;
+        end
+        else if ((exe_mmc_wr_r | exe_mmc_rd_r) & ~mmc_ram_exe_end_r) begin         
+          mmc_ram_byte_total_r <= exe_mmc_byte_total_r;
+          mmc_ram_dpe_r        <= exe_mmc_dpe_r;
+          mmc_ram_wr_r         <= exe_mmc_wr_r;
+          mmc_ram_long_r       <= exe_mmc_long_r;
+          mmc_ram_wrdata_r     <= exe_mmc_data_r;
+          
+          if (`IS_SA1_BRAM(exe_mmc_addr)/* & RAM_BUS_RDY*/) begin
+            ram_bus_rrq_r  <= ~exe_mmc_wr_r;
+            ram_bus_wrq_r  <=  exe_mmc_wr_r;
+            ram_bus_addr_r <= `MAP_BRAM(exe_mmc_addr);
+            ram_bus_data_r <= exe_mmc_data_r[7:0];
+            
+            mmc_ram_pram_r <= 0;
+            
+            MMC_RAM_STATE  <= ST_MMC_RAM_WAIT;
+          end
+          else if (`IS_SA1_PRAM(exe_mmc_addr)/* & RAM_BUS_RDY*/) begin          
+            // PRAM is always RMW if we are writing
+            ram_bus_rrq_r  <= 1;
+            ram_bus_addr_r <= `MAP_PRAM(exe_mmc_addr);
+            ram_bus_data_r <= exe_mmc_data_r[7:0];
+
+            mmc_ram_byte_total_r <= 0; // force 1 byte to avoid complexity of word write and interleaving data
+            mmc_ram_pram_r       <= 1;            
+            mmc_ram_pram_index_r <= exe_mmc_addr[1:0];
+            
+            MMC_RAM_STATE <= ST_MMC_RAM_WAIT;
+          end
+
+          mmc_ram_exe_r        <= 1;
+        end
+      end
+      ST_MMC_RAM_WAIT: begin
+        ram_bus_rrq_r <= 0;
+        ram_bus_wrq_r <= 0;
+
+        if (~ram_bus_rrq_r & ~ram_bus_wrq_r & RAM_BUS_RDY) begin
+          if (~mmc_ram_pram_r) begin
+            // don't increment byte location or shift write data if pram
+            mmc_ram_byte_r <= mmc_ram_byte_r + 1;
+            mmc_ram_wrdata_r <= {mmc_ram_wrdata_r[7:0],mmc_ram_wrdata_r[31:24],mmc_ram_wrdata_r[23:16],mmc_ram_wrdata_r[15:8]};
+          end
+
+          if (mmc_ram_pram_r) begin
+            // read data
+            case (mmc_ram_pram_index_r)
+              0: mmc_ram_rddata_r[7:0] <= bbf ? {6'h00,RAM_BUS_RDDATA[1:0]} : {4'h0,RAM_BUS_RDDATA[3:0]};
+              1: mmc_ram_rddata_r[7:0] <= bbf ? {6'h00,RAM_BUS_RDDATA[3:2]} : {4'h0,RAM_BUS_RDDATA[7:4]};
+              2: mmc_ram_rddata_r[7:0] <= bbf ? {6'h00,RAM_BUS_RDDATA[5:4]} : {4'h0,RAM_BUS_RDDATA[3:0]};
+              3: mmc_ram_rddata_r[7:0] <= bbf ? {6'h00,RAM_BUS_RDDATA[7:6]} : {4'h0,RAM_BUS_RDDATA[7:4]};
+            endcase
+          end
+          else begin
+            case (mmc_ram_byte_r)
+              0: mmc_ram_rddata_r[7 : 0] <= RAM_BUS_RDDATA[7:0];
+              1: mmc_ram_rddata_r[15: 8] <= RAM_BUS_RDDATA[7:0];
+              2: mmc_ram_rddata_r[23:16] <= RAM_BUS_RDDATA[7:0];
+              3: mmc_ram_rddata_r[31:24] <= RAM_BUS_RDDATA[7:0];
+            endcase
+          end
+          
+          if (mmc_ram_pram_r & mmc_ram_wr_r) begin
+            // perform rmw
+            ram_bus_wrq_r <= 1;
+            
+            mmc_ram_pram_r <= 0;
+            
+            // TODO: assumes only one byte (value) is merged
+            case (mmc_ram_pram_index_r)
+              0: ram_bus_data_r[7:0] <= bbf ? {RAM_BUS_RDDATA[7:2],mmc_ram_wrdata_r[1:0]                    } : {RAM_BUS_RDDATA[7:4],mmc_ram_wrdata_r[3:0]};
+              1: ram_bus_data_r[7:0] <= bbf ? {RAM_BUS_RDDATA[7:4],mmc_ram_wrdata_r[1:0],RAM_BUS_RDDATA[1:0]} : {mmc_ram_wrdata_r[3:0],RAM_BUS_RDDATA[3:0]};
+              2: ram_bus_data_r[7:0] <= bbf ? {RAM_BUS_RDDATA[7:6],mmc_ram_wrdata_r[1:0],RAM_BUS_RDDATA[3:0]} : {RAM_BUS_RDDATA[7:4],mmc_ram_wrdata_r[3:0]};
+              3: ram_bus_data_r[7:0] <= bbf ? {mmc_ram_wrdata_r[1:0],RAM_BUS_RDDATA[5:0]                    } : {mmc_ram_wrdata_r[3:0],RAM_BUS_RDDATA[3:0]};
+            endcase
+          end
+          else if (mmc_ram_byte_r != mmc_ram_byte_total_r) begin
+            // stay in the same state and make a new request
+            ram_bus_rrq_r  <= ~mmc_ram_wr_r;
+            ram_bus_wrq_r  <=  mmc_ram_wr_r;
+            
+            if      (mmc_ram_dpe_r)  ram_bus_addr_r[7:0]  <= ram_bus_addr_r[7:0]  + 1;
+            //else if (mmc_long_r) ram_bus_addr_r[23:0] <= ram_bus_addr_r[23:0] + 1;
+            //else                 ram_bus_addr_r[15:0] <= ram_bus_addr_r[15:0] + 1;
+            else                     ram_bus_addr_r[19:0] <= ram_bus_addr_r[19:0] + 1;
+            
+            ram_bus_data_r <= mmc_ram_wrdata_r[15:8];
+          end
+          else begin
+            {mmc_ram_dma_end_r,mmc_ram_exe_end_r} <= {mmc_ram_dma_r,mmc_ram_exe_r};
+          
+            MMC_RAM_STATE <= ST_MMC_RAM_IDLE;
+          end
+        end
+      end
+    endcase
+  end
+end
+
 assign ROM_BUS_RRQ = rom_bus_rrq_r;
 assign ROM_BUS_WRQ = 1'b0;
 assign ROM_BUS_WORD = rom_bus_word_r;
@@ -2041,7 +1774,7 @@ assign ROM_BUS_WRDATA = rom_bus_data_r;
 assign RAM_BUS_RRQ = ram_bus_rrq_r;
 assign RAM_BUS_WRQ = ram_bus_wrq_r;
 assign RAM_BUS_WORD = 1'b0;
-assign RAM_BUS_ADDR = ram_bus_addr_r;
+assign RAM_BUS_ADDR = {4'h0,ram_bus_addr_r};
 assign RAM_BUS_WRDATA = ram_bus_data_r;
 
 assign iram_wren = MMC_STATE[clog2(ST_MMC_IRAM)] & mmc_wr_r;
@@ -2056,13 +1789,11 @@ assign sa1_mmio_data  = mmc_wrdata_r[7:0];
 assign sa1_mmio_write = ~(SNES_WR_end & snes_mmio_active_r) & MMC_STATE[clog2(ST_MMC_MMIO)] & mmc_wr_r;
 assign sa1_mmio_read  = ~|sa1_mmio_read_r & ~(~SNES_READ & snes_mmio_active_r & ~snes_mmio_done_r) & MMC_STATE[clog2(ST_MMC_MMIO)] & ~mmc_wr_r;
 
-assign exe_mmc_rddata = mmc_data_r;
-assign dma_mmc_rddata = mmc_data_r;
+assign exe_mmc_rddata = mmc_ram_exe_end_r ? mmc_ram_rddata_r : mmc_data_r;
+assign dma_mmc_rddata = mmc_ram_dma_end_r ? mmc_ram_rddata_r : mmc_data_r;
 
-assign mmc_dma_end    = MMC_STATE[clog2(ST_MMC_DMA_END)];
-assign mmc_exe_end    = MMC_STATE[clog2(ST_MMC_EXE_END)];
-
-`endif
+assign mmc_exe_end    = MMC_STATE[clog2(ST_MMC_EXE_END)] | mmc_ram_exe_end_r;
+assign mmc_dma_end    = MMC_STATE[clog2(ST_MMC_DMA_END)] | mmc_ram_dma_end_r;
 
 //-------------------------------------------------------------------
 // DMA Pipeline
