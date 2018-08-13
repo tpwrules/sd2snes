@@ -145,6 +145,7 @@ module sa1(
 `define BCD_ENABLE
 
 `define EXE_FAST_FETCH
+//`define EXE_FAST_MOVE
 
 // temporaries
 integer i;
@@ -227,88 +228,88 @@ wire [3:0] xxb_en;
 
 parameter
   // write
-  ADDR_CCNT  = 8'h00,
-  ADDR_SIE   = 8'h01,
-  ADDR_SIC   = 8'h02,
-  ADDR_CRV   = 8'h03, // $2
+  ADDR_CCNT  = 9'h000,
+  ADDR_SIE   = 9'h001,
+  ADDR_SIC   = 9'h002,
+  ADDR_CRV   = 9'h003, // $2
   //
-  ADDR_CNV   = 8'h05, // $2
+  ADDR_CNV   = 9'h005, // $2
   //
-  ADDR_CIV   = 8'h07, // $2
+  ADDR_CIV   = 9'h007, // $2
   //
-  ADDR_SCNT  = 8'h09,
-  ADDR_CIE   = 8'h0A,
-  ADDR_CIC   = 8'h0B,
-  ADDR_SNV   = 8'h0C, // $2
+  ADDR_SCNT  = 9'h009,
+  ADDR_CIE   = 9'h00A,
+  ADDR_CIC   = 9'h00B,
+  ADDR_SNV   = 9'h00C, // $2
   //
-  ADDR_SIV   = 8'h0E, // $2
+  ADDR_SIV   = 9'h00E, // $2
   //
   
-  ADDR_TMC   = 8'h10,
-  ADDR_CTR   = 8'h11,
-  ADDR_HCNT  = 8'h12, // $2
+  ADDR_TMC   = 9'h010,
+  ADDR_CTR   = 9'h011,
+  ADDR_HCNT  = 9'h012, // $2
   //
-  ADDR_VCNT  = 8'h14, // $2
+  ADDR_VCNT  = 9'h014, // $2
   //
-  ADDR_CXB   = 8'h20,
-  ADDR_DXB   = 8'h21,
-  ADDR_EXB   = 8'h22,
-  ADDR_FXB   = 8'h23,
-  ADDR_BMAPS = 8'h24,
-  ADDR_BMAP  = 8'h25,
-  ADDR_SWBE  = 8'h26,
-  ADDR_CWBE  = 8'h27,
-  ADDR_BWPA  = 8'h28,
-  ADDR_SIWP  = 8'h29,
-  ADDR_CIWP  = 8'h2A,
+  ADDR_CXB   = 9'h020,
+  ADDR_DXB   = 9'h021,
+  ADDR_EXB   = 9'h022,
+  ADDR_FXB   = 9'h023,
+  ADDR_BMAPS = 9'h024,
+  ADDR_BMAP  = 9'h025,
+  ADDR_SWBE  = 9'h026,
+  ADDR_CWBE  = 9'h027,
+  ADDR_BWPA  = 9'h028,
+  ADDR_SIWP  = 9'h029,
+  ADDR_CIWP  = 9'h02A,
   //
-  ADDR_DCNT  = 8'h30,
-  ADDR_CDMA  = 8'h31,
-  ADDR_DSA   = 8'h32, // $3
-  //
-  //
-  ADDR_DDA   = 8'h35, // $3
+  ADDR_DCNT  = 9'h030,
+  ADDR_CDMA  = 9'h031,
+  ADDR_DSA   = 9'h032, // $3
   //
   //
-  ADDR_DTC   = 8'h38,
+  ADDR_DDA   = 9'h035, // $3
   //
-  ADDR_BBF   = 8'h3F,
-  ADDR_BRF   = 8'h40, // $10
-  ADDR_BRF0  = 8'h40,
-  ADDR_BRF1  = 8'h41,
-  ADDR_BRF2  = 8'h42,
-  ADDR_BRF3  = 8'h43,
-  ADDR_BRF4  = 8'h44,
-  ADDR_BRF5  = 8'h45,
-  ADDR_BRF6  = 8'h46,
-  ADDR_BRF7  = 8'h47,
-  ADDR_BRF8  = 8'h48,
-  ADDR_BRF9  = 8'h49,
-  ADDR_BRFA  = 8'h4A,
-  ADDR_BRFB  = 8'h4B,
-  ADDR_BRFC  = 8'h4C,
-  ADDR_BRFD  = 8'h4D,
-  ADDR_BRFE  = 8'h4E,
-  ADDR_BRFF  = 8'h4F,
+  //
+  ADDR_DTC   = 9'h038,
+  //
+  ADDR_BBF   = 9'h03F,
+  ADDR_BRF   = 9'h040, // $10
+  ADDR_BRF0  = 9'h040,
+  ADDR_BRF1  = 9'h041,
+  ADDR_BRF2  = 9'h042,
+  ADDR_BRF3  = 9'h043,
+  ADDR_BRF4  = 9'h044,
+  ADDR_BRF5  = 9'h045,
+  ADDR_BRF6  = 9'h046,
+  ADDR_BRF7  = 9'h047,
+  ADDR_BRF8  = 9'h048,
+  ADDR_BRF9  = 9'h049,
+  ADDR_BRFA  = 9'h04A,
+  ADDR_BRFB  = 9'h04B,
+  ADDR_BRFC  = 9'h04C,
+  ADDR_BRFD  = 9'h04D,
+  ADDR_BRFE  = 9'h04E,
+  ADDR_BRFF  = 9'h04F,
   
-  ADDR_MCNT  = 8'h50,
-  ADDR_MA    = 8'h51, // $2
+  ADDR_MCNT  = 9'h050,
+  ADDR_MA    = 9'h051, // $2
   //
-  ADDR_MB    = 8'h53, // $2
+  ADDR_MB    = 9'h053, // $2
   //
-  ADDR_VBD   = 8'h58,
-  ADDR_VDA   = 8'h59  // $3
+  ADDR_VBD   = 9'h058,
+  ADDR_VDA   = 9'h059  // $3
   ;
 
 parameter
-  ADDR_SFR   = 8'h00,
-  ADDR_CFR   = 8'h01,
-  ADDR_HCR   = 8'h02, // $2
-  ADDR_VCR   = 8'h04, // $2
-  ADDR_MR    = 8'h06, // $5
-  ADDR_OF    = 8'h0B,
-  ADDR_VDP   = 8'h0C, // $2
-  ADDR_VC    = 8'h0E
+  ADDR_SFR   = 9'h100,
+  ADDR_CFR   = 9'h101,
+  ADDR_HCR   = 9'h102, // $2
+  ADDR_VCR   = 9'h104, // $2
+  ADDR_MR    = 9'h106, // $5
+  ADDR_OF    = 9'h10B,
+  ADDR_VDP   = 9'h10C, // $2
+  ADDR_VC    = 9'h10E
   ;
 
 //-------------------------------------------------------------------
@@ -610,20 +611,32 @@ reg [23:0] vbd_mmc_addr_r;
 //-------------------------------------------------------------------
 // REGISTER/MMIO ACCESS
 //-------------------------------------------------------------------
-reg        data_enable_r; initial data_enable_r = 0;
+reg        snes_data_enable_r; initial snes_data_enable_r = 0;
 reg [7:0]  data_out_r;
+reg [7:0]  snes_data_out_r; initial snes_data_out_r = 0;
 
 reg        snes_writebuf_val_r; initial snes_writebuf_val_r = 0;
 reg        snes_writebuf_iram_r; initial snes_writebuf_iram_r = 0;
 reg [10:0] snes_writebuf_addr_r;
 reg [7:0]  snes_writebuf_data_r;
+reg [10:0] snes_writebuf_iram_addr_r;
+reg [7:0]  snes_writebuf_iram_data_r;
+
+reg        snes_mmio_active_r; initial snes_mmio_active_r = 0;
+reg        snes_iram_active_r; initial snes_iram_active_r = 0;
 
 reg        snes_readbuf_val_r; initial snes_readbuf_val_r = 0;
 reg        snes_readbuf_iram_r; initial snes_readbuf_iram_r = 0;
-reg        snes_readbuf_active_r; initial snes_readbuf_active_r = 0;
-reg [10:0] snes_readbuf_addr_r;
+reg [8:0]  snes_readbuf_mmio_addr_r;
+reg [10:0] snes_readbuf_iram_addr_r;
+reg        snes_mmio_done_r; initial snes_mmio_done_r = 0;
 
 wire [7:0] snes_iram_out;
+reg  [7:0] snes_iram_data_r;
+
+reg [3:0]  snes_mmio_delay_r; initial snes_mmio_delay_r = 0;
+
+reg        sa1_readbuf_val_r; initial sa1_readbuf_val_r = 0;
 
 wire [8:0] sa1_mmio_addr;
 wire [7:0] sa1_mmio_data;
@@ -635,16 +648,29 @@ wire       dma_mmc_cc1_en;
 wire [6:0] dma_mmc_cc1_mask;
 
 always @(posedge CLK) begin
+  // capture the data at the start of the read to avoid late changes.  for mmio the sa1 can modify the location late into the snes read cycle which may lead to data corruption.
+  // need to delay 2 clocks from iram request.
+  // C0 valid asserted, read started, mmio data write in progress, delay_r is 000
+  // C1 mmio data_out_r valid, iram data write in progress, delay_r is 001
+  // C2 iram data_out_r valid, delay_r is 011
+  if (~snes_mmio_delay_r[3] & ~snes_mmio_done_r) snes_data_out_r <= snes_readbuf_iram_r ? snes_iram_data_r : data_out_r;
+
   if (RST) begin
-    data_enable_r <= 0;
+    snes_data_enable_r <= 0;
     data_out_r <= 0;
     
     snes_writebuf_val_r <= 0;
     snes_writebuf_iram_r <= 0;
     snes_readbuf_val_r <= 0;
     snes_readbuf_iram_r <= 0;
-    snes_readbuf_active_r <= 0;
     
+    snes_mmio_active_r <= 0;
+    snes_iram_active_r <= 0;
+    
+    snes_mmio_delay_r <= 0;
+    snes_mmio_done_r <= 0;
+    
+    sa1_readbuf_val_r <= 0;
     sa1_mmio_read_r <= 0;
     
     // initialize registers on cart reset    
@@ -699,26 +725,41 @@ always @(posedge CLK) begin
   end
   else begin
     sa1_mmio_read_r <= {sa1_mmio_read_r[0], sa1_mmio_read};
+    snes_mmio_delay_r[3:0] <= {snes_mmio_delay_r[2:0],snes_readbuf_val_r|snes_readbuf_iram_r};
   
+    snes_mmio_active_r <= `IS_MMIO(addr_in_r);
+    snes_iram_active_r <= `IS_CPU_IRAM(addr_in_r) | (`IS_CPU_BRAM(addr_in_r) & dma_mmc_cc1_en);
+
     // Register Read
-    if (~SNES_READ & snes_readbuf_active_r) begin
-      snes_readbuf_val_r <= `IS_MMIO(addr_in_r);
-      snes_readbuf_iram_r <= `IS_CPU_IRAM(addr_in_r) | (`IS_CPU_BRAM(addr_in_r) & dma_mmc_cc1_en);
-      snes_readbuf_addr_r <= (`IS_CPU_BRAM(addr_in_r) & dma_mmc_cc1_en) ? {DDA_r[10:7],(DDA_r[6:0] & ~dma_mmc_cc1_mask) | (addr_in_r[6:0] & dma_mmc_cc1_mask)} : addr_in_r[10:0];
+    if (~SNES_READ & snes_mmio_active_r & ~snes_mmio_done_r) begin
+      snes_readbuf_val_r  <= 1;
+      snes_readbuf_mmio_addr_r <= addr_in_r[8:0];
+      snes_mmio_done_r <= snes_mmio_delay_r[3];
+      
+      sa1_readbuf_val_r   <= 0;
     end
-    else if (~snes_readbuf_active_r) begin
-      snes_readbuf_val_r  <= sa1_mmio_read;
+    else begin
+      snes_readbuf_val_r <= 0;
+      sa1_readbuf_val_r  <= sa1_mmio_read;
+
+      if (SNES_READ) snes_mmio_done_r <= 0;
+
+      snes_readbuf_mmio_addr_r <= sa1_mmio_addr;
+    end
+    
+    if (~SNES_READ & snes_iram_active_r) begin
+      snes_readbuf_iram_r <= 1;
+      snes_readbuf_iram_addr_r <= (`IS_CPU_BRAM(addr_in_r) & dma_mmc_cc1_en) ? {DDA_r[10:7],(DDA_r[6:0] & ~dma_mmc_cc1_mask) | (addr_in_r[6:0] & dma_mmc_cc1_mask)} : addr_in_r[10:0];
+    end
+    else begin
       snes_readbuf_iram_r <= 0;
-
-      snes_readbuf_addr_r <= sa1_mmio_addr;
     end
+    
+    // guarded by SNES_READ in main.v
+    snes_data_enable_r <= snes_mmio_active_r | snes_iram_active_r;
 
-    snes_readbuf_active_r <= `IS_MMIO(addr_in_r) | `IS_CPU_IRAM(addr_in_r) | (`IS_CPU_BRAM(addr_in_r) & dma_mmc_cc1_en);
-    data_enable_r <= snes_readbuf_active_r & (snes_readbuf_val_r | snes_readbuf_iram_r);
-
-    // capture the data at the start of the read to avoid late changes.  for both mmio and iram the sa1 can modify the location late into the snes read cycle which may lead to data corruption.
-    if (snes_readbuf_val_r) begin
-      casex (snes_readbuf_addr_r[7:0])
+    if (snes_readbuf_val_r | sa1_readbuf_val_r) begin
+      case (snes_readbuf_mmio_addr_r[8:0])
         ADDR_SFR  : data_out_r <= {SFR_r[`SFR_CPU_IRQFL], SCNT_r[`SCNT_IVSW],    SFR_r[`SFR_DMA_IRQFL], SCNT_r[`SCNT_NVSW],    SCNT_r[`SCNT_CMEG]};
         ADDR_CFR  : data_out_r <= {CFR_r[`CFR_SA1_IRQFL], CFR_r[`CFR_TMR_IRQFL], CFR_r[`CFR_DMA_IRQFL], CFR_r[`CFR_SA1_NMIFL], CCNT_r[`CCNT_SMEG]};
         //ADDR_HCR  : if (~data_enable_r) begin data_out_r <= hcounter_r[9:2]; HCR_r <= {2'h0,hcounter_r[15:2]}; VCR_r <= vcounter_r; end
@@ -736,31 +777,33 @@ always @(posedge CLK) begin
         ADDR_VC   : data_out_r <= VC_r;
       endcase
     end
-    else if (snes_readbuf_iram_r) begin
-      data_out_r <= snes_iram_out;
+    
+    if (snes_readbuf_iram_r) begin
+      snes_iram_data_r <= snes_iram_out;
     end
 
     // Register Write Buffer.
-    if (SNES_WR_end & `IS_MMIO(addr_in_r)) begin
+    if (SNES_WR_end & snes_mmio_active_r) begin
       snes_writebuf_val_r  <= 1;
-      snes_writebuf_iram_r <= 0;
       snes_writebuf_addr_r <= {2'h0,addr_in_r[8:0]};
       snes_writebuf_data_r <= data_in_r;
     end
-    else if (SNES_WR_end & `IS_CPU_IRAM(addr_in_r)) begin
-      snes_writebuf_val_r  <= 0;
+    else begin
+      snes_writebuf_val_r       <= sa1_mmio_write;
+      
+      snes_writebuf_addr_r      <= {2'h0,sa1_mmio_addr};
+      snes_writebuf_data_r      <= sa1_mmio_data;
+    end
+    
+    if (SNES_WR_end & `IS_CPU_IRAM(addr_in_r)) begin
       snes_writebuf_iram_r <= 1;
-      snes_writebuf_addr_r <= addr_in_r[10:0];
-      snes_writebuf_data_r <= data_in_r;
+      snes_writebuf_iram_addr_r <= addr_in_r[10:0];
+      snes_writebuf_iram_data_r <= data_in_r;
     end
     else begin
-      snes_writebuf_val_r  <= sa1_mmio_write;
-      snes_writebuf_iram_r <= 0;
-      
-      snes_writebuf_addr_r <= {2'h0,sa1_mmio_addr};
-      snes_writebuf_data_r <= sa1_mmio_data;
+      snes_writebuf_iram_r <= 0;      
     end
-            
+
     // TODO: can we move the interrupt controller logic outside of the MMIO operations to reduce code size and complexity?
     if (snes_writebuf_val_r) begin
       case (snes_writebuf_addr_r[8:0])
@@ -1132,10 +1175,10 @@ wire [7:0]   iram_dout;
 // TDP macro simplifies abritration between the snes and sa1.  Also use
 // spare cycles for debug reads.
 wire         snes_iram_wren = snes_writebuf_iram_r;
-wire [10:0]  snes_iram_addr = snes_writebuf_iram_r ? snes_writebuf_addr_r
-                            : snes_readbuf_iram_r  ? snes_readbuf_addr_r
+wire [10:0]  snes_iram_addr = snes_writebuf_iram_r ? snes_writebuf_iram_addr_r
+                            : snes_readbuf_iram_r  ? snes_readbuf_iram_addr_r
                             : pgm_addr_r[10:0];
-wire [7:0]   snes_iram_din  = snes_writebuf_data_r;
+wire [7:0]   snes_iram_din  = snes_writebuf_iram_data_r;
 wire [7:0]   snes_iram_dout;
 
 sa1_iram iram (
@@ -1643,8 +1686,8 @@ assign iram_din  = mmc_iram_wrdata_r[7:0];
 
 assign sa1_mmio_addr  = mmc_mmio_addr_r[8:0];
 assign sa1_mmio_data  = mmc_mmio_wrdata_r[7:0];
-assign sa1_mmio_write = ~SNES_WR_end & ~snes_writebuf_iram_r & ~snes_writebuf_val_r & MMC_MMIO_STATE & mmc_mmio_wr_r & ~snes_readbuf_val_r; // block writes when there is a colliding read
-assign sa1_mmio_read  = ~|sa1_mmio_read_r & ~snes_readbuf_active_r & MMC_MMIO_STATE & ~mmc_mmio_wr_r;
+assign sa1_mmio_write = ~(SNES_WR_end & snes_mmio_active_r) & MMC_MMIO_STATE & mmc_mmio_wr_r;
+assign sa1_mmio_read  = ~|sa1_mmio_read_r & ~(~SNES_READ & snes_mmio_active_r & ~snes_mmio_done_r) & MMC_MMIO_STATE & ~mmc_mmio_wr_r;
 
 // TODO: add MDR here for exe
 assign exe_mmc_rddata = mmc_rom_exe_end_r ? mmc_rom_rddata_r : mmc_ram_exe_end_r ? mmc_ram_rddata_r : mmc_iram_exe_end_r ? mmc_iram_rddata_r : mmc_mmio_exe_end_r ? mmc_mmio_rddata_r : 32'h0BAD0BAD;
@@ -1805,9 +1848,9 @@ always @(posedge CLK) begin
             // TODO: figure out how to not cause a collision with the snes
             // TODO: need to make this check on subsequent bytes, too.
             // TODO: writes are single cycle
-            if (~exe_mmc_wr_r | ~`IS_CPU_IRAM(addr_in_r) | SNES_cycle_end) begin
-              MMC_STATE <= ST_MMC_IRAM;
-            end
+            //if (~exe_mmc_wr_r | ~snes_readbuf_iram_r | SNES_cycle_end) begin
+            MMC_STATE <= ST_MMC_IRAM;
+            //end
           end
           else if (`IS_MMIO(exe_mmc_addr)) begin
             mmc_addr_r    <= `MAP_MMIO(exe_mmc_addr);
@@ -1931,7 +1974,8 @@ always @(posedge CLK) begin
       
         // writes are pipelined single cycle
         // TODO: this is a hack.
-        if (mmc_wr_r ? (~`IS_CPU_IRAM(addr_in_r) | SNES_cycle_end | mmc_byte_r == mmc_byte_total_r) : mmc_iram_state_r) begin
+        //if (mmc_wr_r ? (~`IS_CPU_IRAM(addr_in_r) | SNES_cycle_end | mmc_byte_r == mmc_byte_total_r) : mmc_iram_state_r) begin
+        if (mmc_wr_r | mmc_iram_state_r) begin
           mmc_byte_r <= mmc_byte_r + 1;
           
           case (mmc_byte_r)
@@ -2006,8 +2050,11 @@ assign iram_din  = mmc_wrdata_r[7:0];
 
 assign sa1_mmio_addr  = mmc_addr_r[8:0];
 assign sa1_mmio_data  = mmc_wrdata_r[7:0];
-assign sa1_mmio_write = ~SNES_WR_end & ~snes_writebuf_iram_r & ~snes_writebuf_val_r & MMC_STATE[clog2(ST_MMC_MMIO)] & mmc_wr_r & ~snes_readbuf_val_r; // block writes when there is a colliding read
-assign sa1_mmio_read  = ~|sa1_mmio_read_r & ~snes_readbuf_active_r & MMC_STATE[clog2(ST_MMC_MMIO)] & ~mmc_wr_r;
+// TODO: why are we blocking on iram write?
+//assign sa1_mmio_write = ~SNES_WR_end & ~snes_writebuf_iram_r & ~snes_writebuf_val_r & MMC_STATE[clog2(ST_MMC_MMIO)] & mmc_wr_r & ~snes_readbuf_val_r; // block writes when there is a colliding read
+//assign sa1_mmio_read  = ~|sa1_mmio_read_r & ~(~SNES_READ & snes_readbuf_mmio_active_r) & MMC_STATE[clog2(ST_MMC_MMIO)] & ~mmc_wr_r;
+assign sa1_mmio_write = ~(SNES_WR_end & snes_mmio_active_r) & MMC_STATE[clog2(ST_MMC_MMIO)] & mmc_wr_r;
+assign sa1_mmio_read  = ~|sa1_mmio_read_r & ~(~SNES_READ & snes_mmio_active_r & ~snes_mmio_done_r) & MMC_STATE[clog2(ST_MMC_MMIO)] & ~mmc_wr_r;
 
 assign exe_mmc_rddata = mmc_data_r;
 assign dma_mmc_rddata = mmc_data_r;
@@ -2456,7 +2503,7 @@ always @(posedge CLK) begin
   end
   else begin    
     // watch for triggers
-    vbd_trigger_r <= VBD_r[`VBD_HL] ? (1'b0 && snes_readbuf_val_r && snes_readbuf_addr_r[8:0] == ADDR_VDP+1) : (snes_writebuf_val_r && (snes_writebuf_addr_r[8:0] == ADDR_VDA+2 || snes_writebuf_addr_r[8:0] == ADDR_VBD));
+    vbd_trigger_r <= VBD_r[`VBD_HL] ? (1'b0 && (snes_readbuf_val_r | sa1_readbuf_val_r) && snes_readbuf_mmio_addr_r[8:0] == ADDR_VDP+1) : (snes_writebuf_val_r && (snes_writebuf_addr_r[8:0] == ADDR_VDA+2 || snes_writebuf_addr_r[8:0] == ADDR_VBD));
 
     case (VBD_STATE)
       ST_VBD_IDLE: begin
@@ -2726,6 +2773,8 @@ reg        exe_mmc_state_exe_end_r; initial exe_mmc_state_exe_end_r = 0;
 reg        exe_prefetch_val_r; initial exe_prefetch_val_r = 0;
 reg [7:0]  exe_prefetch_r; initial exe_prefetch_r = 0;
 
+reg        exe_move_val_r; initial exe_move_val_r = 0;
+
 wire       exe_dpe       = ~|D_r[7:0] & E_r;
 wire       exe_data_word = |({~P_r[`P_X],~P_r[`P_M]}&dec_data[`DEC_PRC]) | &dec_data[`DEC_PRC];
 wire       exe_dec_imm16 = (|({~P_r[`P_X],~P_r[`P_M]}&dec_data[`DEC_PRC]) & dec_data[`ADD_IMM]);
@@ -2788,6 +2837,7 @@ always @(posedge CLK) begin
     exe_active_r <= 0;
     
     exe_prefetch_val_r <= 0;
+    exe_move_val_r <= 0;
     
 `ifdef BCD_ENABLE
     exe_bcd_val_r <= 0;
@@ -2815,12 +2865,13 @@ always @(posedge CLK) begin
         end
 
         exe_prefetch_val_r <= 0;
+        exe_move_val_r <= 0;
         e2c_waitcnt_r  <= 0;
       end
       
       // FETCH
       ST_EXE_FETCH: begin
-        exe_mmc_rd_r   <= ~(int_pending_r | exe_prefetch_val_r);
+        exe_mmc_rd_r   <= ~(int_pending_r | exe_prefetch_val_r | exe_move_val_r);
         // only tell the mmc about 1 byte if its to rom.  It still returns 2 which we will use if aligned.
         // TODO: why is this slower?
         //exe_mmc_byte_total_r <= `IS_ROM(exe_fetch_addr_r) ? 0 : 1;
@@ -2828,8 +2879,20 @@ always @(posedge CLK) begin
         exe_mmc_state_exe_end_r <= 0;
         
         e2c_waitcnt_r  <= 0;
+        exe_move_val_r <= 0;
 
-        EXE_STATE <= ST_EXE_FETCH_END;
+        // fast move skips fetch
+        if (exe_move_val_r & ~int_pending_r) begin
+          // reset some state that was modified
+          exe_control_r <= exe_decode_r[`DEC_CONTROL];
+          exe_load_r    <= exe_decode_r[`DEC_LOAD];
+          exe_store_r   <= exe_decode_r[`DEC_STORE];
+                
+          EXE_STATE <= ST_EXE_ADDRESS;
+        end
+        else begin
+          EXE_STATE <= ST_EXE_FETCH_END;
+        end
       end
       ST_EXE_FETCH_END: begin
         // always stop the read at END
@@ -2859,7 +2922,8 @@ always @(posedge CLK) begin
 
             // TODO: hide the -1 in the decoder
             // FIXME: fix latencies once perf problems are resolved
-            e2c_waitcnt_r <= 0; // SPEED ? 0 : (dec_data[`DEC_LATENCY] - 1);
+            e2c_waitcnt_r <= 0;
+            //e2c_waitcnt_r <= (dec_data[`DEC_LATENCY] - 1);
             
             // `define ADD_MOD     27:26
             exe_mod_r <= dec_data[27] ? 16'h0000 : dec_data[26] ? Y_r[15:0] : X_r[15:0];
@@ -3239,6 +3303,11 @@ always @(posedge CLK) begin
             exe_target_r        <= {PBR_r,PC_r};
             
             exe_mmc_data_r[7:0] <= exe_data_r[7:0];
+
+`ifdef EXE_FAST_MOVE
+            // someone could have the mov perform self modifying code on itself and break this.  could qualify it as rom address to fix that.
+            exe_move_val_r      <= |A_r;
+`endif
 
             // END takes care of exit
             EXE_STATE <= ST_EXE_EXECUTE_END;
@@ -3791,8 +3860,8 @@ assign PGM_DATA    = pgmdata_out;
 assign PGM_DATA    = 0;
 `endif
 
-assign DATA_ENABLE = data_enable_r;
-assign DATA_OUT    = data_out_r;
+assign DATA_ENABLE = snes_data_enable_r;
+assign DATA_OUT    = snes_data_out_r;
 
 reg cpu_irq_r; initial cpu_irq_r = 0;
 always @(posedge CLK) cpu_irq_r <= (SIE_r[`SIE_DMA_IRQEN] & SFR_r[`SFR_DMA_IRQFL]) | (SIE_r[`SIE_CPU_IRQEN] & SFR_r[`SFR_CPU_IRQFL]);

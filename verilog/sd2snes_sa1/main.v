@@ -181,6 +181,7 @@ wire [7:0] reg_read;
 wire [7:0] sa1_config_data;
 
 reg [7:0] SNES_PARDr = 8'hFF;
+reg [7:0] SNES_PAWRr = 8'hFF;
 reg [7:0] SNES_READr = 8'hFF;
 reg [7:0] SNES_WRITEr = 8'hFF;
 reg [7:0] SNES_CPU_CLKr;
@@ -204,10 +205,15 @@ reg SNES_WR_end; always @(posedge CLK2) SNES_WR_end <= ((SNES_WRITEr[5:0] & SNES
 wire SNES_cycle_start = ((SNES_CPU_CLKr[7:2] & SNES_CPU_CLKr[6:1]) == 6'b000011);
 wire SNES_cycle_end = ((SNES_CPU_CLKr[7:2] | SNES_CPU_CLKr[6:1]) == 6'b111000);
 wire SNES_cycle_end_early = ((SNES_CPU_CLKr[7:2] | SNES_CPU_CLKr[6:1]) == 6'b111100);
-wire SNES_WRITE = SNES_WRITEr[2] & SNES_WRITEr[1];
-wire SNES_READ = SNES_READr[2] & SNES_READr[1];
+
 wire SNES_CPU_CLK = SNES_CPU_CLKr[2] & SNES_CPU_CLKr[1];
 wire SNES_PARD = SNES_PARDr[2] & SNES_PARDr[1];
+wire SNES_WRITE = SNES_WRITEr[2] & SNES_WRITEr[1];
+wire SNES_READ = SNES_READr[2] & SNES_READr[1];
+//wire SNES_PARD = SNES_PARDr[2] & SNES_PARDr[1];
+//wire SNES_PAWR = SNES_PAWRr[2] & SNES_PAWRr[1];
+//wire SNES_WRITE = (SNES_WRITEr[2] & SNES_WRITEr[1]) | ~SNES_PAWR;
+//wire SNES_READ = (SNES_READr[2] & SNES_READr[1]) | ~SNES_PARD;
 
 wire SNES_ROMSEL = (SNES_ROMSELr[5] & SNES_ROMSELr[4]);
 wire [23:0] SNES_ADDR = SNES_ADDRr[0]; //(SNES_ADDRr[6] & SNES_ADDRr[5]);
@@ -242,12 +248,14 @@ end
 always @(posedge CLK2) begin
   if (SNES_reset_strobe) begin
     SNES_PARDr  <= 8'hFF;
+    SNES_PAWRr  <= 8'hFF;
     SNES_READr  <= 8'hFF;
     SNES_WRITEr <= 8'hFF;
     SNES_ROMSELr <= 8'hFF;
   end
   else begin
     SNES_PARDr  <= {SNES_PARDr[6:0], SNES_PARD_IN};
+    SNES_PAWRr  <= {SNES_PAWRr[6:0], SNES_PAWR_IN};
     SNES_READr  <= {SNES_READr[6:0], SNES_READ_IN};
     SNES_WRITEr <= {SNES_WRITEr[6:0], SNES_WRITE_IN};
     SNES_ROMSELr <= {SNES_ROMSELr[6:0], SNES_ROMSEL_IN};
