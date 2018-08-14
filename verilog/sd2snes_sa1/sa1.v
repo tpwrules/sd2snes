@@ -595,13 +595,15 @@ reg [1:0]  exe_mmc_byte_total_r; initial exe_mmc_byte_total_r = 0;
 reg        exe_mmc_long_r; initial exe_mmc_long_r = 0;
 reg [31:0] exe_mmc_data_r;
 
-reg        dma_mmc_rd_r; initial dma_mmc_rd_r = 0;
-reg        dma_mmc_wr_r; initial dma_mmc_wr_r = 0;
-reg [23:0] dma_mmc_addr_r;
+reg        dma_mmc_rd_rom_r;  initial dma_mmc_rd_rom_r  = 0;
+reg        dma_mmc_rd_bram_r; initial dma_mmc_rd_bram_r = 0;
+reg        dma_mmc_wr_bram_r; initial dma_mmc_wr_bram_r = 0;
+reg        dma_mmc_rd_iram_r; initial dma_mmc_rd_iram_r = 0;
+reg        dma_mmc_wr_iram_r; initial dma_mmc_wr_iram_r = 0;
+
+reg [23:0] dma_mmc_rd_addr_r;
+reg [23:0] dma_mmc_wr_addr_r;
 reg [7:0]  dma_mmc_data_r;
-reg        dma_mmc_rom_r; initial dma_mmc_rom_r = 0;
-reg        dma_mmc_bram_r; initial dma_mmc_bram_r = 0;
-reg        dma_mmc_iram_r; initial dma_mmc_iram_r = 0;
 
 reg        vbd_mmc_rd_r; initial vbd_mmc_rd_r = 0;
 reg [23:0] vbd_mmc_addr_r;
@@ -651,6 +653,7 @@ always @(posedge CLK) begin
   // C0 valid asserted, read started, mmio data write in progress, delay_r is 000
   // C1 mmio data_out_r valid, iram data write in progress, delay_r is 001
   // C2 iram data_out_r valid, delay_r is 011
+  // NOTE: try flopping new value once
   if (~snes_mmio_delay_r[3] & ~snes_mmio_done_r) snes_data_out_r <= snes_readbuf_iram_r ? snes_iram_data_r : data_out_r;
 
   if (RST) begin
@@ -745,16 +748,23 @@ always @(posedge CLK) begin
       snes_readbuf_mmio_addr_r <= sa1_mmio_addr;
     end
     
+    // "0" SNES_READ_IN
+    // 1   SNES_READ[0]
+    // 2   SNES_READ[1] -> ~SNES_READ
+    // 3   snes_readbuf_iram_r/addr
+    // 4   iram performs read
+    // 5   iram_out
+    // 6   snes_data_out_r
     if (~SNES_READ & snes_iram_active_r) begin
       snes_readbuf_iram_r <= 1;
-      snes_readbuf_iram_addr_r <= (`IS_CPU_BRAM(addr_in_r) & dma_mmc_cc1_en) ? {DDA_r[10:7],(DDA_r[6:0] & ~dma_mmc_cc1_mask) | (addr_in_r[6:0] & dma_mmc_cc1_mask)} : addr_in_r[10:0];
     end
     else begin
       snes_readbuf_iram_r <= 0;
     end
     
     // guarded by SNES_READ in main.v
-    snes_data_enable_r <= snes_mmio_active_r | snes_iram_active_r;
+    snes_data_enable_r <= (snes_mmio_active_r | snes_iram_active_r);
+    snes_readbuf_iram_addr_r <= (`IS_CPU_BRAM(addr_in_r) & dma_mmc_cc1_en) ? {DDA_r[10:7],(DDA_r[6:0] & ~dma_mmc_cc1_mask) | (addr_in_r[6:0] & dma_mmc_cc1_mask)} : addr_in_r[10:0];
 
     if (snes_readbuf_val_r | sa1_readbuf_val_r) begin
       case (snes_readbuf_mmio_addr_r[8:0])
@@ -1333,22 +1343,22 @@ always @(posedge CLK) begin
         end
         else
 `endif
-        if ((dma_mmc_rd_r | dma_mmc_wr_r) & ~dma_mmc_bram_r) begin
+        if (dma_mmc_rd_rom_r | dma_mmc_rd_iram_r | dma_mmc_wr_iram_r) begin
           mmc_byte_total_r<= 0;
           mmc_dpe_r       <= 0;
-          mmc_wr_r        <= dma_mmc_wr_r;
+          mmc_wr_r        <= dma_mmc_wr_iram_r;
           mmc_long_r      <= 0;
           mmc_wrdata_r[7:0] <= dma_mmc_data_r;
 
           // NOTE: could move this decode to DMA
-          if      (dma_mmc_rom_r/* & ROM_BUS_RDY*/) begin
-            rom_bus_rrq_r  <= ~dma_mmc_wr_r;
-            rom_bus_addr_r <= `MAP_ROM(dma_mmc_addr_r);
+          if      (dma_mmc_rd_rom_r/* & ROM_BUS_RDY*/) begin
+            rom_bus_rrq_r  <= 1;
+            rom_bus_addr_r <= `MAP_ROM(dma_mmc_rd_addr_r);
             rom_bus_word_r <= 1;
             //mmc_addr_r     <= `MAP_ROM(dma_mmc_addr_r);
-            mmc_rom_misaligned <= dma_mmc_addr_r[0];
+            mmc_rom_misaligned <= dma_mmc_rd_addr_r[0];
 
-            MMC_STATE      <= dma_mmc_wr_r ? ST_MMC_INV : ST_MMC_ROM;
+            MMC_STATE      <= ST_MMC_ROM;
           end
 `ifdef MMC_RAM_OLD
           // if someone uses battery backed iram forced it to BRAM
@@ -1362,20 +1372,12 @@ always @(posedge CLK) begin
             MMC_STATE      <= ST_MMC_BRAM;
           end
 `endif
-          else if (dma_mmc_iram_r) begin
-            // avoid sa1 write to snes read conflict late in the cycle
-            // TODO: decide if we need this for dma.  It would be poor programming to read an address that is going to be DMAed to.
-            //if (~dma_mmc_wr_r || ~snes_readbuf_iram_r/* || (`MAP_IRAM(addr_in_r) != `MAP_IRAM(dma_mmc_addr_r))*/) begin
-              mmc_iram_state_r <= 0;
-              mmc_addr_r     <= `MAP_IRAM(dma_mmc_addr_r);
-              MMC_STATE      <= ST_MMC_IRAM;
-            //end
+          else if (dma_mmc_rd_iram_r | dma_mmc_wr_iram_r) begin
+            mmc_iram_state_r <= 0;
+            mmc_addr_r     <= `MAP_IRAM(dma_mmc_rd_iram_r ? dma_mmc_rd_addr_r : dma_mmc_wr_addr_r);
+            MMC_STATE      <= ST_MMC_IRAM;
           end
           else begin
-            //rom_bus_rrq_r <= 0;
-            //rom_bus_wrq_r <= 0; // unused but good to init
-            //ram_bus_rrq_r <= 0;
-            //ram_bus_wrq_r <= 0;
             MMC_STATE <= ST_MMC_INV;
           end
 
@@ -1545,8 +1547,6 @@ always @(posedge CLK) begin
         mmc_iram_state_r <= ~mmc_iram_state_r;
       
         // writes are pipelined single cycle
-        // TODO: this is a hack.
-        //if (mmc_wr_r ? (~`IS_CPU_IRAM(addr_in_r) | SNES_cycle_end | mmc_byte_r == mmc_byte_total_r) : mmc_iram_state_r) begin
         if (mmc_wr_r | mmc_iram_state_r) begin
           mmc_byte_r <= mmc_byte_r + 1;
           
@@ -1648,17 +1648,17 @@ always @(posedge CLK) begin
         mmc_ram_exe_r     <= 0;
 
         // bus must be available here
-        if      ((dma_mmc_wr_r | dma_mmc_rd_r) & dma_mmc_bram_r & ~mmc_ram_dma_end_r) begin
-          ram_bus_rrq_r  <= ~dma_mmc_wr_r;
-          ram_bus_wrq_r  <=  dma_mmc_wr_r;
-          ram_bus_addr_r <= `MAP_BRAM(dma_mmc_addr_r);
+        if      ((dma_mmc_wr_bram_r | dma_mmc_rd_bram_r) & ~mmc_ram_dma_end_r) begin
+          ram_bus_rrq_r  <= ~dma_mmc_wr_bram_r;
+          ram_bus_wrq_r  <=  dma_mmc_wr_bram_r;
+          ram_bus_addr_r <= `MAP_BRAM(dma_mmc_wr_bram_r ? dma_mmc_wr_addr_r : dma_mmc_rd_addr_r);
           ram_bus_data_r <= dma_mmc_data_r[7:0];
           
           mmc_ram_pram_r       <= 0;
           
           mmc_ram_byte_total_r  <= 0;
           mmc_ram_dpe_r         <= 0;
-          mmc_ram_wr_r          <= dma_mmc_wr_r;
+          mmc_ram_wr_r          <= dma_mmc_wr_bram_r;
           mmc_ram_long_r        <= 0;
           mmc_ram_wrdata_r[7:0] <= dma_mmc_data_r;
           
@@ -1849,7 +1849,9 @@ reg [3:0]  dma_cc2_line_r; initial dma_cc2_line_r = 0;
 
 reg        dma_normal_int_r; initial dma_normal_int_r = 0;
 reg        dma_normal_prefetch_val_r; initial dma_normal_prefetch_val_r = 0;
+reg        dma_normal_prefetch_found_r; initial dma_normal_prefetch_found_r = 0;
 reg [7:0]  dma_normal_prefetch_dat_r; initial dma_normal_prefetch_dat_r = 0;
+reg [1:0]  dma_normal_state_r; initial dma_normal_state_r = 0;
 
 reg        dma_trigger_normal_r; initial dma_trigger_normal_r = 0;
 reg        dma_start_type1_r; initial dma_start_type1_r = 0;
@@ -1872,11 +1874,11 @@ always @(posedge CLK) begin
     dma_next_readstate_r  <= ST_DMA_IDLE;
     dma_next_writestate_r <= ST_DMA_IDLE;
     
-    dma_mmc_rd_r   <= 0;
-    dma_mmc_wr_r   <= 0;
-    dma_mmc_rom_r  <= 0;
-    dma_mmc_iram_r <= 0;
-    dma_mmc_bram_r <= 0;
+    dma_mmc_rd_rom_r   <= 0;
+    dma_mmc_rd_bram_r   <= 0;
+    dma_mmc_wr_bram_r   <= 0;
+    dma_mmc_rd_iram_r   <= 0;
+    dma_mmc_wr_iram_r   <= 0;
     
     dma_trigger_normal_r <= 0;
     dma_start_type1_r    <= 0;
@@ -1894,6 +1896,7 @@ always @(posedge CLK) begin
 
     dma_normal_int_r          <= 0;
     dma_normal_prefetch_val_r <= 0;
+    dma_normal_state_r        <= 0;
     
     SFR_r[`SFR_DMA_IRQFL] <= 0;
     CFR_r[`CFR_DMA_IRQFL] <= 0;
@@ -1998,6 +2001,8 @@ always @(posedge CLK) begin
         dma_normal_prefetch_val_r <= 0;
 
         if      (dma_trigger_normal_r) begin
+          dma_normal_state_r <= 1;
+
           DMA_STATE <= ST_DMA_NORMAL_READ;
         end
         else if (dma_start_type1_r) begin
@@ -2031,39 +2036,62 @@ always @(posedge CLK) begin
           DMA_STATE <= ST_DMA_TYPE2_READ;
         end
       end
+
 `ifdef DMA_NORMAL_ENABLE
       // normal
+      // read/write state
       ST_DMA_NORMAL_READ: begin
-        if (|dma_dtc_r) begin
-          dma_mmc_rd_r <= ~dma_normal_prefetch_val_r;
-          {dma_mmc_rom_r,dma_mmc_iram_r,dma_mmc_bram_r} <= {~|dma_dcnt_r[1:0],dma_dcnt_r[1],dma_dcnt_r[0]};
-          
-          dma_dtc_r <= dma_dtc_r - 1;
-          dma_dsa_r <= dma_dsa_r + 1;
-          dma_dda_r <= dma_dda_r + 1;
+        dma_mmc_rd_rom_r  <= dma_normal_state_r[0] & ~|dma_dcnt_r[1:0] & ~dma_normal_prefetch_val_r;
+        dma_mmc_rd_bram_r <= dma_normal_state_r[0] & dma_dcnt_r[0];
+        dma_mmc_rd_iram_r <= dma_normal_state_r[0] & dma_dcnt_r[1];
+        dma_mmc_wr_bram_r <= dma_normal_state_r[1] & dma_dcnt_r[`DCNT_DD];
+        dma_mmc_wr_iram_r <= dma_normal_state_r[1] & ~dma_dcnt_r[`DCNT_DD];
 
-          DMA_STATE <= ST_DMA_READ_END;
-        end
-        else begin
-          // pulse interrupt input for 1 clock in idle
-          dma_normal_int_r <= 1;
+        // adjust count on writes
+        if (dma_normal_state_r[0]) dma_dsa_r <= dma_dsa_r + 1;
+        if (dma_normal_state_r[1]) dma_dda_r <= dma_dda_r + 1;
+        if (dma_normal_state_r[1]) dma_dtc_r <= dma_dtc_r - 1;
 
-          DMA_STATE <= ST_DMA_IDLE;
-        end
-        
-        dma_mmc_addr_r   <= {(dma_dsa_r[23:11] & {13{~dma_dcnt_r[1]}}),      dma_dsa_r[10:0]};
-        dma_write_addr_r <= {(dma_dda_r[23:11] & {13{dma_dcnt_r[`DCNT_DD]}}),dma_dda_r[10:0]};
-        
-        dma_next_readstate_r  <= ST_DMA_WRITE;
-        dma_next_writestate_r <= ST_DMA_NORMAL_READ;
+        dma_mmc_rd_addr_r <= {(dma_dsa_r[23:11] & {13{~dma_dcnt_r[1]}}),      dma_dsa_r[10:0]};
+        dma_mmc_wr_addr_r <= {(dma_dda_r[23:11] & {13{dma_dcnt_r[`DCNT_DD]}}),dma_dda_r[10:0]};
+
+        dma_mmc_data_r[7:0] <= dma_data_r[7:0];
+        dma_normal_prefetch_found_r <= 0;
+
+        DMA_STATE <= ST_DMA_WRITE;
       end
+      // new wait state
       ST_DMA_WRITE: begin
-        dma_mmc_wr_r   <= 1;
-        {dma_mmc_rom_r,dma_mmc_iram_r,dma_mmc_bram_r} <= {1'b0,~dma_dcnt_r[`DCNT_DD],dma_dcnt_r[`DCNT_DD]};
-        dma_mmc_addr_r <= dma_write_addr_r;
-        dma_mmc_data_r <= dma_data_r;
+        // need to watch for both read and write ending and grab data from appropriate place
 
-        DMA_STATE <= ST_DMA_WRITE_END;
+        // FIXME: remove the hack that uses mmc_wr_r
+        if      (dma_mmc_rd_bram_r & mmc_ram_dma_end_r)        dma_data_r[7:0] <= mmc_ram_rddata_r[7:0];
+        else if (MMC_STATE[clog2(ST_MMC_DMA_END)] & ~mmc_wr_r) dma_data_r[7:0] <= mmc_data_r[7:0];
+        else if (dma_normal_prefetch_val_r)                    dma_data_r[7:0] <= dma_normal_prefetch_dat_r[7:0];
+      
+        // store the next prefetch byte if it's to rom
+        if (dma_mmc_rd_rom_r & ~dma_normal_prefetch_val_r & ~dma_mmc_rd_addr_r[0] & MMC_STATE[clog2(ST_MMC_DMA_END)]) dma_normal_prefetch_found_r <= 1;
+        if (MMC_STATE[clog2(ST_MMC_DMA_END)])                                                                         dma_normal_prefetch_dat_r <= mmc_data_r[15:8];        
+      
+        // need to disambiguate between reads and writes for rom/iram
+        if (MMC_STATE[clog2(ST_MMC_DMA_END)])             dma_mmc_rd_rom_r <= 0;
+        if (MMC_STATE[clog2(ST_MMC_DMA_END)] & ~mmc_wr_r) dma_mmc_rd_iram_r <= 0;
+        if (MMC_STATE[clog2(ST_MMC_DMA_END)] & mmc_wr_r)  dma_mmc_wr_iram_r <= 0;
+        if (mmc_ram_dma_end_r)                            dma_mmc_rd_bram_r <= 0;
+        if (mmc_ram_dma_end_r)                            dma_mmc_wr_bram_r <= 0;
+
+        dma_normal_state_r <= {1'b1, |dma_dtc_r[15:1]};
+      
+        // look for all conditions done
+        if (~(dma_mmc_rd_rom_r | dma_mmc_rd_bram_r | dma_mmc_wr_bram_r | dma_mmc_rd_iram_r | dma_mmc_wr_iram_r)) begin
+          if (~|dma_dtc_r) dma_normal_int_r <= 1;
+          
+          dma_normal_prefetch_val_r <= dma_normal_prefetch_found_r;
+          dma_normal_prefetch_found_r <= 0;
+
+          if (~|dma_dtc_r) DMA_STATE <= ST_DMA_IDLE;
+          else             DMA_STATE <= ST_DMA_NORMAL_READ;
+        end
       end
 `endif
 
@@ -2072,11 +2100,12 @@ always @(posedge CLK) begin
       ST_DMA_TYPE1_READ: begin
         // only perform memory read for valid byte
         //dma_cc1_rd_r <= ~|(dma_byte_r[1:0] & {dma_cdma_r[1],|dma_cdma_r[1:0]});
-        dma_mmc_rd_r <= ~|(dma_byte_r[1:0] & {dma_cdma_r[1],|dma_cdma_r[1:0]}); // & ~dma_cc1_upper_r;
-        {dma_mmc_rom_r,dma_mmc_iram_r,dma_mmc_bram_r} <= {1'b0,1'b0,1'b1};
+        //dma_mmc_rd_r <= ~|(dma_byte_r[1:0] & {dma_cdma_r[1],|dma_cdma_r[1:0]}); // & ~dma_cc1_upper_r;
+        //{dma_mmc_rom_r,dma_mmc_iram_r,dma_mmc_bram_r} <= {1'b0,1'b0,1'b1};
+        dma_mmc_rd_bram_r <= ~|(dma_byte_r[1:0] & {dma_cdma_r[1],|dma_cdma_r[1:0]});
       
         // address is for row and also include the byte of interest.
-        dma_mmc_addr_r <= dma_cc1_addr_rd_r | (dma_cdma_r[1] ? {2'b00,dma_byte_r[2]} : dma_cdma_r[0] ? {1'b0,dma_byte_r[2:1]} : dma_byte_r[2:0]);
+        dma_mmc_rd_addr_r <= dma_cc1_addr_rd_r | (dma_cdma_r[1] ? {2'b00,dma_byte_r[2]} : dma_cdma_r[0] ? {1'b0,dma_byte_r[2:1]} : dma_byte_r[2:0]);
 
         dma_byte_r <= dma_byte_r + 1;
         
@@ -2086,11 +2115,11 @@ always @(posedge CLK) begin
         DMA_STATE <= ST_DMA_READ_END;
       end
       ST_DMA_TYPE1_WRITE: begin
-        dma_mmc_wr_r <= ~|(dma_byte_r & ~dma_comp_r);
-        {dma_mmc_rom_r,dma_mmc_iram_r,dma_mmc_bram_r} <= {1'b0,1'b1,1'b0};
+        dma_mmc_wr_iram_r <= ~|(dma_byte_r & ~dma_comp_r);
+        //{dma_mmc_rom_r,dma_mmc_iram_r,dma_mmc_bram_r} <= {1'b0,1'b1,1'b0};
         
         // calculate address
-        dma_mmc_addr_r <= {13'h0000,dma_cc1_addr_wr_r} | {dma_byte_r[2:1],dma_line_r[2:0],dma_byte_r[0]};
+        dma_mmc_wr_addr_r <= {13'h0000,dma_cc1_addr_wr_r} | {dma_byte_r[2:1],dma_line_r[2:0],dma_byte_r[0]};
 
         dma_mmc_data_r <= {dma_cc1_data_r[0][dma_byte_r],
                            dma_cc1_data_r[1][dma_byte_r],
@@ -2118,18 +2147,18 @@ always @(posedge CLK) begin
 `ifdef DMA_TYPE2_ENABLE
       // type2
       ST_DMA_TYPE2_READ: begin
-        dma_mmc_wr_r <= ~|(dma_byte_r & ~dma_comp_r);
-        {dma_mmc_rom_r,dma_mmc_iram_r,dma_mmc_bram_r} <= {1'b0,1'b1,1'b0};
+        dma_mmc_wr_iram_r <= ~|(dma_byte_r & ~dma_comp_r);
+        //{dma_mmc_rom_r,dma_mmc_iram_r,dma_mmc_bram_r} <= {1'b0,1'b1,1'b0};
 
         // compose BRF to iram write
-        dma_mmc_addr_r <= {13'h0000,
-                           DDA_r[10:7],
-                           (|dma_cdma_r[`CDMA_DMACB] ? DDA_r[6]                                              : dma_cc2_line_r[3]),
-                           (dma_cdma_r[1]            ? DDA_r[5]          : dma_cdma_r[0] ? dma_cc2_line_r[3] : dma_byte_r[2]    ),
-                           (dma_cdma_r[1]            ? dma_cc2_line_r[3] :                 dma_byte_r[1]                        ),
-                           dma_cc2_line_r[2:0],
-                           dma_byte_r[0]
-                          };
+        dma_mmc_wr_addr_r <= {13'h0000,
+                              DDA_r[10:7],
+                              (|dma_cdma_r[`CDMA_DMACB] ? DDA_r[6]                                              : dma_cc2_line_r[3]),
+                              (dma_cdma_r[1]            ? DDA_r[5]          : dma_cdma_r[0] ? dma_cc2_line_r[3] : dma_byte_r[2]    ),
+                              (dma_cdma_r[1]            ? dma_cc2_line_r[3] :                 dma_byte_r[1]                        ),
+                              dma_cc2_line_r[2:0],
+                              dma_byte_r[0]
+                             };
 
         dma_mmc_data_r <= {dma_cc2_line_r[0] ? BRF_r[8][dma_byte_r]  : BRF_r[0][dma_byte_r],
                            dma_cc2_line_r[0] ? BRF_r[9][dma_byte_r]  : BRF_r[1][dma_byte_r],
@@ -2151,38 +2180,38 @@ always @(posedge CLK) begin
 `endif
 
       ST_DMA_READ_END: begin
-        if (~dma_mmc_rd_r) begin
+        if (~dma_mmc_rd_bram_r) begin
           //dma_normal_prefetch_val_r <= 0;
-          dma_data_r <= dma_normal_prefetch_dat_r[7:0];
+          //dma_data_r <= dma_normal_prefetch_dat_r[7:0];
         
           DMA_STATE <= dma_next_readstate_r;
           //if (dma_cc1_rd_r) dma_cc1_upper_r <= 0;
         end
         else if (mmc_dma_end) begin
-          dma_mmc_rd_r <= 0;
+          //dma_normal_prefetch_val_r <= ~dma_mmc_addr_r[0] & dma_mmc_rom_r; 
+          dma_mmc_rd_bram_r <= 0;
           dma_data_r <= dma_mmc_rddata[7:0];
           
           DMA_STATE <= dma_next_readstate_r;
         end
         
-        dma_normal_prefetch_val_r <= ~dma_mmc_addr_r[0] & dma_mmc_rom_r; 
-        dma_normal_prefetch_dat_r <= dma_mmc_rddata[15:8];
+        //dma_normal_prefetch_dat_r <= dma_mmc_rddata[15:8];
         
-        if (~dma_mmc_rd_r | mmc_dma_end) begin
-          dma_cc1_data_r[7] <=   dma_mmc_rd_r  ? dma_mmc_rddata[7:0]
-                               : dma_cdma_r[0] ? {dma_cc1_data_r[7][3:0],dma_cc1_data_r[7][7:4]}
-                               :                 {dma_cc1_data_r[7][1:0],dma_cc1_data_r[7][7:6],dma_cc1_data_r[7][5:4],dma_cc1_data_r[7][3:2]}
+        if (~dma_mmc_rd_bram_r | mmc_dma_end) begin
+          dma_cc1_data_r[7] <=   dma_mmc_rd_bram_r  ? dma_mmc_rddata[7:0]
+                               : dma_cdma_r[0]      ? {dma_cc1_data_r[7][3:0],dma_cc1_data_r[7][7:4]}
+                               :                      {dma_cc1_data_r[7][1:0],dma_cc1_data_r[7][7:6],dma_cc1_data_r[7][5:4],dma_cc1_data_r[7][3:2]}
                                ;
           // shift older data
           for (i = 0; i < 7; i = i + 1) dma_cc1_data_r[i] <= dma_cc1_data_r[i+1];
         end
       end
       ST_DMA_WRITE_END: begin
-        if (~dma_mmc_wr_r) begin
+        if (~dma_mmc_wr_iram_r) begin
           DMA_STATE <= dma_next_writestate_r;
         end
         else if (mmc_dma_end) begin
-          dma_mmc_wr_r <= 0;
+          dma_mmc_wr_iram_r <= 0;
           
           DMA_STATE <= dma_next_writestate_r;
         end
