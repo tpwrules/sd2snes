@@ -125,7 +125,5 @@ assign nmicmd_enable = (SNES_ADDR == 24'h002BF2);
 assign return_vector_enable = (SNES_ADDR == 24'h002A5A);
 assign branch1_enable = (SNES_ADDR == 24'h002A13);
 assign branch2_enable = (SNES_ADDR == 24'h002A4D);
-// 00-3F/80-BF:2200-23FF sa1 registers. 00-3F/80-BF:3000-37FF iram.
-assign sa1_enable = (!SNES_ADDR[22] && ({SNES_ADDR[15:9],1'h0} == 8'h22 || ({SNES_ADDR[15:11],3'h0} == 8'h30 && !iram_battery_r))) || (SNES_ADDR[23:20] == 4'h4 && sa1_dma_cc1_en);
 
 endmodule

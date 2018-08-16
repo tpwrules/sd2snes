@@ -468,8 +468,8 @@ sa1 snes_sa1 (
   .ROM_MASK(ROM_MASK),
   
   // MMIO interface
-  //.ENABLE(sa1_enable),
   .SNES_READ(SNES_READ),
+  .SNES_WRITE(SNES_WRITE),
   .SNES_RD_start(SNES_RD_start),
   .SNES_RD_end(SNES_RD_end),
   .SNES_WR_start(SNES_WR_start),
@@ -691,7 +691,6 @@ address snes_addr(
 //  .dspx_dp_enable(dspx_dp_enable),
 //  .dspx_a0(DSPX_A0),
   //SA1
-  .sa1_enable(sa1_enable),
   .r213f_enable(r213f_enable),
   .snescmd_enable(snescmd_enable),
   .nmicmd_enable(nmicmd_enable),
@@ -1140,7 +1139,7 @@ assign MCU_RDY = RQ_MCU_RDYr & RQ_RAM_MCU_RDYr;
 //--------------
 
 assign SNES_DATABUS_OE = msu_enable & ~(SNES_READ & SNES_WRITE) ? 1'b0 :
-                         sa1_enable & ~(SNES_READ & SNES_WRITE) ? 1'b0 :
+                         sa1_data_enable ? 1'b0 : // accounts for read/write
                          snescmd_enable & ~(SNES_READ & SNES_WRITE) ? ~(snescmd_unlock | feat_cmd_unlock) :
                          r213f_enable & !SNES_PARD ? 1'b0 :
                          snoop_4200_enable & ~SNES_WRITE ? 1'b0 :

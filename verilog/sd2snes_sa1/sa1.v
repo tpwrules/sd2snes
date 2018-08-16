@@ -29,6 +29,7 @@ module sa1(
   // MMIO interface
   //input         ENABLE,
   input         SNES_READ,
+  input         SNES_WRITE,
   input         SNES_RD_start,
   input         SNES_RD_end,
   input         SNES_WR_start,
@@ -615,11 +616,12 @@ reg        snes_data_enable_r; initial snes_data_enable_r = 0;
 reg [7:0]  data_out_r;
 reg [7:0]  snes_data_out_r; initial snes_data_out_r = 0;
 
+reg [10:0] snes_iram_addr_r;
+
 reg        snes_writebuf_val_r; initial snes_writebuf_val_r = 0;
 reg        snes_writebuf_iram_r; initial snes_writebuf_iram_r = 0;
 reg [10:0] snes_writebuf_addr_r;
 reg [7:0]  snes_writebuf_data_r;
-reg [10:0] snes_writebuf_iram_addr_r;
 reg [7:0]  snes_writebuf_iram_data_r;
 
 reg        snes_mmio_active_r; initial snes_mmio_active_r = 0;
@@ -628,13 +630,12 @@ reg        snes_iram_active_r; initial snes_iram_active_r = 0;
 reg        snes_readbuf_val_r; initial snes_readbuf_val_r = 0;
 reg        snes_readbuf_iram_r; initial snes_readbuf_iram_r = 0;
 reg [8:0]  snes_readbuf_mmio_addr_r;
-reg [10:0] snes_readbuf_iram_addr_r;
 reg        snes_mmio_done_r; initial snes_mmio_done_r = 0;
 
 wire [7:0] snes_iram_out;
 reg  [7:0] snes_iram_data_r;
 
-reg [3:0]  snes_mmio_delay_r; initial snes_mmio_delay_r = 0;
+reg [1:0]  snes_mmio_delay_r; initial snes_mmio_delay_r = 0;
 
 reg        sa1_readbuf_val_r; initial sa1_readbuf_val_r = 0;
 
@@ -648,13 +649,9 @@ wire       dma_mmc_cc1_en;
 wire [6:0] dma_mmc_cc1_mask;
 
 always @(posedge CLK) begin
-  // capture the data at the start of the read to avoid late changes.  for mmio the sa1 can modify the location late into the snes read cycle which may lead to data corruption.
-  // need to delay 2 clocks from iram request.
-  // C0 valid asserted, read started, mmio data write in progress, delay_r is 000
-  // C1 mmio data_out_r valid, iram data write in progress, delay_r is 001
-  // C2 iram data_out_r valid, delay_r is 011
-  // NOTE: try flopping new value once
-  if (~snes_mmio_delay_r[3] & ~snes_mmio_done_r) snes_data_out_r <= snes_readbuf_iram_r ? snes_iram_data_r : data_out_r;
+  // iram sees the address early so data is available.
+  // TODO: can this be single bit now?
+  if (~snes_mmio_delay_r[1] & ~snes_mmio_done_r) snes_data_out_r <= snes_readbuf_iram_r ? snes_iram_data_r : data_out_r;
 
   if (RST) begin
     snes_data_enable_r <= 0;
@@ -726,7 +723,7 @@ always @(posedge CLK) begin
   end
   else begin
     sa1_mmio_read_r <= {sa1_mmio_read_r[0], sa1_mmio_read};
-    snes_mmio_delay_r[3:0] <= {snes_mmio_delay_r[2:0],snes_readbuf_val_r|snes_readbuf_iram_r};
+    snes_mmio_delay_r[1:0] <= {snes_mmio_delay_r[0],snes_readbuf_val_r|snes_readbuf_iram_r};
   
     snes_mmio_active_r <= `IS_MMIO(addr_in_r);
     snes_iram_active_r <= `IS_CPU_IRAM(addr_in_r) | (`IS_CPU_BRAM(addr_in_r) & dma_mmc_cc1_en);
@@ -735,7 +732,7 @@ always @(posedge CLK) begin
     if (~SNES_READ & snes_mmio_active_r & ~snes_mmio_done_r) begin
       snes_readbuf_val_r  <= 1;
       snes_readbuf_mmio_addr_r <= addr_in_r[8:0];
-      snes_mmio_done_r <= snes_mmio_delay_r[3];
+      snes_mmio_done_r <= snes_mmio_delay_r[0];
       
       sa1_readbuf_val_r   <= 0;
     end
@@ -762,9 +759,10 @@ always @(posedge CLK) begin
       snes_readbuf_iram_r <= 0;
     end
     
-    // guarded by SNES_READ in main.v
-    snes_data_enable_r <= (snes_mmio_active_r | snes_iram_active_r);
-    snes_readbuf_iram_addr_r <= (`IS_CPU_BRAM(addr_in_r) & dma_mmc_cc1_en) ? {DDA_r[10:7],(DDA_r[6:0] & ~dma_mmc_cc1_mask) | (addr_in_r[6:0] & dma_mmc_cc1_mask)} : addr_in_r[10:0];
+    // set both data and oe enable here
+    snes_data_enable_r <= ((snes_iram_active_r | snes_mmio_active_r) & ~SNES_WRITE) | snes_mmio_delay_r[1] | snes_mmio_done_r;
+    // get address as early as possible so the read data is available when SNES_READ asserts
+    snes_iram_addr_r <= (`IS_CPU_BRAM(addr_in_r) & dma_mmc_cc1_en) ? {DDA_r[10:7],(DDA_r[6:0] & ~dma_mmc_cc1_mask) | (addr_in_r[6:0] & dma_mmc_cc1_mask)} : addr_in_r[10:0];
 
     if (snes_readbuf_val_r | sa1_readbuf_val_r) begin
       case (snes_readbuf_mmio_addr_r[8:0])
@@ -805,7 +803,6 @@ always @(posedge CLK) begin
     
     if (SNES_WR_end & `IS_CPU_IRAM(addr_in_r)) begin
       snes_writebuf_iram_r <= 1;
-      snes_writebuf_iram_addr_r <= addr_in_r[10:0];
       snes_writebuf_iram_data_r <= data_in_r;
     end
     else begin
@@ -1183,9 +1180,11 @@ wire [7:0]   iram_dout;
 // TDP macro simplifies abritration between the snes and sa1.  Also use
 // spare cycles for debug reads.
 wire         snes_iram_wren = snes_writebuf_iram_r;
-wire [10:0]  snes_iram_addr = snes_writebuf_iram_r ? snes_writebuf_iram_addr_r
-                            : snes_readbuf_iram_r  ? snes_readbuf_iram_addr_r
-                            : pgm_addr_r[10:0];
+`ifdef DEBUG
+wire [10:0]  snes_iram_addr = snes_iram_active_r ? snes_iram_addr_r : pgm_addr_r[10:0];
+`else
+wire [10:0]  snes_iram_addr = snes_iram_addr_r;
+`endif
 wire [7:0]   snes_iram_din  = snes_writebuf_iram_data_r;
 wire [7:0]   snes_iram_dout;
 
