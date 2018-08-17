@@ -390,6 +390,9 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
     snes_reset(1);
     if(ST.is_u16 && (ST.u16_cfg & 0x01)) {
       delay_ms(60*SNES_RESET_PULSELEN_MS);
+    } else if (romprops.has_sa1) {
+      // kirby doesn't like the firmware touching the reset pin.
+      delay_ms(30*SNES_RESET_PULSELEN_MS);
     } else {
       delay_ms(SNES_RESET_PULSELEN_MS);
     }

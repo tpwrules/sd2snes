@@ -131,9 +131,9 @@ uint8_t get_snes_reset_state(void) {
     }
 
     /* release reset from the sd2snes-side */
-    snes_reset(0);
+    // FIXME: kirby doesn't seem to like the firmware touching reset
+    if (!romprops.has_sa1) snes_reset(0);
     delay_us(SNES_RELEASE_RESET_DELAY_US);
-
   }
 
   /* now start new cycle */
@@ -168,7 +168,8 @@ uint8_t get_snes_reset_state(void) {
   }
 
   if(reset_flag) {
-    snes_reset(1);
+    // FIXME: kirby doesn't seem to like the firmware touching reset
+    if (!romprops.has_sa1) snes_reset(1);
     if(first_detection)
       delay_ms(190);
     else

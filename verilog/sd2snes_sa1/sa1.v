@@ -144,7 +144,7 @@ module sa1(
 `define BCD_ENABLE
 
 `define EXE_FAST_FETCH
-//`define EXE_FAST_MOVE
+`define EXE_FAST_MOVE
 
 // temporaries
 integer i;
@@ -2643,6 +2643,8 @@ always @(posedge CLK) begin
         // fast move skips fetch
         if (exe_move_val_r & ~int_pending_r) begin
           // reset some state that was modified
+          exe_opsize_r  <= `SZE_3;
+          
           exe_control_r <= exe_decode_r[`DEC_CONTROL];
           exe_load_r    <= exe_decode_r[`DEC_LOAD];
           exe_store_r   <= exe_decode_r[`DEC_STORE];
@@ -3065,7 +3067,7 @@ always @(posedge CLK) begin
 
 `ifdef EXE_FAST_MOVE
             // someone could have the mov perform self modifying code on itself and break this.  could qualify it as rom address to fix that.
-            exe_move_val_r      <= |A_r;
+            exe_move_val_r      <= |A_r & `IS_ROM(exe_fetch_addr_r); // assume that if last byte was in rom the whole thing was in rom
 `endif
 
             // END takes care of exit
@@ -3221,11 +3223,17 @@ always @(posedge CLK) begin
           exe_fetch_addr_r <= exe_control_r ? exe_target_r : {exe_pbr_r,exe_nextpc_r};
           exe_fetch_size_r <= 0;
           exe_mmc_byte_total_r <= 1;
+          
+          // will be assigned properly on fast move
           exe_opsize_r  <= 0;
-          exe_opcode_r  <= 0;
-          exe_operand_r <= 0;
+
+          // TODO: resetting the following is really only useful debug.
           exe_mmc_long_r <= 0;
           exe_mmc_dpe_r <= 0;
+          if (~exe_move_val_r) begin
+            exe_opcode_r  <= 0;
+            exe_operand_r <= 0;
+          end
           
           // invalidate the prefetch on a taken control instruction
           if (exe_control_r) exe_prefetch_val_r <= 0;
