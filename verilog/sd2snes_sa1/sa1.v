@@ -2681,10 +2681,9 @@ always @(posedge CLK) begin
 
             exe_nextpc_addr_r  <= PC_r + dec_data[`DEC_SIZE] + (exe_dec_imm16 ? 2 : 1);
 
-            // TODO: hide the -1 in the decoder
             // FIXME: fix latencies once perf problems are resolved
             e2c_waitcnt_r <= 0;
-            //e2c_waitcnt_r <= (dec_data[`DEC_LATENCY] - 1);
+            //e2c_waitcnt_r <= dec_data[`DEC_LATENCY];
             
             // `define ADD_MOD     27:26
             exe_mod_r <= dec_data[27] ? 16'h0000 : dec_data[26] ? Y_r[15:0] : X_r[15:0];
