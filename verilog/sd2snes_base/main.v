@@ -542,6 +542,16 @@ wire [15:0] DMA_DOUT;
 
 reg [15:0] DMA_DINr;
 
+// disable DMA
+assign DMA_SNES_DATA_OUT = 8'b0;
+assign DMA_LOOP_ENABLE = 1'b0;
+assign DMA_RRQ = 1'b0;
+assign DMA_WRQ = 1'b0;
+assign DMA_ADDR = 24'b0;
+assign DMA_DOUT = 16'b0;
+assign DMA_WORD = 1'b0;
+
+/*
 dma snes_dma (
   .clkin(CLK2),
   .reset(SNES_reset_strobe),
@@ -565,6 +575,7 @@ dma snes_dma (
   .ROM_DATA_IN(DMA_DINr),
   .ROM_WORD_ENABLE(DMA_WORD)
 );
+*/
 
 bsx snes_bsx(
   .clkin(CLK2),
