@@ -508,6 +508,17 @@ msu snes_msu (
 wire [23:0] CTX_ADDR;
 wire [15:0] CTX_DOUT;
 
+// disable CTX
+assign ctx_wr_enable = 1'b0;
+assign ctx_pawr_enable = 1'b0;
+assign ctx_pard_enable = 1'b0;
+assign CTX_WRQ = 1'b0;
+assign CTX_ADDR = 24'b0;
+assign CTX_DATA = 16'b0;
+assign CTX_WORD = 1'b0;
+assign CTX_DBG = 1'b0;
+
+/*
 ctx snes_ctx (
   .clkin(CLK2),
   .reset(SNES_reset_strobe),
@@ -536,6 +547,7 @@ ctx snes_ctx (
   
   .DBG(CTX_DBG)
 );
+*/
 
 wire [23:0] DMA_ADDR;
 wire [15:0] DMA_DOUT;
