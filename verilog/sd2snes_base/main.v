@@ -429,6 +429,13 @@ sd_dma snes_sd_dma(
 
 assign SD_DMA_TO_ROM = (SD_DMA_STATUS && (SD_DMA_TGT == 2'b00));
 
+// disable DAC
+assign DAC_SDOUT = 1'b0;
+assign DAC_MCLK = 1'b0;
+assign DAC_LRCK = 1'b0;
+assign DAC_STATUS = 1'b0;
+
+/*
 dac snes_dac(
   .clkin(CLK2),
   .sysclk(SNES_SYSCLK),
@@ -447,6 +454,7 @@ dac snes_dac(
   .reset(dac_reset),
   .dac_address_ext(dac_ptr_addr)
 );
+*/
 
 srtc snes_srtc (
   .clkin(CLK2),
@@ -476,6 +484,20 @@ rtc snes_rtc (
   .we1(srtc_rtc_we)
 );
 
+// disable MSU
+assign MSU_SNES_DATA_OUT = 8'b0;
+assign msu_status_out = 8'b0;
+assign msu_volumerq_out = 8'b0;
+assign msu_volume_latch_out = 1'b0;
+assign msu_addressrq_out = 32'b0;
+assign msu_trackrq_out = 16'b0;
+assign DBG_msu_reg_oe_rising = 1'b0;
+assign DBG_msu_reg_oe_falling = 1'b0;
+assign DBG_msu_reg_we_rising = 1'b0;
+assign DBG_msu_address = 14'b0;
+assign DBG_msu_address_ext_write_rising = 1'b0;
+
+/*
 msu snes_msu (
   .clkin(CLK2),
   .enable(msu_enable),
@@ -504,6 +526,7 @@ msu snes_msu (
   .DBG_msu_address(DBG_msu_address),
   .DBG_msu_address_ext_write_rising(DBG_msu_address_ext_write_rising)
 );
+*/
 
 wire [23:0] CTX_ADDR;
 wire [15:0] CTX_DOUT;
