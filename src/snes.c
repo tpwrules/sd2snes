@@ -248,7 +248,7 @@ uint8_t get_snes_reset_state(void) {
       }
     }
 
-    if(rising_ticks_tmp > rising_ticks + 99) { /* a (normal) long reset is detected */
+    if(rising_ticks_tmp > rising_ticks + 399) { /* a (normal) long reset is detected */
       result = SNES_RESET_LONG;
     }
 
