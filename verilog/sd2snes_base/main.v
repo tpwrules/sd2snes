@@ -240,6 +240,7 @@ wire [7:0] SNES_DATA_IN = (SNES_DATAr[3] & SNES_DATAr[2]);
 reg  [23:0] SNES_ADDR_early; always @(posedge CLK2) SNES_ADDR_early <= (SNES_ADDRr[3] & SNES_ADDRr[2]);
 
 wire SNES_PARD_start = (SNES_PARDr[6:1] == 6'b111110);
+wire SNES_PARD_end = (SNES_PARDr[6:1] == 6'b000001);
 // Sample PAWR data earlier on CPU accesses, later on DMA accesses...
 wire SNES_PAWR_start = (SNES_PAWRr[7:1] == (({SNES_ADDR[22], SNES_ADDR[15:0]} == 17'h02100) ? 7'b1110000 : 7'b1000000));
 wire SNES_PAWR_end = (SNES_PAWRr[6:1] == 6'b000001);
@@ -277,6 +278,9 @@ always @(posedge CLK2) begin
 end
 wire SNES_ROMSEL = (SNES_ROMSELr[5] & SNES_ROMSELr[4]);
 
+wire bus_finished = (SNES_PARD_end | SNES_PAWR_end | SNES_RD_end | SNES_WR_end);
+wire bus_idle = (SNES_PARDr[1] & SNES_PAWRr[1] & SNES_READr[1] & SNES_WRITEr[1]);
+
 reg [7:0] BUS_DATA;
 
 always @(posedge CLK2) begin
@@ -285,7 +289,7 @@ always @(posedge CLK2) begin
 end
 
 wire SD_DMA_TO_ROM;
-wire free_slot = (SNES_cycle_end | free_strobe) & ~SD_DMA_TO_ROM;
+wire free_slot = ((bus_finished & bus_idle) | free_strobe) & ~SD_DMA_TO_ROM;
 
 wire ROM_HIT;
 
