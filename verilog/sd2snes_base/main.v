@@ -612,6 +612,16 @@ dma snes_dma (
 );
 */
 
+// disable BSX
+assign BSX_SNES_DATA_OUT = 1'b0;
+assign bsx_regs = 15'b0;
+assign bsx_data_ovr = 1'b0;
+assign IS_FLASHWR = 1'b0;
+assign bs_page = 10'b0;
+assign bs_page_enable = 1'b0;
+assign bs_page_offset = 9'b0;
+
+/*
 bsx snes_bsx(
   .clkin(CLK2),
   .use_bsx(use_bsx),
@@ -633,6 +643,7 @@ bsx snes_bsx(
   .bs_page_offset(bs_page_offset),
   .feat_bs_base_enable(feat_bs_base_enable)
 );
+*/
 
 spi snes_spi(
   .clk(CLK2),
