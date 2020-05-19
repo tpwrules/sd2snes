@@ -125,6 +125,12 @@ module mcu_cmd(
   output reg [15:0] dsp_feat_out = 16'h0000,
 
   // chrono figure interface
+  output reg [31:0] cf_config,
+  output reg [7:0] cf_config_addr,
+  output reg cf_config_we,
+  input [30:0] cf_event,
+  input cf_event_valid,
+  output reg cf_event_re,
   input [31:0] cf_gateware_version
 );
 
@@ -231,6 +237,7 @@ always @(posedge clk) begin
   cheat_pgm_we_out <= 1'b0;
   dac_reset_out <= 1'b0;
   MSU_RESET_OUT_BUF <= 1'b0;
+  cf_config_we <= 1'b0;
 
   if (cmd_ready) begin
     case (cmd_data[7:4])
@@ -286,6 +293,21 @@ always @(posedge clk) begin
         endcase
       8'h9x:
         MCU_DATA_OUT_BUF <= param_data;
+      8'hC2:
+        case (spi_byte_cnt)
+          32'h2:
+            cf_config_addr <= param_data;
+          32'h3:
+            cf_config[7:0] <= param_data;
+          32'h4:
+            cf_config[15:8] <= param_data;
+          32'h5:
+            cf_config[23:16] <= param_data;
+          32'h6: begin
+            cf_config[31:24] <= param_data;
+            cf_config_we <= 1'b1;
+          end
+        endcase
       8'hd0:
         case (spi_byte_cnt)
           32'h2:
@@ -522,8 +544,11 @@ always @(posedge clk) begin
   end
 end
 
+reg [31:0] cf_event_out_buf;
+
 // value fetch during last SPI bit
 always @(posedge clk) begin
+  cf_event_re <= 1'b0;
   if (cmd_data[7:4] == 4'h8 && mcu_nextaddr)
     MCU_DATA_IN_BUF <= mcu_data_in;
   else if (cmd_ready | param_ready /* bit_cnt == 7 */) begin
@@ -601,6 +626,23 @@ always @(posedge clk) begin
           MCU_DATA_IN_BUF <= cf_gateware_version[23:16];
         32'h4:
           MCU_DATA_IN_BUF <= cf_gateware_version[31:24];
+      endcase
+    else if (cmd_data[7:0] == 8'hC1)
+      case (spi_byte_cnt)
+        32'h1: begin
+          // save the current event for ouput (high bit is 1 if it's not valid)
+          cf_event_out_buf <= {~cf_event_valid, cf_event};
+          // and request the next
+          cf_event_re <= 1'b1;
+        end
+        32'h2:
+          MCU_DATA_IN_BUF <= cf_event_out_buf[7:0];
+        32'h3:
+          MCU_DATA_IN_BUF <= cf_event_out_buf[15:8];
+        32'h4:
+          MCU_DATA_IN_BUF <= cf_event_out_buf[23:16];
+        32'h5:
+          MCU_DATA_IN_BUF <= cf_event_out_buf[31:24];
       endcase
   end
 end
