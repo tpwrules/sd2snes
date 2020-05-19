@@ -31,4 +31,7 @@
 
 uint32_t cf_get_gateware_version(void);
 
+uint32_t cf_readblock(void* buf, uint32_t addr, uint32_t size);
+uint32_t cf_writeblock(void* buf, uint32_t addr, uint32_t size);
+
 #endif

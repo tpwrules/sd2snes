@@ -47,6 +47,7 @@
 #include "cfg.h"
 #include "cdcuser.h"
 #include "cheat.h"
+#include "chrono_figure.h"
 
 static inline void __DMB2(void) { asm volatile ("dmb" ::: "memory"); }
 
@@ -158,7 +159,8 @@ static const char *usbint_server_opcode_s[] = { FOREACH_SERVER_OPCODE(GENERATE_S
   OP(USBINT_SERVER_SPACE_SNES)					\
   OP(USBINT_SERVER_SPACE_MSU)                   \
   OP(USBINT_SERVER_SPACE_CMD)                   \
-  OP(USBINT_SERVER_SPACE_CONFIG)
+  OP(USBINT_SERVER_SPACE_CONFIG)                \
+  OP(USBINT_SERVER_SPACE_CHRONO_FIGURE)
 enum usbint_server_space_e { FOREACH_SERVER_SPACE(GENERATE_ENUM) };
 #if CONFIG_FWVER == 0x44534E53 || CONFIG_FWVER == 0x33534E53
 static const char *usbint_server_space_s[] = { FOREACH_SERVER_SPACE(GENERATE_STRING) };
@@ -343,6 +345,10 @@ void usbint_recv_block(void) {
                 else if (server_info.space == USBINT_SERVER_SPACE_CMD) {
                     UINT remainingBytes = min(server_info.block_size - blockBytesWritten, server_info.size - count);
                     bytesWritten = snescmd_writeblock(recv_buffer + blockBytesWritten, server_info.offset + count, remainingBytes);                    
+                }
+                else if (server_info.space == USBINT_SERVER_SPACE_CHRONO_FIGURE) {
+                    UINT remainingBytes = min(server_info.block_size - blockBytesWritten, server_info.size - count);
+                    bytesWritten = cf_writeblock(recv_buffer + blockBytesWritten, server_info.offset + count, remainingBytes);
                 }
                 else {
                     uint8_t group = server_info.size & 0xFF;
@@ -816,7 +822,10 @@ int usbint_handler_dat(void) {
 				}	
 				else if (server_info.space == USBINT_SERVER_SPACE_CMD) {
 					bytesRead = snescmd_readblock((uint8_t *)send_buffer[send_buffer_index] + bytesSent, server_info.offset + count, remainingBytes);
-				}	
+				}
+                else if (server_info.space == USBINT_SERVER_SPACE_CHRONO_FIGURE) {
+                    bytesRead = cf_readblock((uint8_t *)send_buffer[send_buffer_index] + bytesSent, server_info.offset + count, remainingBytes);
+                }	
                 else {
                     // config
                     uint8_t group = server_info.size & 0xFF;
