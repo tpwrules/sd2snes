@@ -686,6 +686,22 @@ upd77c25 snes_dspx (
 );
 `endif
 
+wire [31:0] cf_gateware_version;
+
+chrono_figure_sys chrono_figure_sys(
+  .i_clock(CLK2),
+  .i_snes_addr(SNES_ADDR_IN),
+  .i_snes_periph_addr(SNES_PA_IN),
+  .i_snes_rd(SNES_READ_IN),
+  .i_snes_wr(SNES_WRITE_IN),
+  .i_snes_pard(SNES_PARD_IN),
+  .i_snes_pawr(SNES_PAWR_IN),
+  .i_snes_clock(SNES_SYSCLK),
+  .i_snes_reset(SNES_reset_strobe),
+
+  .o_gateware_version(cf_gateware_version)
+);
+
 reg [7:0] MCU_DINr;
 wire [7:0] MCU_DOUT;
 wire [31:0] cheat_pgm_data;
@@ -770,7 +786,8 @@ mcu_cmd snes_mcu_cmd(
   .cheat_pgm_idx_out(cheat_pgm_idx),
   .cheat_pgm_data_out(cheat_pgm_data),
   .cheat_pgm_we_out(cheat_pgm_we),
-  .dsp_feat_out(dsp_feat)
+  .dsp_feat_out(dsp_feat),
+  .cf_gateware_version(cf_gateware_version)
 );
 
 address snes_addr(

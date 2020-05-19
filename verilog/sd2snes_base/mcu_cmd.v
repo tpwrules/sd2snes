@@ -122,7 +122,10 @@ module mcu_cmd(
   output reg cheat_pgm_we_out,
 
   // DSP core features
-  output reg [15:0] dsp_feat_out = 16'h0000
+  output reg [15:0] dsp_feat_out = 16'h0000,
+
+  // chrono figure interface
+  input [31:0] cf_gateware_version
 );
 
 initial begin
@@ -588,6 +591,17 @@ always @(posedge clk) begin
       endcase      
     else if (cmd_data[7:0] == 8'hF0)
       MCU_DATA_IN_BUF <= 8'hA5;
+    else if (cmd_data[7:0] == 8'hC0)
+      case (spi_byte_cnt)
+        32'h1:
+          MCU_DATA_IN_BUF <= cf_gateware_version[7:0];
+        32'h2:
+          MCU_DATA_IN_BUF <= cf_gateware_version[15:8];
+        32'h3:
+          MCU_DATA_IN_BUF <= cf_gateware_version[23:16];
+        32'h4:
+          MCU_DATA_IN_BUF <= cf_gateware_version[31:24];
+      endcase
   end
 end
 

@@ -69,6 +69,8 @@ SRC += cfg.c cheat.c yaml.c
 
 SRC += usbdesc.c usbcore.c usbuser.c usbhw.c cdcuser.c usbinterface.c
 
+SRC += chrono_figure.c
+
 # usbcontrol.c usb_hid.c usbhw_lpc.c usbinit.c usbstdreq.c
 
 
