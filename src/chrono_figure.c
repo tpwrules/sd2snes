@@ -59,6 +59,11 @@ and reads from such addresses produce zero.
 
 0x00000004          (R/W): loopback register (reads as the last value written)
 
+0x10000000-1FFFFFFF (W  ): matcher config registers. currently there is one word
+                           per matcher and 256 words mapped in the space (but
+                           not necessarily 256 matchers), with the rest as
+                           mirrors.
+
 0x80000000-8FFFFFFF (R  ): event FIFO. reading any address returns the next word
                            from the FIFO. if the high bit is set, then the FIFO
                            was empty and the word is invalid.
@@ -83,6 +88,31 @@ uint32_t cf_get_gateware_version() {
   return version;
 }
 
+uint32_t cf_read_event() {
+  FPGA_SELECT();
+  FPGA_TX_BYTE(FPGA_CMD_CF_READ_EVENT);
+  FPGA_RX_BYTE(); // dummy to read the FIFO
+
+  uint32_t event = (uint32_t)(FPGA_RX_BYTE());
+  event |= ((uint32_t)(FPGA_RX_BYTE())) << 8;
+  event |= ((uint32_t)(FPGA_RX_BYTE())) << 16;
+  event |= ((uint32_t)(FPGA_RX_BYTE())) << 24;
+  FPGA_DESELECT();
+
+  return event;
+}
+
+void cf_write_config(uint8_t addr, uint32_t value) {
+  FPGA_SELECT();
+  FPGA_TX_BYTE(FPGA_CMD_CF_WRITE_CONFIG);
+  FPGA_TX_BYTE(addr);
+  FPGA_TX_BYTE((value) & 0xFF);
+  FPGA_TX_BYTE((value >> 8) & 0xFF);
+  FPGA_TX_BYTE((value >> 16) & 0xFF);
+  FPGA_TX_BYTE((value >> 24) & 0xFF);
+  FPGA_DESELECT();
+}
+
 static uint32_t loopback_register = 0;
 
 static uint32_t cf_readword(uint32_t addr) {
@@ -96,6 +126,8 @@ static uint32_t cf_readword(uint32_t addr) {
             default:
                return 0;
          }
+      case 0x8:
+         return cf_read_event();
       default:
          return 0;
    }
@@ -109,6 +141,9 @@ static void cf_writeword(uint32_t addr, uint32_t value) {
                loopback_register = value;
                break;
          }
+         break;
+      case 0x1:
+         cf_write_config(addr & 0xFF, value);
          break;
    }
 }
