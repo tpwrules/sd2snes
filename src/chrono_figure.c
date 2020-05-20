@@ -53,33 +53,31 @@ sized chunks, works as expected. "Linearly" being that the address of the next
 operation is the address of the previous operation + the amount of bytes
 operated on in that operation. This is how the USB code uses it.
 
-The address space is as follows. Writes to addresses not listed have no effect,
-and reads from such addresses produce zero.
-0x00000000          (R  ): gateware version
+The address space is as follows. Writes to addresses not listed or not available
+for writing have no effect. Reads from addresses not listed or not available for
+reading return zero.
+0x00000000 (R  ): gateware version
 
-0x00000004          (R/W): loopback register (reads as the last value written)
+0x00000004 (R/W): loopback register (reads as the last value written)
 
-0x00000008          (  W): reset control. write nonzero to assert console reset
-                           or zero to deassert. the sd2snes will not notice the
-                           reset so e.g. SRAM will not be saved. cleared on ROM
-                           load.
+0x00000008 (  W): reset control. write nonzero to assert console reset or zero
+                  to deassert. the sd2snes will not notice the reset so e.g.
+                  SRAM will not be saved. cleared on ROM load.
 
-0x0000000C          (  W): save inhibit. write nonzero to stop the sd2snes from
-                           saving save RAM. write zero to re-enable saving and
-                           force one save. cleared on ROM load.
+0x0000000C (  W): save inhibit. write nonzero to stop the sd2snes from saving
+                  save RAM. write zero to re-enable saving and force one save.
+                  cleared on ROM load.
 
-0x00000010          (  W): save RAM clear. write 0x05C1EA12 to clear save RAM
-                           (set all bytes to 0xFF). may have "exciting" effects
-                           if not in reset.
+0x00000010 (  W): save RAM clear. write 0x05C1EA12 to clear save RAM (set all
+                  bytes to 0xFF). may have "exciting" effects if not in reset.
 
-0x10000000-1FFFFFFF (  W): matcher config registers. currently there is one word
-                           per matcher and 256 words mapped in the space (but
-                           not necessarily 256 matchers), with the rest as
-                           mirrors.
+0x10000000 (  W): matcher config registers. currently there is one word per
+ -1FFFFFFF        matcher and 256 words mapped in the space (but not necessarily
+                  256 matchers), with the rest as mirrors.
 
-0x80000000-8FFFFFFF (R  ): event FIFO. reading any address returns the next word
-                           from the FIFO. if the high bit is set, then the FIFO
-                           was empty and the word is invalid.
+0x80000000 (R  ): event FIFO. reading any address returns the next word from the
+ -8FFFFFFF        FIFO. if the high bit is set, then the FIFO was empty and the
+                  word is invalid.
 
 */
 
@@ -137,164 +135,164 @@ void cf_write_config(uint8_t addr, uint32_t value) {
 static uint32_t loopback_register = 0;
 
 static uint32_t cf_readword(uint32_t addr) {
-   switch(addr >> 28) {
-      case 0x0:
-         switch(addr) {
-            case 0x00000000:
-               return cf_get_gateware_version();
-            case 0x00000004:
-               return loopback_register;
-            default:
-               return 0;
-         }
-      case 0x8:
-         return cf_read_event();
-      default:
-         return 0;
-   }
+  switch(addr >> 28) {
+    case 0x0:
+      switch(addr) {
+        case 0x00000000:
+          return cf_get_gateware_version();
+        case 0x00000004:
+          return loopback_register;
+        default:
+          return 0;
+      }
+    case 0x8:
+      return cf_read_event();
+    default:
+      return 0;
+  }
 }
 
 static void cf_writeword(uint32_t addr, uint32_t value) {
-   switch(addr >> 28) {
-      case 0x0:
-         switch(addr) {
-            case 0x00000004:
-               loopback_register = value;
-               break;
-            case 0x00000008:
-               cf_is_hiding_reset = (value != 0) ? 1 : 0;
-               snes_reset(cf_is_hiding_reset);
-               break;
-            case 0x0000000C:
-               cf_save_inhibit = (value != 0) ? 1 : 0;
-               break;
-            case 0x00000010:
-               if (value == 0x05C1EA12) {
-                  sram_memset(SRAM_SAVE_ADDR, romprops.ramsize_bytes,
-                     // if GSU is enabled, this gets set to 00 to fix an
-                     // unreleased game. but does the emulator? chrono figure
-                     // isn't supported on GSU anyway.
-                     0xFF);
-               }
-         }
-         break;
-      case 0x1:
-         cf_write_config(addr & 0xFF, value);
-         break;
-   }
+  switch(addr >> 28) {
+    case 0x0:
+      switch(addr) {
+        case 0x00000004:
+          loopback_register = value;
+          break;
+        case 0x00000008:
+          cf_is_hiding_reset = (value != 0) ? 1 : 0;
+          snes_reset(cf_is_hiding_reset);
+          break;
+        case 0x0000000C:
+          cf_save_inhibit = (value != 0) ? 1 : 0;
+          break;
+        case 0x00000010:
+          if (value == 0x05C1EA12) {
+            sram_memset(SRAM_SAVE_ADDR, romprops.ramsize_bytes,
+              // if GSU is enabled, this gets set to 00 to fix an
+              // unreleased game. but does the emulator? chrono figure
+              // isn't supported on GSU anyway.
+              0xFF);
+          }
+      }
+      break;
+    case 0x1:
+      cf_write_config(addr & 0xFF, value);
+      break;
+  }
 }
 
 uint32_t cf_readblock(void* buf, uint32_t addr, uint32_t size) {
-   static uint32_t read_buf = 0;
-   // address 1 is not possible so this means "nothing here yet" effectively
-   static uint32_t read_addr = 1;
+  static uint32_t read_buf = 0;
+  // address 1 is not possible so this means "nothing here yet" effectively
+  static uint32_t read_addr = 1;
 
-   if (size == 0) {
-      return 0;
-   }
+  if (size == 0) {
+    return 0;
+  }
 
-   uint32_t num_read = size;
+  uint32_t num_read = size;
 
-   // fill potentially non-aligned buffer start
-   if ((addr & 3) != 0) {
-      uint32_t word_addr = addr & 0xFFFFFFFC;
-      if (word_addr != read_addr) {
-         read_buf = cf_readword(word_addr);
-         read_addr = word_addr;
-      }
-      while (((addr & 3) != 0) && (size > 0)) {
-         // cortex-m is little endian
-         *(uint8_t*)buf++ = ((uint8_t*)&read_buf)[addr & 3];
-         addr++;
-         size--;
-      }
-   }
+  // fill potentially non-aligned buffer start
+  if ((addr & 3) != 0) {
+    uint32_t word_addr = addr & 0xFFFFFFFC;
+    if (word_addr != read_addr) {
+      read_buf = cf_readword(word_addr);
+      read_addr = word_addr;
+    }
+    while (((addr & 3) != 0) && (size > 0)) {
+      // cortex-m is little endian
+      *(uint8_t*)buf++ = ((uint8_t*)&read_buf)[addr & 3];
+      addr++;
+      size--;
+    }
+  }
 
-   // do the aligned middle and non-aligned end
-   while (size > 0) {
-      read_addr = addr;
-      read_buf = cf_readword(read_addr);
-      if (size >= 4) { // enough room for a full word
-         memcpy(buf, &read_buf, 4);
-         buf += 4;
-         addr += 4;
-         size -= 4;
-      } else {
-         // store only the bit that will fit
-         memcpy(buf, &read_buf, size);
-         break;
-      }
-   }
+  // do the aligned middle and non-aligned end
+  while (size > 0) {
+    read_addr = addr;
+    read_buf = cf_readword(read_addr);
+    if (size >= 4) { // enough room for a full word
+      memcpy(buf, &read_buf, 4);
+      buf += 4;
+      addr += 4;
+      size -= 4;
+    } else {
+      // store only the bit that will fit
+      memcpy(buf, &read_buf, size);
+      break;
+    }
+  }
 
-   return num_read;
+  return num_read;
 }
 
 uint32_t cf_writeblock(void* buf, uint32_t addr, uint32_t size) {
-   static uint32_t write_buf = 0;
-   // address 1 is not possible so this means "nothing here yet" effectively
-   static uint32_t write_addr = 1;
-   static uint8_t written_bits = 0;
+  static uint32_t write_buf = 0;
+  // address 1 is not possible so this means "nothing here yet" effectively
+  static uint32_t write_addr = 1;
+  static uint8_t written_bits = 0;
 
-   if (size == 0) {
-      return 0;
-   }
+  if (size == 0) {
+    return 0;
+  }
 
-   uint32_t num_written = size;
+  uint32_t num_written = size;
 
-   // write potentially non-aligned buffer start
-   if ((addr & 3) != 0) {
-      uint32_t word_addr = addr & 0xFFFFFFFC;
-      if (word_addr != write_addr) {
-         write_addr = word_addr;
-         written_bits = 0;
-      }
-      while (((addr & 3) != 0) && (size > 0)) {
-         ((uint8_t*)&write_buf)[addr & 3] = *(uint8_t*)buf++;
-         written_bits |= 1 << (addr & 3);
-         addr++;
-         size--;
-      }
-      if (written_bits == 0xF) {
-         cf_writeword(write_addr, write_buf);
-         write_addr = 1;
-      }
-   }
-
-   if (size == 0) {
-      return num_written;
-   } else if (size > 3) {
-      // we're going to write to the write buffer during the aligned middle, so
-      // invalidate it
+  // write potentially non-aligned buffer start
+  if ((addr & 3) != 0) {
+    uint32_t word_addr = addr & 0xFFFFFFFC;
+    if (word_addr != write_addr) {
+      write_addr = word_addr;
+      written_bits = 0;
+    }
+    while (((addr & 3) != 0) && (size > 0)) {
+      ((uint8_t*)&write_buf)[addr & 3] = *(uint8_t*)buf++;
+      written_bits |= 1 << (addr & 3);
+      addr++;
+      size--;
+    }
+    if (written_bits == 0xF) {
+      cf_writeword(write_addr, write_buf);
       write_addr = 1;
-   }
+    }
+  }
 
-   // do the aligned middle
-   while (size > 3) {
-      memcpy(&write_buf, buf, 4);
-      cf_writeword(addr, write_buf);
-      addr += 4;
-      buf += 4;
-      size -= 4;
-   }
+  if (size == 0) {
+    return num_written;
+  } else if (size > 3) {
+    // we're going to write to the write buffer during the aligned middle, so
+    // invalidate it
+    write_addr = 1;
+  }
 
-   // and finally the non-aligned end
-   if (size > 0) {
-      uint32_t word_addr = addr & 0xFFFFFFFC;
-      if (word_addr != write_addr) {
-         write_addr = word_addr;
-         written_bits = 0;
-      }
-      while (size > 0) {
-         ((uint8_t*)&write_buf)[addr & 3] = *(uint8_t*)buf++;
-         written_bits |= 1 << (addr & 3);
-         addr++;
-         size--;
-      }
-      if (written_bits == 0xF) {
-         cf_writeword(write_addr, write_buf);
-         write_addr = 1;
-      }
-   }
+  // do the aligned middle
+  while (size > 3) {
+    memcpy(&write_buf, buf, 4);
+    cf_writeword(addr, write_buf);
+    addr += 4;
+    buf += 4;
+    size -= 4;
+  }
 
-   return num_written;
+  // and finally the non-aligned end
+  if (size > 0) {
+    uint32_t word_addr = addr & 0xFFFFFFFC;
+    if (word_addr != write_addr) {
+      write_addr = word_addr;
+      written_bits = 0;
+    }
+    while (size > 0) {
+      ((uint8_t*)&write_buf)[addr & 3] = *(uint8_t*)buf++;
+      written_bits |= 1 << (addr & 3);
+      addr++;
+      size--;
+    }
+    if (written_bits == 0xF) {
+      cf_writeword(write_addr, write_buf);
+      write_addr = 1;
+    }
+  }
+
+  return num_written;
 }
