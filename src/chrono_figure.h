@@ -29,6 +29,9 @@
 
 #include <inttypes.h>
 
+extern volatile uint8_t cf_is_hiding_reset;
+extern volatile uint8_t cf_save_inhibit;
+
 uint32_t cf_get_gateware_version(void);
 uint32_t cf_read_event(void);
 void cf_write_config(uint8_t addr, uint32_t value);

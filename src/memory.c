@@ -48,6 +48,7 @@ memory.c: RAM operations
 #include "cli.h"
 #include "cheat.h"
 #include "rtc.h"
+#include "chrono_figure.h"
 
 #include <string.h>
 char* hex = "0123456789ABCDEF";
@@ -250,6 +251,10 @@ uint32_t load_rom(uint8_t* filename, uint32_t base_addr, uint8_t flags) {
   UINT is_menu = filename == (uint8_t *)MENU_FILENAME;
   tick_t ticksstart, ticks_total=0;
   ticksstart=getticks();
+
+  // clear chrono figure state that might screw up the next game
+  cf_is_hiding_reset = 0;
+  cf_save_inhibit = 0;
 
   // copy the full name and path
   strncpy(current_filename, (char *)filename, sizeof(current_filename)-1);

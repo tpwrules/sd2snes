@@ -42,6 +42,7 @@
 #include "rtc.h"
 #include "cfg.h"
 #include "usbinterface.h"
+#include "chrono_figure.h"
 
 uint32_t saveram_crc, saveram_crc_old;
 uint8_t sram_crc_valid;
@@ -198,7 +199,7 @@ snes_reset_loop_out:
  * returns: 1 when reset, 0 when not reset
  */
 uint8_t get_snes_reset() {
-  return !BITBAND(SNES_RESET_REG->FIOPIN, SNES_RESET_BIT);
+  return (!BITBAND(SNES_RESET_REG->FIOPIN, SNES_RESET_BIT)) && (!cf_is_hiding_reset);
 }
 
 uint8_t get_snes_reset_state(void) {
@@ -280,7 +281,12 @@ uint32_t diffcount = 0, samecount = 0, didnotsave = 0, save_failed = 0, last_sav
 uint8_t sram_valid = 0;
 uint8_t snes_main_loop() {
   recalculate_sram_range();
-  if(romprops.sramsize_bytes) {
+  if(cf_save_inhibit) {
+    // force a periodic save once inhibition stops. after, saves will continue
+    // as normal
+    didnotsave = 51;
+  }
+  else if(romprops.sramsize_bytes) {
     uint32_t crc_bytes = min(romprops.sramsize_bytes - saveram_offset, SRAM_REGION_SIZE);
     saveram_crc = calc_sram_crc(SRAM_SAVE_ADDR + romprops.srambase + saveram_offset, romprops.sramsize_bytes, saveram_crc);
     saveram_offset += crc_bytes;

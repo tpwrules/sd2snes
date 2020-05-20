@@ -59,7 +59,20 @@ and reads from such addresses produce zero.
 
 0x00000004          (R/W): loopback register (reads as the last value written)
 
-0x10000000-1FFFFFFF (W  ): matcher config registers. currently there is one word
+0x00000008          (  W): reset control. write nonzero to assert console reset
+                           or zero to deassert. the sd2snes will not notice the
+                           reset so e.g. SRAM will not be saved. cleared on ROM
+                           load.
+
+0x0000000C          (  W): save inhibit. write nonzero to stop the sd2snes from
+                           saving save RAM. write zero to re-enable saving and
+                           force one save. cleared on ROM load.
+
+0x00000010          (  W): save RAM clear. write 0x05C1EA12 to clear save RAM
+                           (set all bytes to 0xFF). may have "exciting" effects
+                           if not in reset.
+
+0x10000000-1FFFFFFF (  W): matcher config registers. currently there is one word
                            per matcher and 256 words mapped in the space (but
                            not necessarily 256 matchers), with the rest as
                            mirrors.
@@ -74,6 +87,14 @@ and reads from such addresses produce zero.
 #include <string.h>
 #include "chrono_figure.h"
 #include "fpga_spi.h"
+#include "snes.h"
+#include "memory.h"
+#include "smc.h"
+
+extern snes_romprops_t romprops;
+
+volatile uint8_t cf_is_hiding_reset = 0;
+volatile uint8_t cf_save_inhibit = 0;
 
 uint32_t cf_get_gateware_version() {
   FPGA_SELECT();
@@ -140,6 +161,21 @@ static void cf_writeword(uint32_t addr, uint32_t value) {
             case 0x00000004:
                loopback_register = value;
                break;
+            case 0x00000008:
+               cf_is_hiding_reset = (value != 0) ? 1 : 0;
+               snes_reset(cf_is_hiding_reset);
+               break;
+            case 0x0000000C:
+               cf_save_inhibit = (value != 0) ? 1 : 0;
+               break;
+            case 0x00000010:
+               if (value == 0x05C1EA12) {
+                  sram_memset(SRAM_SAVE_ADDR, romprops.ramsize_bytes,
+                     // if GSU is enabled, this gets set to 00 to fix an
+                     // unreleased game. but does the emulator? chrono figure
+                     // isn't supported on GSU anyway.
+                     0xFF);
+               }
          }
          break;
       case 0x1:
