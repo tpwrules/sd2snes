@@ -29,6 +29,7 @@
 #include <libgen.h>
 #include <stdlib.h>
 #include "bits.h"
+#include "autoconf.h"
 #include "config.h"
 #include "uart.h"
 #include "snes.h"
