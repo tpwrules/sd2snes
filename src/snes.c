@@ -106,7 +106,7 @@ const SramOffset SramOffsetTable[] = {
 void prepare_reset() {
   snes_reset(1);
   delay_ms(SNES_RESET_PULSELEN_MS);
-  if(romprops.sramsize_bytes && fpga_test() == FPGA_TEST_TOKEN) {
+  if(romprops.sramsize_bytes && fpga_test() == FPGA_TEST_TOKEN && !cf_save_inhibit) {
     writeled(1);
     save_srm(file_lfn, romprops.ramsize_bytes, SRAM_SAVE_ADDR);
     writeled(0);
@@ -279,12 +279,12 @@ uint8_t get_snes_reset_state(void) {
  */
 uint32_t diffcount = 0, samecount = 0, didnotsave = 0, save_failed = 0, last_save_failed = 0, saveram_offset = 0;
 uint8_t sram_valid = 0;
+uint8_t force_save = 0;
 uint8_t snes_main_loop() {
   recalculate_sram_range();
   if(cf_save_inhibit) {
-    // force a periodic save once inhibition stops. after, saves will continue
-    // as normal
-    didnotsave = 51;
+    // force a save once inhibition stops. after, saves will continue as normal
+    force_save = 1;
   }
   else if(romprops.sramsize_bytes) {
     uint32_t crc_bytes = min(romprops.sramsize_bytes - saveram_offset, SRAM_REGION_SIZE);
@@ -306,7 +306,7 @@ uint8_t snes_main_loop() {
         if(saveram_crc == saveram_crc_old) {
           samecount++;
         }
-        if(diffcount>=1 && samecount==5) {
+        if((diffcount>=1 && samecount==5) || force_save) {
           printf("SaveRAM CRC: 0x%04lx; saving %s\n", saveram_crc, file_lfn);
           writeled(1);
           save_srm(file_lfn, romprops.ramsize_bytes, SRAM_SAVE_ADDR);
@@ -314,6 +314,7 @@ uint8_t snes_main_loop() {
           save_failed = file_res ? 1 : 0;
           didnotsave = save_failed ? 25 : 0;
           writeled(0);
+          force_save = 0;
         }
         if(didnotsave>50) {
           printf("periodic save (sram contents keep changing or previous save failed)\n");
