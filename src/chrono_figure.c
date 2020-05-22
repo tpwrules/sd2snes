@@ -177,7 +177,7 @@ static void cf_writeword(uint32_t addr, uint32_t value) {
       }
       break;
     case 0x1:
-      cf_write_config(addr & 0xFF, value);
+      cf_write_config((addr>>2) & 0xFF, value);
       break;
   }
 }
