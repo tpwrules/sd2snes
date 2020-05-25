@@ -630,10 +630,10 @@ always @(posedge clk) begin
     else if (cmd_data[7:0] == 8'hC1)
       case (spi_byte_cnt)
         32'h1: begin
-          // save the current event for ouput (high bit is 1 if it's not valid)
+          // save the current event for output (high bit is 1 if it's not valid)
           cf_event_out_buf <= {~cf_event_valid, cf_event};
-          // and request the next
-          cf_event_re <= 1'b1;
+          // and request the next (if we took a valid current one)
+          cf_event_re <= cf_event_valid;
         end
         32'h2:
           MCU_DATA_IN_BUF <= cf_event_out_buf[7:0];
