@@ -698,6 +698,7 @@ wire [31:0] cf_gateware_version;
 
 chrono_figure_sys chrono_figure_sys(
   .i_clock(CLK2),
+  .i_snes_data(SNES_DATA),
   .i_snes_addr(SNES_ADDR_IN),
   .i_snes_periph_addr(SNES_PA_IN),
   .i_snes_rd(SNES_READ_IN),
@@ -705,7 +706,6 @@ chrono_figure_sys chrono_figure_sys(
   .i_snes_pard(SNES_PARD_IN),
   .i_snes_pawr(SNES_PAWR_IN),
   .i_snes_clock(SNES_SYSCLK),
-  .i_snes_reset(SNES_reset_strobe),
 
   .i_config(cf_config),
   .i_config_addr(cf_config_addr),
