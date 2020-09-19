@@ -71,13 +71,15 @@ reading return zero.
 0x00000010 (  W): save RAM clear. write 0x05C1EA12 to clear save RAM (set all
                   bytes to 0xFF). may have "exciting" effects if not in reset.
 
-0x10000000 (  W): matcher config registers. currently there is one word per
- -1FFFFFFF        matcher and 256 words mapped in the space (but not necessarily
-                  256 matchers), with the rest as mirrors.
+0x10000000 (  W): eventuator program memory. currently there are 1024 32 bit
+ -1FFFFFFF        words (well actually 18 bit), mirrored into a 4096 word space.
+                  word 0 controls execution: write a 0 to stop or any other
+                  value to start at that PC (if stopped)
 
-0x80000000 (R  ): event FIFO. reading any address returns the next word from the
- -8FFFFFFF        FIFO. if the high bit is set, then the FIFO was empty and the
-                  word is invalid.
+0x80000000 (R  ): event FIFO. reading address 0x80000000 reads and buffers up to
+ -8FFFFFFF        127 words from the FIFO and returns the number read. any
+                  subsequent addresses then return the next word from the buffer
+                  or 0 once it's empty
 
 */
 
@@ -107,7 +109,7 @@ uint32_t cf_get_gateware_version() {
   return version;
 }
 
-uint32_t cf_read_event() {
+uint32_t cf_read_event(uint8_t* flags) {
   FPGA_SELECT();
   FPGA_TX_BYTE(FPGA_CMD_CF_READ_EVENT);
   FPGA_RX_BYTE(); // dummy to read the FIFO
@@ -116,20 +118,45 @@ uint32_t cf_read_event() {
   event |= ((uint32_t)(FPGA_RX_BYTE())) << 8;
   event |= ((uint32_t)(FPGA_RX_BYTE())) << 16;
   event |= ((uint32_t)(FPGA_RX_BYTE())) << 24;
+  *flags = (uint8_t)(FPGA_RX_BYTE());
   FPGA_DESELECT();
 
   return event;
 }
 
-void cf_write_config(uint8_t addr, uint32_t value) {
+void cf_write_config(uint16_t addr, uint32_t value) {
   FPGA_SELECT();
   FPGA_TX_BYTE(FPGA_CMD_CF_WRITE_CONFIG);
-  FPGA_TX_BYTE(addr);
+  value = (value << 12) | (addr & 0xFFF);
   FPGA_TX_BYTE((value) & 0xFF);
   FPGA_TX_BYTE((value >> 8) & 0xFF);
   FPGA_TX_BYTE((value >> 16) & 0xFF);
   FPGA_TX_BYTE((value >> 24) & 0xFF);
   FPGA_DESELECT();
+}
+
+uint32_t cf_read_event_fifo(uint32_t addr) {
+  static uint32_t buf_ptr = 0;
+  static uint32_t buf_words = 0;
+  static uint32_t buf[127];
+
+  if (addr == 0x80000000) {
+    uint8_t flags = 0;
+    buf_ptr = 0;
+    buf_words = 0;
+    while (buf_words < 127) {
+      uint32_t event = cf_read_event(&flags);
+      if (flags != 0) break; // the FIFO was empty
+      buf[buf_words++] = event;
+    }
+    return buf_words;
+  } else {
+    if (buf_ptr < buf_words) {
+      return buf[buf_ptr++];
+    } else {
+      return 0;
+    }
+  }
 }
 
 static uint32_t loopback_register = 0;
@@ -146,7 +173,7 @@ static uint32_t cf_readword(uint32_t addr) {
           return 0;
       }
     case 0x8:
-      return cf_read_event();
+      return cf_read_event_fifo(addr);
     default:
       return 0;
   }
@@ -177,7 +204,7 @@ static void cf_writeword(uint32_t addr, uint32_t value) {
       }
       break;
     case 0x1:
-      cf_write_config((addr>>2) & 0xFF, value);
+      cf_write_config(addr>>2, value);
       break;
   }
 }

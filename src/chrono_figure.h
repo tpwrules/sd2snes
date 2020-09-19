@@ -33,8 +33,9 @@ extern volatile uint8_t cf_is_hiding_reset;
 extern volatile uint8_t cf_save_inhibit;
 
 uint32_t cf_get_gateware_version(void);
-uint32_t cf_read_event(void);
-void cf_write_config(uint8_t addr, uint32_t value);
+uint32_t cf_read_event(uint8_t* flags);
+void cf_write_config(uint16_t addr, uint32_t value);
+uint32_t cf_read_event_fifo(uint32_t addr);
 
 uint32_t cf_readblock(void* buf, uint32_t addr, uint32_t size);
 uint32_t cf_writeblock(void* buf, uint32_t addr, uint32_t size);

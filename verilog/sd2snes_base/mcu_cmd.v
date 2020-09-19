@@ -125,10 +125,10 @@ module mcu_cmd(
   output reg [15:0] dsp_feat_out = 16'h0000,
 
   // chrono figure interface
-  output reg [31:0] cf_config,
-  output reg [7:0] cf_config_addr,
-  output reg cf_config_we,
-  input [30:0] cf_event,
+  output reg [17:0] cf_prg_insn,
+  output reg [11:0] cf_prg_addr,
+  output reg cf_prg_we,
+  input [31:0] cf_event,
   input cf_event_valid,
   output reg cf_event_re,
   input [31:0] cf_gateware_version
@@ -237,7 +237,7 @@ always @(posedge clk) begin
   cheat_pgm_we_out <= 1'b0;
   dac_reset_out <= 1'b0;
   MSU_RESET_OUT_BUF <= 1'b0;
-  cf_config_we <= 1'b0;
+  cf_prg_we <= 1'b0;
 
   if (cmd_ready) begin
     case (cmd_data[7:4])
@@ -296,16 +296,16 @@ always @(posedge clk) begin
       8'hC2:
         case (spi_byte_cnt)
           32'h2:
-            cf_config_addr <= param_data;
-          32'h3:
-            cf_config[7:0] <= param_data;
+            cf_prg_addr[7:0] <= param_data;
+          32'h3: begin
+            cf_prg_addr[11:8] <= param_data[3:0];
+            cf_prg_insn[3:0] <= param_data[7:4];
+          end
           32'h4:
-            cf_config[15:8] <= param_data;
-          32'h5:
-            cf_config[23:16] <= param_data;
-          32'h6: begin
-            cf_config[31:24] <= param_data;
-            cf_config_we <= 1'b1;
+            cf_prg_insn[11:4] <= param_data;
+          32'h5: begin
+            cf_prg_insn[17:12] <= param_data[5:0];
+            cf_prg_we <= 1'b1;
           end
         endcase
       8'hd0:
@@ -544,7 +544,7 @@ always @(posedge clk) begin
   end
 end
 
-reg [31:0] cf_event_out_buf;
+reg [39:0] cf_event_out_buf;
 
 // value fetch during last SPI bit
 always @(posedge clk) begin
@@ -630,8 +630,8 @@ always @(posedge clk) begin
     else if (cmd_data[7:0] == 8'hC1)
       case (spi_byte_cnt)
         32'h1: begin
-          // save the current event for output (high bit is 1 if it's not valid)
-          cf_event_out_buf <= {~cf_event_valid, cf_event};
+          // save the current event for output
+          cf_event_out_buf <= {7'd0, ~cf_event_valid, cf_event};
           // and request the next (if we took a valid current one)
           cf_event_re <= cf_event_valid;
         end
@@ -643,6 +643,8 @@ always @(posedge clk) begin
           MCU_DATA_IN_BUF <= cf_event_out_buf[23:16];
         32'h5:
           MCU_DATA_IN_BUF <= cf_event_out_buf[31:24];
+        32'h6:
+          MCU_DATA_IN_BUF <= cf_event_out_buf[39:32];
       endcase
   end
 end
